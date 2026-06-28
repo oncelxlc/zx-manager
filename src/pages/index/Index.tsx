@@ -1,5 +1,9 @@
+import { Button } from "antd";
+
 export function IndexPage() {
   return (
-    <div>1</div>
+    <div>
+      <Button type="primary">按钮</Button>
+    </div>
   );
 }
