@@ -1,11 +1,17 @@
 {
   "version": 1,
   "skills": {
+    "antd": {
+      "source": "ant-design/ant-design-cli",
+      "sourceType": "github",
+      "skillPath": "skills/antd/SKILL.md",
+      "computedHash": "768fdf6d639de736784bb97c24f37cde2607824916583337f2c10f05ba0e5d35"
+    },
     "planning-with-files-zh": {
       "source": "OthmanAdi/planning-with-files",
       "sourceType": "github",
       "skillPath": "skills/planning-with-files-zh/SKILL.md",
-      "computedHash": "baa099bc0dd6945c02be89be63f5bda63923bef3ddf83dc41538ab77460a4785"
+      "computedHash": "e40b54eadc40458e1d5d788a88e2fab1ff829df2495d5f8497a6ff8a80e78395"
     }
   }
 }

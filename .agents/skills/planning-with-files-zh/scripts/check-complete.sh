@@ -3,6 +3,10 @@
 # 始终以退出码 0 结束 — 使用标准输出报告状态
 # 由 Stop 钩子调用以报告任务完成状态
 
+# issue #195: per-invocation opt-out (PLANNING_DISABLED=1) for one-shot/CI
+# sessions that share a cwd with a plan but never opted into it.
+[ "${PLANNING_DISABLED:-}" = "1" ] && exit 0
+
 PLAN_FILE="${1:-task_plan.md}"
 
 if [ ! -f "$PLAN_FILE" ]; then
@@ -32,6 +36,11 @@ fi
 : "${PENDING:=0}"
 
 # 报告状态（始终以退出码 0 结束 — 未完成的任务是正常状态）
+# issue #191: TOTAL=0 -> not phase-structured, stay silent
+if [ "$TOTAL" -eq 0 ]; then
+    exit 0
+fi
+
 if [ "$COMPLETE" -eq "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
     echo "[planning-with-files] 所有阶段已完成（$COMPLETE/$TOTAL）。如果用户有额外工作，请在开始前于 task_plan.md 中新增阶段。"
 else
