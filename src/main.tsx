@@ -1,15 +1,10 @@
-import { ConfigProvider } from "antd";
-import zhCN from "antd/locale/zh_CN";
+import App from "./App.tsx";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { RouterProvider } from "react-router";
-import { router } from "./app/router.tsx";
-import "./global.scss";
+import "./tailwind.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <ConfigProvider locale={zhCN}>
-      <RouterProvider router={router}/>
-    </ConfigProvider>
+    <App/>
   </React.StrictMode>,
 );

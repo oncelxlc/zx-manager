@@ -12,11 +12,9 @@
   "app": {
     "windows": [
       {
-        "title": "zx-manager",
-        "width": 1280,
-        "height": 720,
-        "maxHeight": 960,
-        "maxWidth": 1920,
+        "title": "ZxManager",
+        "width": 1600,
+        "height": 900,
         "minHeight": 720,
         "minWidth": 1280
       }
