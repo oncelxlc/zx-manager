@@ -21,12 +21,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
     "paths": {
-      "@/lib/*": [
-        "./lib/*"
-      ],
-      "@/components/*": [
-        "./components/*"
+      "@/*": [
+        "./src/*"
       ]
     }
   },

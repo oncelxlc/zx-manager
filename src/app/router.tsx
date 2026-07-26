@@ -8,7 +8,10 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        lazy: () => import("../pages/index/Index.tsx").then((module) => ({Component: module.IndexPage})),
+        lazy: () =>
+          import("../pages/dashboard/DashboardPage.tsx").then((module) => ({
+            Component: module.DashboardPage,
+          })),
       },
     ],
   },
