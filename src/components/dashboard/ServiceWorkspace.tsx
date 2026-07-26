@@ -28,14 +28,14 @@ import {
   configurationChanges,
   healthChecks,
   recentEvents,
-} from "@/data/dashboard-mock-data";
+} from "src/data/dashboard-mock-data";
 import type {
   ActivityRecord,
   AddServiceInput,
   LocalService,
   ServiceColumn,
   ServiceOperation,
-} from "@/types/service";
+} from "src/types/service";
 import { AddServiceDialog } from "./AddServiceDialog";
 import { ServiceTable } from "./ServiceTable";
 

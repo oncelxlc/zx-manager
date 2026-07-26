@@ -3,7 +3,7 @@ import type {
   LocalService,
   ResourceMetric,
   ResourceRange,
-} from "@/types/service";
+} from "src/types/service";
 
 export const initialServices: LocalService[] = [
   {

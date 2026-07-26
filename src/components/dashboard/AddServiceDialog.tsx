@@ -30,7 +30,7 @@ import type {
   AddServiceInput,
   ServiceType,
   StartupMode,
-} from "@/types/service";
+} from "src/types/service";
 
 interface AddServiceForm {
   name: string;

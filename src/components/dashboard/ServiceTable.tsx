@@ -18,7 +18,7 @@ import type {
   ServiceOperation,
   ServiceStatus,
   ServiceType,
-} from "@/types/service";
+} from "src/types/service";
 import { ServiceActions } from "./ServiceActions";
 
 const statusConfig: Record<

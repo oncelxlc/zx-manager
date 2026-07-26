@@ -10,9 +10,9 @@ import {
   Settings2Icon,
 } from "lucide-react";
 
-import { MetricCard } from "@/components/dashboard/MetricCard";
-import { ResourceChart } from "@/components/dashboard/ResourceChart";
-import { ServiceWorkspace } from "@/components/dashboard/ServiceWorkspace";
+import { MetricCard } from "src/components/dashboard/MetricCard";
+import { ResourceChart } from "src/components/dashboard/ResourceChart";
+import { ServiceWorkspace } from "src/components/dashboard/ServiceWorkspace";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,17 +26,17 @@ import {
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
-import { initialServices } from "@/data/dashboard-mock-data";
+import { initialServices } from "src/data/dashboard-mock-data";
 import {
   restartService,
   startService,
   stopService,
-} from "@/services/tauri/service-manager";
+} from "src/services/tauri/service-manager";
 import type {
   AddServiceInput,
   LocalService,
   ServiceOperation,
-} from "@/types/service";
+} from "src/types/service";
 
 const operationHandlers = {
   start: startService,

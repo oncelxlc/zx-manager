@@ -26,8 +26,8 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { resourceMetrics } from "@/data/dashboard-mock-data";
-import type { ResourceRange } from "@/types/service";
+import { resourceMetrics } from "src/data/dashboard-mock-data";
+import type { ResourceRange } from "src/types/service";
 
 const chartConfig = {
   cpu: {

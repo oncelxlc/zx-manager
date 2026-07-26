@@ -34,7 +34,7 @@ import { Spinner } from "@/components/ui/spinner";
 import type {
   LocalService,
   ServiceOperation,
-} from "@/types/service";
+} from "src/types/service";
 
 type ConfirmationAction = "stop" | "remove";
 
