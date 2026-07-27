@@ -7,8 +7,7 @@ const zhCN = {
   navigation: {
     groups: { management: "管理", resources: "资源" },
     items: { certificates: "证书", configuration: "配置", dashboard: "仪表盘", help: "帮助", logs: "日志", networkPorts: "网络端口", nginx: "Nginx", search: "搜索", services: "服务", settings: "设置", systemMonitor: "系统监控" },
-    quickActions: { addService: "添加服务", createProxy: "创建代理", importCertificate: "导入证书", installNginx: "安装 Nginx", openConfiguration: "打开配置" },
-    labels: { localActions: "本地操作", notifications: "通知", openMachineActions: "打开本机操作", quickAction: "快捷操作" },
+    labels: { openMachineActions: "打开本机操作" },
     machine: { name: "本地计算机", platform: "Windows 11 · x64", openGuide: "打开指南", restartApp: "重启应用", systemInfo: "系统信息" },
     toast: { futureAction: "此操作已为后续 Tauri 命令准备就绪。", moduleMock: "此模块当前以本地仪表盘模拟方式呈现。", selected: "已选择 {{label}}" },
   },
@@ -33,7 +32,7 @@ const zhCN = {
     toast: { added: "已添加 {{name}}", addedDescription: "该服务已在本地登记为停止状态。", localAction: "{{name}} 已准备好用于后续 Tauri 集成。", operationError: "无法{{operation}} {{name}}", operationSuccess: "{{name}} 已{{operation}}", operationSuccessDescription: "仪表盘模拟状态已成功更新。", removed: "已移除 {{name}}", removedDescription: "仅移除了本地仪表盘条目。", operations: { restart: "重启", start: "启动", stop: "停止" } },
     descriptions: { nginx: "本地反向代理和静态文件服务器", postgresql: "主要本地开发数据库", redis: "缓存和后台队列存储", nodeApi: "内部 REST API 开发进程", localWebApp: "Vite 前端预览服务器", certificateWatcher: "监控本地 TLS 证书到期时间", dockerEngine: "本地容器运行时和镜像服务", rabbitmq: "用于集成测试的本地消息代理", minio: "兼容 S3 的本地对象存储", prometheus: "指标采集和查询服务", grafana: "本地仪表盘与指标分析", mailpit: "本地邮件捕获与检查", sshAgent: "管理本地开发凭据", backgroundWorker: "处理排队的开发任务", fileSync: "同步共享的本地项目资产", custom: "{{startupMode}}服务 · {{path}}" },
   },
-  settings: { title: "设置", appearance: { title: "外观", theme: "主题", light: "浅色", dark: "深色", system: "跟随系统", systemResolvedLight: "跟随系统（当前为浅色）", systemResolvedDark: "跟随系统（当前为深色）" }, language: { title: "语言", label: "界面语言", zhCN: "简体中文", enUS: "English" }, storageDescription: "语言和主题设置保存在本机。", toast: { languageChanged: "界面语言已切换为{{language}}", themeChanged: "主题已切换为{{theme}}" }, labels: { changeLanguage: "切换界面语言", changeTheme: "切换主题" } },
+  settings: { title: "设置", appearance: { title: "外观", theme: "主题", light: "浅色", dark: "深色", system: "跟随系统", systemResolvedLight: "跟随系统", systemResolvedDark: "跟随系统" }, language: { title: "语言", label: "界面语言", zhCN: "简体中文", enUS: "English" }, storageDescription: "语言和主题设置保存在本机。", toast: { languageChanged: "界面语言已切换为{{language}}", themeChanged: "主题已切换为{{theme}}" }, labels: { changeLanguage: "切换界面语言", changeTheme: "切换主题" } },
   validation: { executablePathRequired: "请输入可执行文件路径。", invalidPort: "请输入 1 到 65535 之间的整数端口号。", serviceNameRequired: "请输入服务名称。", serviceTypeRequired: "请选择服务类型。", startupModeRequired: "请选择启动模式。", workingDirectoryRequired: "请输入工作目录。" },
 } as const;
 

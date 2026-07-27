@@ -2,18 +2,15 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIcon,
-  BellIcon,
   BookOpenIcon,
   BoxIcon,
   CableIcon,
-  ChevronDownIcon,
   CircleHelpIcon,
   FileCodeIcon,
   FileKeyIcon,
   GaugeIcon,
   LayoutDashboardIcon,
   MoreHorizontalIcon,
-  PlusIcon,
   SearchIcon,
   ServerCogIcon,
   SettingsIcon,
@@ -29,7 +26,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -48,11 +44,6 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { toast } from "@/components/ui/toast";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { LanguageSwitcher } from "./preferences/LanguageSwitcher";
 import { PreferencesDialog } from "./preferences/PreferencesDialog";
 import { ThemeSwitcher } from "./preferences/ThemeSwitcher";
@@ -80,14 +71,6 @@ const footerItems: NavigationItem[] = [
   { labelKey: "items.settings", icon: SettingsIcon },
   { labelKey: "items.help", icon: CircleHelpIcon },
   { labelKey: "items.search", icon: SearchIcon },
-];
-
-const quickActions = [
-  "quickActions.installNginx",
-  "quickActions.addService",
-  "quickActions.createProxy",
-  "quickActions.openConfiguration",
-  "quickActions.importCertificate",
 ];
 
 function showMockAction(label: string, description: string) {
@@ -166,48 +149,6 @@ export function AppSidebar() {
             {t("common:app.description")}
             </p>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button className="flex-1 justify-between" />}
-            >
-              <span className="flex items-center gap-1.5">
-                <PlusIcon data-icon="inline-start" />
-                {t("navigation:labels.quickAction")}
-              </span>
-              <ChevronDownIcon data-icon="inline-end" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuGroup>
-              <DropdownMenuLabel>{t("navigation:labels.localActions")}</DropdownMenuLabel>
-              {quickActions.map((action) => (
-                <DropdownMenuItem
-                  key={action}
-                    onClick={() => showMockAction(t(`navigation:${action}`), t("navigation:toast.futureAction"))}
-                  >
-                    {t(`navigation:${action}`)}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  aria-label={t("navigation:labels.notifications")}
-                  size="icon"
-                  variant="outline"
-                />
-              }
-            >
-              <BellIcon />
-            </TooltipTrigger>
-            <TooltipContent>{t("navigation:labels.notifications")}</TooltipContent>
-          </Tooltip>
         </div>
       </SidebarHeader>
 

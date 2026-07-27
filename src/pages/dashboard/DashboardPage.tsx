@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BoxesIcon,
+  ChevronRightIcon,
   CpuIcon,
   HardDriveIcon,
   MemoryStickIcon,
@@ -59,14 +60,12 @@ export function DashboardPage() {
   const [services, setServices] = useState<LocalService[]>(initialServices);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
-  const [lastRefreshed, setLastRefreshed] = useState("updatedJustNow");
   const nextServiceSequence = useRef(initialServices.length + 1);
 
   async function handleRefresh() {
     setRefreshing(true);
     await new Promise((resolve) => setTimeout(resolve, 650));
     setRefreshing(false);
-    setLastRefreshed("updatedSecondsAgo");
     toast.add({
       title: t("refreshSuccessTitle"),
       description: t("refreshSuccessDescription"),
@@ -177,19 +176,17 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-5 p-4 lg:p-6">
-        <header className="flex flex-wrap items-center justify-between gap-4">
+    <div className="min-w-0">
+      <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
+        <div className="mx-auto flex w-full max-w-[1800px] flex-wrap items-center justify-between gap-4 px-4 py-3 lg:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <SidebarTrigger />
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-semibold tracking-tight">
-                {t("title")}
-              </h1>
-              <p className="truncate text-sm text-muted-foreground">
-                {t("subtitle", { updated: t(lastRefreshed) })}
-              </p>
-            </div>
+            <span aria-hidden="true" className="h-4 w-px bg-border" />
+            <span className="truncate text-sm text-muted-foreground">
+              {t("common:app.name")}
+            </span>
+            <ChevronRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+            <span className="truncate text-sm font-medium">{t("title")}</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -245,7 +242,10 @@ export function DashboardPage() {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+        </div>
         </header>
+
+      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-5 p-4 lg:p-6">
 
         <section
           aria-label={t("systemStatus")}

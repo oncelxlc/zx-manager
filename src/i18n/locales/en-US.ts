@@ -7,8 +7,7 @@ const enUS = {
   navigation: {
     groups: { management: "Management", resources: "Resources" },
     items: { certificates: "Certificates", configuration: "Configuration", dashboard: "Dashboard", help: "Help", logs: "Logs", networkPorts: "Network Ports", nginx: "Nginx", search: "Search", services: "Services", settings: "Settings", systemMonitor: "System Monitor" },
-    quickActions: { addService: "Add Service", createProxy: "Create Proxy", importCertificate: "Import Certificate", installNginx: "Install Nginx", openConfiguration: "Open Configuration" },
-    labels: { localActions: "Local actions", notifications: "Notifications", openMachineActions: "Open machine actions", quickAction: "Quick Action" },
+    labels: { openMachineActions: "Open machine actions" },
     machine: { name: "Local Machine", platform: "Windows 11 · x64", openGuide: "Open guide", restartApp: "Restart app", systemInfo: "System info" },
     toast: { futureAction: "This action is ready for a future Tauri command.", moduleMock: "This module is represented by a local dashboard mock.", selected: "{{label}} selected" },
   },
