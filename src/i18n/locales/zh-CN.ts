@@ -1,6 +1,6 @@
 const zhCN = {
   common: {
-    app: { name: "Local Console", description: "基础设施管理器" },
+    app: { name: "ZxManager", description: "基础设施管理器" },
     actions: { add: "添加", cancel: "取消", close: "关闭", confirm: "确认", more: "更多操作", refresh: "刷新", save: "保存", search: "搜索" },
     status: { error: "错误", failed: "失败", healthy: "运行正常", loading: "加载中", success: "成功", warning: "警告" },
   },

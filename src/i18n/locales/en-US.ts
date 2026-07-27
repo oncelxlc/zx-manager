@@ -1,6 +1,6 @@
 const enUS = {
   common: {
-    app: { name: "Local Console", description: "Infrastructure Manager" },
+    app: { name: "ZxManager", description: "Infrastructure Manager" },
     actions: { add: "Add", cancel: "Cancel", close: "Close", confirm: "Confirm", more: "More actions", refresh: "Refresh", save: "Save", search: "Search" },
     status: { error: "Error", failed: "Failed", healthy: "Healthy", loading: "Loading", success: "Success", warning: "Warning" },
   },
