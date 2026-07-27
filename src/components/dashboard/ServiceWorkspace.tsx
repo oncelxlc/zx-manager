@@ -1,5 +1,6 @@
 import { useEffect, useState, type ComponentProps } from "react";
 import { Columns3Icon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,16 +50,6 @@ const allColumns: ServiceColumn[] = [
   "actions",
 ];
 
-const columnLabels: Record<ServiceColumn, string> = {
-  type: "Type",
-  status: "Status",
-  version: "Version",
-  port: "Port",
-  cpu: "CPU",
-  memory: "Memory",
-  actions: "Actions",
-};
-
 const activityVariant: Record<
   ActivityRecord["status"],
   ComponentProps<typeof Badge>["variant"]
@@ -86,6 +77,7 @@ function ActivityPanel({
   items: ActivityRecord[];
   label: string;
 }) {
+  const { t } = useTranslation("dashboard");
   return (
     <div aria-label={label} className="overflow-hidden rounded-xl border">
       {items.map((item) => (
@@ -94,15 +86,15 @@ function ActivityPanel({
           key={item.id}
         >
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{item.title}</p>
+            <p className="truncate text-sm font-medium">{item.titleKey.includes(".") ? item.titleKey : t(`activity.titles.${item.titleKey}`)}</p>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {item.description}
+              {t(`activity.descriptions.${item.descriptionKey}`)}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            <Badge variant={activityVariant[item.status]}>{item.status}</Badge>
+            <Badge variant={activityVariant[item.status]}>{t(`activity.status.${item.status}`)}</Badge>
             <span className="min-w-28 text-right text-xs text-muted-foreground">
-              {item.timestamp}
+              {t(`activity.timestamps.${item.timestampKey}`)}
             </span>
           </div>
         </div>
@@ -131,6 +123,7 @@ export function ServiceWorkspace({
   onRemove,
   onLocalAction,
 }: ServiceWorkspaceProps) {
+  const { t } = useTranslation("dashboard");
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("services");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [visibleColumns, setVisibleColumns] = useState<Set<ServiceColumn>>(
@@ -168,27 +161,27 @@ export function ServiceWorkspace({
     >
       <Card>
         <CardHeader className="border-b">
-          <TabsList aria-label="Service management views" variant="line">
-            <TabsTrigger value="services">Services {services.length}</TabsTrigger>
+          <TabsList aria-label={t("tabs.views")} variant="line">
+            <TabsTrigger value="services">{t("tabs.services")} {services.length}</TabsTrigger>
             <TabsTrigger value="events">
-              Recent Events {recentEvents.length}
+              {t("tabs.events")} {recentEvents.length}
             </TabsTrigger>
             <TabsTrigger value="changes">
-              Configuration Changes {configurationChanges.length}
+              {t("tabs.changes")} {configurationChanges.length}
             </TabsTrigger>
             <TabsTrigger value="health">
-              Health Checks {healthChecks.length}
+              {t("tabs.health")} {healthChecks.length}
             </TabsTrigger>
           </TabsList>
           <CardAction className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="outline" />}>
                 <Columns3Icon data-icon="inline-start" />
-                Customize Columns
+                {t("columnSettings.customize")}
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
+                  <DropdownMenuLabel>{t("columnSettings.visible")}</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   {allColumns.map((column) => (
                     <DropdownMenuCheckboxItem
@@ -198,7 +191,7 @@ export function ServiceWorkspace({
                         toggleColumn(column, checked)
                       }
                     >
-                      {columnLabels[column]}
+                      {t(`columns.${column}`)}
                     </DropdownMenuCheckboxItem>
                   ))}
                 </DropdownMenuGroup>
@@ -221,16 +214,16 @@ export function ServiceWorkspace({
             />
           </TabsContent>
           <TabsContent value="events">
-            <ActivityPanel items={recentEvents} label="Recent events" />
+            <ActivityPanel items={recentEvents} label={t("activity.events")} />
           </TabsContent>
           <TabsContent value="changes">
             <ActivityPanel
               items={configurationChanges}
-              label="Configuration changes"
+              label={t("activity.changes")}
             />
           </TabsContent>
           <TabsContent value="health">
-            <ActivityPanel items={healthChecks} label="Health checks" />
+            <ActivityPanel items={healthChecks} label={t("activity.health")} />
           </TabsContent>
         </CardContent>
       </Card>

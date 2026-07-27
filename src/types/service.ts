@@ -13,7 +13,8 @@ export type StartupMode = "automatic" | "manual" | "disabled";
 export interface LocalService {
   id: string;
   name: string;
-  description: string;
+  descriptionKey: string;
+  descriptionValues?: Record<string, string | number>;
   type: ServiceType;
   status: ServiceStatus;
   version: string;
@@ -52,8 +53,8 @@ export type ServiceOperation = "start" | "stop" | "restart";
 
 export interface ActivityRecord {
   id: string;
-  title: string;
-  description: string;
-  timestamp: string;
+  titleKey: string;
+  descriptionKey: string;
+  timestampKey: string;
   status: "info" | "success" | "warning";
 }

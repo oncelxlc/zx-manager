@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   FileCodeIcon,
   FileTextIcon,
@@ -56,6 +57,7 @@ export function ServiceActions({
   onRemove,
   onLocalAction,
 }: ServiceActionsProps) {
+  const { t } = useTranslation(["services", "common"]);
   const [confirmationAction, setConfirmationAction] =
     useState<ConfirmationAction | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -83,7 +85,7 @@ export function ServiceActions({
         <DropdownMenuTrigger
           render={
             <Button
-              aria-label={`Open actions for ${service.name}`}
+              aria-label={t("table.actionsFor", { name: service.name })}
               disabled={pending}
               size="icon-sm"
               variant="ghost"
@@ -99,36 +101,36 @@ export function ServiceActions({
               onClick={() => void onOperation(service, "start")}
             >
               <PlayIcon />
-              Start
+              {t("actions.start")}
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={pending || service.status === "stopped"}
               onClick={() => setConfirmationAction("stop")}
             >
               <SquareIcon />
-              Stop
+              {t("actions.stop")}
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={pending || service.status === "stopped"}
               onClick={() => void onOperation(service, "restart")}
             >
               <RefreshCwIcon />
-              Restart
+              {t("actions.restart")}
             </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuItem
-              onClick={() => onLocalAction("Open Logs", service)}
+              onClick={() => onLocalAction(t("actions.openLogs"), service)}
             >
               <FileTextIcon />
-              Open Logs
+              {t("actions.openLogs")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => onLocalAction("Edit Configuration", service)}
+              onClick={() => onLocalAction(t("actions.editConfiguration"), service)}
             >
               <FileCodeIcon />
-              Edit Configuration
+              {t("actions.editConfiguration")}
             </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
@@ -138,7 +140,7 @@ export function ServiceActions({
               variant="destructive"
             >
               <Trash2Icon />
-              Remove Service
+              {t("actions.remove")}
             </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>
@@ -158,23 +160,23 @@ export function ServiceActions({
               <TriangleAlertIcon aria-hidden="true" />
             </AlertDialogMedia>
             <AlertDialogTitle>
-              {removing ? "Remove service?" : "Stop service?"}
+              {removing ? t("confirmation.removeTitle") : t("confirmation.stopTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {removing
-                ? `${service.name} will be removed from this local dashboard. This does not delete its files.`
-                : `${service.name} will stop accepting local traffic until it is started again.`}
+                ? t("confirmation.removeDescription", { name: service.name })
+                : t("confirmation.stopDescription", { name: service.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={confirming}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={confirming}>{t("common:actions.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               disabled={confirming}
               onClick={() => void handleConfirm()}
               variant="destructive"
             >
               {confirming ? <Spinner data-icon="inline-start" /> : null}
-              {removing ? "Remove" : "Stop"}
+              {removing ? t("actions.remove") : t("actions.stop")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

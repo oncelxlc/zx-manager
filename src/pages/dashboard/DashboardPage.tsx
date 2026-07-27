@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   BoxesIcon,
   CpuIcon,
@@ -44,12 +45,6 @@ const operationHandlers = {
   restart: restartService,
 } satisfies Record<ServiceOperation, (serviceId: string) => Promise<void>>;
 
-const operationLabels: Record<ServiceOperation, string> = {
-  start: "started",
-  stop: "stopped",
-  restart: "restarted",
-};
-
 function createServiceId(name: string, sequence: number) {
   const slug = name
     .toLowerCase()
@@ -60,20 +55,21 @@ function createServiceId(name: string, sequence: number) {
 }
 
 export function DashboardPage() {
+  const { t } = useTranslation(["dashboard", "services", "common"]);
   const [services, setServices] = useState<LocalService[]>(initialServices);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
-  const [lastRefreshed, setLastRefreshed] = useState("Updated just now");
+  const [lastRefreshed, setLastRefreshed] = useState("updatedJustNow");
   const nextServiceSequence = useRef(initialServices.length + 1);
 
   async function handleRefresh() {
     setRefreshing(true);
     await new Promise((resolve) => setTimeout(resolve, 650));
     setRefreshing(false);
-    setLastRefreshed("Updated a few seconds ago");
+    setLastRefreshed("updatedSecondsAgo");
     toast.add({
-      title: "Dashboard refreshed",
-      description: "Local service and resource snapshots are up to date.",
+      title: t("refreshSuccessTitle"),
+      description: t("refreshSuccessDescription"),
       type: "success",
     });
   }
@@ -108,15 +104,15 @@ export function DashboardPage() {
         }),
       );
       toast.add({
-        title: `${service.name} ${operationLabels[operation]}`,
-        description: "The dashboard mock state was updated successfully.",
+        title: t("services:toast.operationSuccess", { name: service.name, operation: t(`services:toast.operations.${operation}`) }),
+        description: t("services:toast.operationSuccessDescription"),
         type: "success",
       });
     } catch (error) {
       toast.add({
-        title: `Unable to ${operation} ${service.name}`,
+        title: t("services:toast.operationError", { name: service.name, operation: t(`services:actions.${operation}`) }),
         description:
-          error instanceof Error ? error.message : "An unknown error occurred.",
+          error instanceof Error ? error.message : t("common:status.error"),
         type: "error",
       });
     } finally {
@@ -135,7 +131,8 @@ export function DashboardPage() {
     const newService: LocalService = {
       id: createServiceId(input.name, sequence),
       name: input.name,
-      description: `${input.startupMode} service · ${input.executablePath}`,
+      descriptionKey: "custom",
+      descriptionValues: { path: input.executablePath, startupMode: t(`services:startupModes.${input.startupMode}`) },
       type: input.type,
       status: "stopped",
       version: "—",
@@ -146,8 +143,8 @@ export function DashboardPage() {
 
     setServices((current) => [...current, newService]);
     toast.add({
-      title: `${input.name} added`,
-      description: "The service is registered locally in a stopped state.",
+      title: t("services:toast.added", { name: input.name }),
+      description: t("services:toast.addedDescription"),
       type: "success",
     });
   }
@@ -157,8 +154,8 @@ export function DashboardPage() {
       current.filter((item) => item.id !== service.id),
     );
     toast.add({
-      title: `${service.name} removed`,
-      description: "Only the local dashboard entry was removed.",
+      title: t("services:toast.removed", { name: service.name }),
+      description: t("services:toast.removedDescription"),
       type: "success",
     });
   }
@@ -166,7 +163,7 @@ export function DashboardPage() {
   function handleLocalAction(title: string, service: LocalService) {
     toast.add({
       title,
-      description: `${service.name} is ready for a future Tauri integration.`,
+      description: t("services:toast.localAction", { name: service.name }),
       type: "info",
     });
   }
@@ -174,7 +171,7 @@ export function DashboardPage() {
   function showHeaderAction(title: string) {
     toast.add({
       title,
-      description: "This dashboard action is currently running in mock mode.",
+      description: t("headerActions.mockDescription"),
       type: "info",
     });
   }
@@ -187,11 +184,10 @@ export function DashboardPage() {
             <SidebarTrigger />
             <div className="min-w-0">
               <h1 className="truncate text-xl font-semibold tracking-tight">
-                Dashboard
+                {t("title")}
               </h1>
               <p className="truncate text-sm text-muted-foreground">
-                Monitor and manage local infrastructure services ·{" "}
-                {lastRefreshed}
+                {t("subtitle", { updated: t(lastRefreshed) })}
               </p>
             </div>
           </div>
@@ -199,7 +195,7 @@ export function DashboardPage() {
           <div className="flex items-center gap-2">
             <Badge variant="success">
               <span className="size-1.5 rounded-full bg-success" />
-              System Healthy
+              {t("systemHealthy")}
             </Badge>
             <Button
               disabled={refreshing}
@@ -211,13 +207,13 @@ export function DashboardPage() {
               ) : (
                 <RefreshCwIcon data-icon="inline-start" />
               )}
-              {refreshing ? "Refreshing" : "Refresh"}
+              {refreshing ? t("refreshing") : t("common:actions.refresh")}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
                   <Button
-                    aria-label="Open dashboard actions"
+                    aria-label={t("headerActions.openActions")}
                     size="icon"
                     variant="outline"
                   />
@@ -228,23 +224,23 @@ export function DashboardPage() {
               <DropdownMenuContent align="end">
                 <DropdownMenuGroup>
                   <DropdownMenuItem
-                    onClick={() => showHeaderAction("Open system report")}
+                    onClick={() => showHeaderAction(t("headerActions.openSystemReport"))}
                   >
                     <HardDriveIcon />
-                    Open system report
+                    {t("headerActions.openSystemReport")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => showHeaderAction("Dashboard settings")}
+                    onClick={() => showHeaderAction(t("headerActions.dashboardSettings"))}
                   >
                     <Settings2Icon />
-                    Dashboard settings
+                    {t("headerActions.dashboardSettings")}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={() => showHeaderAction("Export diagnostics")}
+                  onClick={() => showHeaderAction(t("headerActions.exportDiagnostics"))}
                 >
-                  Export diagnostics
+                  {t("headerActions.exportDiagnostics")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -252,45 +248,45 @@ export function DashboardPage() {
         </header>
 
         <section
-          aria-label="System status"
+          aria-label={t("systemStatus")}
           className="dashboard-kpi-grid grid gap-4"
         >
           <MetricCard
-            badge="Healthy"
+            badge={t("common:status.healthy")}
             badgeVariant="success"
-            description="Nginx 1.26.2 is running"
-            detail="Listening on ports 80 and 443"
+            description={t("cards.nginx.description")}
+            detail={t("cards.nginx.detail")}
             healthy
             icon={ServerIcon}
-            title="Nginx Status"
-            value="Running"
+            title={t("cards.nginx.title")}
+            value={t("cards.nginx.value")}
           />
           <MetricCard
             badge="-3.2%"
             badgeVariant="success"
-            description="Normal system load"
-            detail="8 cores · 2.4 GHz average"
+            description={t("cards.cpu.description")}
+            detail={t("cards.cpu.detail")}
             icon={CpuIcon}
-            title="CPU Usage"
+            title={t("cards.cpu.title")}
             value="24.8%"
           />
           <MetricCard
             badge="40%"
             badgeVariant="secondary"
-            description="6.4 GB of 16 GB used"
-            detail="9.6 GB available"
+            description={t("cards.memory.description")}
+            detail={t("cards.memory.detail")}
             icon={MemoryStickIcon}
             progress={40}
-            title="Memory Usage"
+            title={t("cards.memory.title")}
             value="6.4 GB"
           />
           <MetricCard
             badge="+2"
             badgeVariant="secondary"
-            description="12 of 15 services running"
-            detail="3 services stopped or need attention"
+            description={t("cards.services.description")}
+            detail={t("cards.services.detail")}
             icon={BoxesIcon}
-            title="Active Services"
+            title={t("cards.services.title")}
             value="12"
           />
         </section>

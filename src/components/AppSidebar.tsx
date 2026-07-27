@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIcon,
   BellIcon,
@@ -52,44 +53,47 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { LanguageSwitcher } from "./preferences/LanguageSwitcher";
+import { PreferencesDialog } from "./preferences/PreferencesDialog";
+import { ThemeSwitcher } from "./preferences/ThemeSwitcher";
 
 interface NavigationItem {
-  label: string;
+  labelKey: string;
   icon: LucideIcon;
 }
 
 const managementItems: NavigationItem[] = [
-  { label: "Dashboard", icon: LayoutDashboardIcon },
-  { label: "Services", icon: ServerCogIcon },
-  { label: "Nginx", icon: BoxIcon },
+  { labelKey: "items.dashboard", icon: LayoutDashboardIcon },
+  { labelKey: "items.services", icon: ServerCogIcon },
+  { labelKey: "items.nginx", icon: BoxIcon },
 ];
 
 const resourceItems: NavigationItem[] = [
-  { label: "Configuration", icon: FileCodeIcon },
-  { label: "Logs", icon: TerminalSquareIcon },
-  { label: "Certificates", icon: FileKeyIcon },
-  { label: "Network Ports", icon: CableIcon },
-  { label: "System Monitor", icon: ActivityIcon },
+  { labelKey: "items.configuration", icon: FileCodeIcon },
+  { labelKey: "items.logs", icon: TerminalSquareIcon },
+  { labelKey: "items.certificates", icon: FileKeyIcon },
+  { labelKey: "items.networkPorts", icon: CableIcon },
+  { labelKey: "items.systemMonitor", icon: ActivityIcon },
 ];
 
 const footerItems: NavigationItem[] = [
-  { label: "Settings", icon: SettingsIcon },
-  { label: "Help", icon: CircleHelpIcon },
-  { label: "Search", icon: SearchIcon },
+  { labelKey: "items.settings", icon: SettingsIcon },
+  { labelKey: "items.help", icon: CircleHelpIcon },
+  { labelKey: "items.search", icon: SearchIcon },
 ];
 
 const quickActions = [
-  "Install Nginx",
-  "Add Service",
-  "Create Proxy",
-  "Open Configuration",
-  "Import Certificate",
+  "quickActions.installNginx",
+  "quickActions.addService",
+  "quickActions.createProxy",
+  "quickActions.openConfiguration",
+  "quickActions.importCertificate",
 ];
 
-function showMockAction(label: string) {
+function showMockAction(label: string, description: string) {
   toast.add({
     title: label,
-    description: "This action is ready for a future Tauri command.",
+    description,
     type: "info",
   });
 }
@@ -103,22 +107,23 @@ function NavigationGroup({
   label: string;
   items: NavigationItem[];
   activeItem: string;
-  onItemSelect: (label: string) => void;
+  onItemSelect: (labelKey: string) => void;
 }) {
+  const { t } = useTranslation("navigation");
   return (
     <SidebarGroup>
       <SidebarGroupLabel>{label}</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
           {items.map((item) => (
-            <SidebarMenuItem key={item.label}>
+            <SidebarMenuItem key={item.labelKey}>
               <SidebarMenuButton
-                isActive={activeItem === item.label}
-                onClick={() => onItemSelect(item.label)}
-                tooltip={item.label}
+                isActive={activeItem === item.labelKey}
+                onClick={() => onItemSelect(item.labelKey)}
+                tooltip={t(item.labelKey)}
               >
                 <item.icon />
-                <span>{item.label}</span>
+                <span>{t(item.labelKey)}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
@@ -129,14 +134,20 @@ function NavigationGroup({
 }
 
 export function AppSidebar() {
-  const [activeItem, setActiveItem] = useState("Dashboard");
+  const { t } = useTranslation(["navigation", "common"]);
+  const [activeItem, setActiveItem] = useState("items.dashboard");
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  function handleItemSelect(label: string) {
-    setActiveItem(label);
-    if (label !== "Dashboard") {
+  function handleItemSelect(labelKey: string) {
+    setActiveItem(labelKey);
+    if (labelKey === "items.settings") {
+      setSettingsOpen(true);
+      return;
+    }
+    if (labelKey !== "items.dashboard") {
       toast.add({
-        title: `${label} selected`,
-        description: "This module is represented by a local dashboard mock.",
+        title: t("navigation:toast.selected", { label: t(`navigation:${labelKey}`) }),
+        description: t("navigation:toast.moduleMock"),
         type: "info",
       });
     }
@@ -150,9 +161,9 @@ export function AppSidebar() {
             <TerminalSquareIcon className="size-4" aria-hidden="true" />
           </div>
           <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-            <p className="truncate text-sm font-semibold">Local Console</p>
+            <p className="truncate text-sm font-semibold">{t("common:app.name")}</p>
             <p className="truncate text-xs text-muted-foreground">
-              Infrastructure Manager
+            {t("common:app.description")}
             </p>
           </div>
         </div>
@@ -164,19 +175,19 @@ export function AppSidebar() {
             >
               <span className="flex items-center gap-1.5">
                 <PlusIcon data-icon="inline-start" />
-                Quick Action
+                {t("navigation:labels.quickAction")}
               </span>
               <ChevronDownIcon data-icon="inline-end" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
               <DropdownMenuGroup>
-                <DropdownMenuLabel>Local actions</DropdownMenuLabel>
-                {quickActions.map((action) => (
-                  <DropdownMenuItem
-                    key={action}
-                    onClick={() => showMockAction(action)}
+              <DropdownMenuLabel>{t("navigation:labels.localActions")}</DropdownMenuLabel>
+              {quickActions.map((action) => (
+                <DropdownMenuItem
+                  key={action}
+                    onClick={() => showMockAction(t(`navigation:${action}`), t("navigation:toast.futureAction"))}
                   >
-                    {action}
+                    {t(`navigation:${action}`)}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuGroup>
@@ -187,7 +198,7 @@ export function AppSidebar() {
             <TooltipTrigger
               render={
                 <Button
-                  aria-label="Open notifications"
+                  aria-label={t("navigation:labels.notifications")}
                   size="icon"
                   variant="outline"
                 />
@@ -195,7 +206,7 @@ export function AppSidebar() {
             >
               <BellIcon />
             </TooltipTrigger>
-            <TooltipContent>Notifications</TooltipContent>
+            <TooltipContent>{t("navigation:labels.notifications")}</TooltipContent>
           </Tooltip>
         </div>
       </SidebarHeader>
@@ -204,13 +215,13 @@ export function AppSidebar() {
 
       <SidebarContent>
         <NavigationGroup
-          label="Management"
+          label={t("navigation:groups.management")}
           items={managementItems}
           activeItem={activeItem}
           onItemSelect={handleItemSelect}
         />
         <NavigationGroup
-          label="Resources"
+          label={t("navigation:groups.resources")}
           items={resourceItems}
           activeItem={activeItem}
           onItemSelect={handleItemSelect}
@@ -220,17 +231,24 @@ export function AppSidebar() {
       <SidebarFooter className="gap-2 p-3">
         <SidebarMenu>
           {footerItems.map((item) => (
-            <SidebarMenuItem key={item.label}>
+            <SidebarMenuItem key={item.labelKey}>
               <SidebarMenuButton
-                onClick={() => showMockAction(item.label)}
-                tooltip={item.label}
+                onClick={() => handleItemSelect(item.labelKey)}
+                tooltip={t(`navigation:${item.labelKey}`)}
               >
                 <item.icon />
-                <span>{item.label}</span>
+                <span>{t(`navigation:${item.labelKey}`)}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
         </SidebarMenu>
+
+        <SidebarSeparator />
+
+        <div className="flex items-center gap-1 group-data-[collapsible=icon]:justify-center">
+          <LanguageSwitcher compact />
+          <ThemeSwitcher compact />
+        </div>
 
         <SidebarSeparator />
 
@@ -241,16 +259,16 @@ export function AppSidebar() {
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
-            <p className="truncate text-xs font-medium">Local Machine</p>
+            <p className="truncate text-xs font-medium">{t("navigation:machine.name")}</p>
             <p className="truncate text-xs text-muted-foreground">
-              Windows 11 · x64
+              {t("navigation:machine.platform")}
             </p>
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
                 <Button
-                  aria-label="Open machine actions"
+                  aria-label={t("navigation:labels.openMachineActions")}
                   className="group-data-[collapsible=icon]:hidden"
                   size="icon-sm"
                   variant="ghost"
@@ -261,24 +279,25 @@ export function AppSidebar() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuGroup>
-                <DropdownMenuItem onClick={() => showMockAction("System info")}>
+                <DropdownMenuItem onClick={() => showMockAction(t("navigation:machine.systemInfo"), t("navigation:toast.futureAction"))}>
                   <ShieldCheckIcon />
-                  System info
+                  {t("navigation:machine.systemInfo")}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => showMockAction("Open guide")}>
+                <DropdownMenuItem onClick={() => showMockAction(t("navigation:machine.openGuide"), t("navigation:toast.futureAction"))}>
                   <BookOpenIcon />
-                  Open guide
+                  {t("navigation:machine.openGuide")}
                 </DropdownMenuItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => showMockAction("Restart app")}>
-                Restart app
+              <DropdownMenuItem onClick={() => showMockAction(t("navigation:machine.restartApp"), t("navigation:toast.futureAction"))}>
+                {t("navigation:machine.restartApp")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </SidebarFooter>
       <SidebarRail />
+      <PreferencesDialog onOpenChange={setSettingsOpen} open={settingsOpen} />
     </Sidebar>
   );
 }

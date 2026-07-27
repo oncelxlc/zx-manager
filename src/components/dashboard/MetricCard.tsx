@@ -1,5 +1,6 @@
 import type { ComponentProps } from "react";
 import type { LucideIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -35,6 +36,8 @@ export function MetricCard({
   progress,
   healthy = false,
 }: MetricCardProps) {
+  const { t } = useTranslation("common");
+
   return (
     <Card className="min-h-40 transition-shadow hover:ring-foreground/20">
       <CardHeader>
@@ -54,7 +57,7 @@ export function MetricCard({
         <div className="flex items-center gap-2">
           {healthy ? (
             <span
-              aria-label="Healthy"
+              aria-label={t("status.healthy")}
               className="size-2 rounded-full bg-success"
             />
           ) : null}

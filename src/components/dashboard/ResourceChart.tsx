@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Area,
   AreaChart,
@@ -28,23 +29,8 @@ import {
 } from "@/components/ui/tabs";
 import { resourceMetrics } from "src/data/dashboard-mock-data";
 import type { ResourceRange } from "src/types/service";
-
-const chartConfig = {
-  cpu: {
-    label: "CPU Usage",
-    color: "var(--chart-1)",
-  },
-  memory: {
-    label: "Memory Usage",
-    color: "var(--chart-2)",
-  },
-} satisfies ChartConfig;
-
-const ranges: Array<{ value: ResourceRange; label: string }> = [
-  { value: "24h", label: "Last 24 hours" },
-  { value: "7d", label: "Last 7 days" },
-  { value: "30d", label: "Last 30 days" },
-];
+import { formatChartDate, formatPercent } from "src/i18n/formatters";
+import type { SupportedLocale } from "src/types/preferences";
 
 function isResourceRange(value: string): value is ResourceRange {
   return value === "24h" || value === "7d" || value === "30d";
@@ -52,14 +38,19 @@ function isResourceRange(value: string): value is ResourceRange {
 
 export function ResourceChart() {
   const [range, setRange] = useState<ResourceRange>("7d");
+  const { i18n, t } = useTranslation("dashboard");
+  const locale: SupportedLocale = i18n.language === "en-US" ? "en-US" : "zh-CN";
+  const chartConfig = {
+    cpu: { label: t("chart.cpu"), color: "var(--chart-1)" },
+    memory: { label: t("chart.memory"), color: "var(--chart-2)" },
+  } satisfies ChartConfig;
+  const ranges: ResourceRange[] = ["24h", "7d", "30d"];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>System Resource Usage</CardTitle>
-        <CardDescription>
-          CPU and memory usage during the selected period
-        </CardDescription>
+        <CardTitle>{t("chart.title")}</CardTitle>
+        <CardDescription>{t("chart.description")}</CardDescription>
         <CardAction>
           <Tabs
             onValueChange={(value) => {
@@ -69,10 +60,10 @@ export function ResourceChart() {
             }}
             value={range}
           >
-            <TabsList aria-label="Resource chart time range">
+            <TabsList aria-label={t("chart.rangeLabel")}>
               {ranges.map((item) => (
-                <TabsTrigger key={item.value} value={item.value}>
-                  {item.label}
+                <TabsTrigger key={item} value={item}>
+                  {t(`chart.range.${item}`)}
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -83,11 +74,11 @@ export function ResourceChart() {
         <div className="flex items-center gap-5 text-xs text-muted-foreground">
           <span className="flex items-center gap-2">
             <span className="size-2 rounded-full bg-chart-1" />
-            CPU Usage
+            {t("chart.cpu")}
           </span>
           <span className="flex items-center gap-2">
             <span className="size-2 rounded-full bg-chart-2" />
-            Memory Usage
+            {t("chart.memory")}
           </span>
         </div>
         <ChartContainer
@@ -132,11 +123,12 @@ export function ResourceChart() {
               dataKey="date"
               tickLine={false}
               tickMargin={10}
+              tickFormatter={(value: string) => formatChartDate(value, locale, range)}
             />
             <YAxis
               axisLine={false}
               domain={[0, 100]}
-              tickFormatter={(value: number) => `${value}%`}
+              tickFormatter={(value: number) => formatPercent(value, locale)}
               tickLine={false}
               width={42}
             />
@@ -146,13 +138,13 @@ export function ResourceChart() {
                   formatter={(value, name) => (
                     <div className="flex min-w-32 items-center justify-between gap-4">
                       <span className="text-muted-foreground">
-                        {name === "cpu" ? "CPU" : "Memory"}
+                        {name === "cpu" ? t("chart.cpu") : t("chart.memory")}
                       </span>
-                      <span className="font-mono font-medium">{`${value}%`}</span>
+                      <span className="font-mono font-medium">{formatPercent(Number(value), locale)}</span>
                     </div>
                   )}
                   labelFormatter={(_, payload) =>
-                    String(payload[0]?.payload?.date ?? "")
+                    formatChartDate(String(payload[0]?.payload?.date ?? ""), locale, range)
                   }
                 />
               }

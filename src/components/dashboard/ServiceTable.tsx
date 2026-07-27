@@ -1,5 +1,6 @@
 import type { ComponentProps } from "react";
 import { GripVerticalIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,47 +18,26 @@ import type {
   ServiceColumn,
   ServiceOperation,
   ServiceStatus,
-  ServiceType,
 } from "src/types/service";
 import { ServiceActions } from "./ServiceActions";
 
-const statusConfig: Record<
-  ServiceStatus,
-  {
-    label: string;
-    variant: ComponentProps<typeof Badge>["variant"];
-    dotClassName: string;
-  }
-> = {
+const statusConfig: Record<ServiceStatus, { variant: ComponentProps<typeof Badge>["variant"]; dotClassName: string }> = {
   running: {
-    label: "Running",
     variant: "success",
     dotClassName: "bg-success",
   },
   stopped: {
-    label: "Stopped",
     variant: "muted",
     dotClassName: "bg-muted-foreground",
   },
   warning: {
-    label: "Warning",
     variant: "warning",
     dotClassName: "bg-warning",
   },
   error: {
-    label: "Error",
     variant: "destructive",
     dotClassName: "bg-destructive",
   },
-};
-
-const typeLabels: Record<ServiceType, string> = {
-  nginx: "Nginx",
-  database: "Database",
-  cache: "Cache",
-  node: "Node",
-  application: "Application",
-  system: "System",
 };
 
 interface ServiceTableProps {
@@ -84,6 +64,7 @@ export function ServiceTable({
   onRemove,
   onLocalAction,
 }: ServiceTableProps) {
+  const { t } = useTranslation(["services", "dashboard"]);
   const allSelected =
     services.length > 0 && services.every((service) => selectedIds.has(service.id));
   const someSelected = services.some((service) => selectedIds.has(service.id));
@@ -112,29 +93,29 @@ export function ServiceTable({
             <TableRow>
               <TableHead className="w-11">
                 <Checkbox
-                  aria-label="Select all services"
+                  aria-label={t("table.selectAll")}
                   checked={allSelected}
                   indeterminate={!allSelected && someSelected}
                   onCheckedChange={toggleAll}
                 />
               </TableHead>
-              <TableHead className="min-w-64">Service</TableHead>
-              {visibleColumns.has("type") ? <TableHead>Type</TableHead> : null}
+              <TableHead className="min-w-64">{t("table.service")}</TableHead>
+              {visibleColumns.has("type") ? <TableHead>{t("dashboard:columns.type")}</TableHead> : null}
               {visibleColumns.has("status") ? (
-                <TableHead>Status</TableHead>
+                <TableHead>{t("dashboard:columns.status")}</TableHead>
               ) : null}
               {visibleColumns.has("version") ? (
-                <TableHead>Version</TableHead>
+                <TableHead>{t("dashboard:columns.version")}</TableHead>
               ) : null}
-              {visibleColumns.has("port") ? <TableHead>Port</TableHead> : null}
+              {visibleColumns.has("port") ? <TableHead>{t("dashboard:columns.port")}</TableHead> : null}
               {visibleColumns.has("cpu") ? (
-                <TableHead className="text-right">CPU</TableHead>
+                <TableHead className="text-right">{t("dashboard:columns.cpu")}</TableHead>
               ) : null}
               {visibleColumns.has("memory") ? (
-                <TableHead className="text-right">Memory</TableHead>
+                <TableHead className="text-right">{t("dashboard:columns.memory")}</TableHead>
               ) : null}
               {visibleColumns.has("actions") ? (
-                <TableHead className="w-16 text-right">Actions</TableHead>
+                <TableHead className="w-16 text-right">{t("dashboard:columns.actions")}</TableHead>
               ) : null}
             </TableRow>
           </TableHeader>
@@ -148,7 +129,7 @@ export function ServiceTable({
                 >
                   <TableCell>
                     <Checkbox
-                      aria-label={`Select ${service.name}`}
+                      aria-label={t("table.select", { name: service.name })}
                       checked={selectedIds.has(service.id)}
                       onCheckedChange={(checked) =>
                         toggleService(service.id, checked)
@@ -166,14 +147,14 @@ export function ServiceTable({
                           {service.name}
                         </p>
                         <p className="max-w-60 truncate text-xs text-muted-foreground">
-                          {service.description}
+                          {t(`descriptions.${service.descriptionKey}`, service.descriptionValues)}
                         </p>
                       </div>
                     </div>
                   </TableCell>
                   {visibleColumns.has("type") ? (
                     <TableCell>
-                      <Badge variant="outline">{typeLabels[service.type]}</Badge>
+                      <Badge variant="outline">{t(`types.${service.type}`)}</Badge>
                     </TableCell>
                   ) : null}
                   {visibleColumns.has("status") ? (
@@ -182,7 +163,7 @@ export function ServiceTable({
                         <span
                           className={cn("size-1.5 rounded-full", status.dotClassName)}
                         />
-                        {status.label}
+                        {t(`status.${service.status}`)}
                       </Badge>
                     </TableCell>
                   ) : null}

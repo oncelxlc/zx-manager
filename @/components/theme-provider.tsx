@@ -1,21 +1,22 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-
-type Theme = "dark" | "light" | "system"
+import { setTheme as persistTheme } from "src/services/storage/preferences-storage";
+import type { ResolvedTheme, ThemeMode } from "src/types/preferences";
 
 type ThemeProviderProps = {
   children: ReactNode
-  defaultTheme?: Theme
-  storageKey?: string
+  defaultTheme?: ThemeMode
 }
 
 type ThemeProviderState = {
-  theme: Theme
-  setTheme: (theme: Theme) => void
+  theme: ThemeMode
+  resolvedTheme: ResolvedTheme
+  setTheme: (theme: ThemeMode) => void
 }
 
 const initialState: ThemeProviderState = {
   theme: "system",
+  resolvedTheme: "light",
   setTheme: () => null,
 };
 
@@ -23,15 +24,12 @@ const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
 
 export function ThemeProvider({
                                 children,
-                                defaultTheme = "system",
-                                storageKey = "vite-ui-theme",
+                                defaultTheme = "dark",
                                 ...props
                               }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(
-    () =>
-      (typeof window === "undefined"
-        ? defaultTheme
-        : (localStorage.getItem(storageKey) as Theme | null)) || defaultTheme,
+  const [theme, setThemeState] = useState<ThemeMode>(defaultTheme);
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
+    resolveTheme(defaultTheme),
   );
 
   useEffect(() => {
@@ -39,30 +37,28 @@ export function ThemeProvider({
       return;
     }
 
-    const root = window.document.documentElement;
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const updateResolvedTheme = () => {
+      const nextTheme = resolveTheme(theme, mediaQuery.matches);
+      setResolvedTheme(nextTheme);
+      applyThemeClass(nextTheme);
+    };
 
-    root.classList.remove("light", "dark");
-
-    if (theme === "system") {
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
-        .matches
-        ? "dark"
-        : "light";
-
-      root.classList.add(systemTheme);
+    updateResolvedTheme();
+    if (theme !== "system") {
       return;
     }
 
-    root.classList.add(theme);
+    mediaQuery.addEventListener("change", updateResolvedTheme);
+    return () => mediaQuery.removeEventListener("change", updateResolvedTheme);
   }, [theme]);
 
   const value = {
     theme,
-    setTheme: (theme: Theme) => {
-      if (typeof window !== "undefined") {
-        localStorage.setItem(storageKey, theme);
-      }
-      setTheme(theme);
+    resolvedTheme,
+    setTheme: (nextTheme: ThemeMode) => {
+      setThemeState(nextTheme);
+      void persistTheme(nextTheme);
     },
   };
 
@@ -81,3 +77,26 @@ export const useTheme = () => {
 
   return context;
 };
+
+function resolveTheme(theme: ThemeMode, systemIsDark?: boolean): ResolvedTheme {
+  if (theme !== "system") {
+    return theme;
+  }
+
+  const isDark = systemIsDark ??
+    (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  return isDark ? "dark" : "light";
+}
+
+function applyThemeClass(theme: ResolvedTheme) {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  document.documentElement.classList.remove("light", "dark");
+  document.documentElement.classList.add(theme);
+}
+
+export function applyTheme(theme: ThemeMode) {
+  applyThemeClass(resolveTheme(theme));
+}
