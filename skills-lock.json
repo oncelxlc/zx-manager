@@ -1,11 +1,23 @@
 {
   "version": 1,
   "skills": {
+    "migrate-radix-to-base": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/migrate-radix-to-base/SKILL.md",
+      "computedHash": "4fdc31bf287f674ba6bf91a648120f7b34cd7ef370f998f2cc116fed067789c5"
+    },
     "planning-with-files-zh": {
       "source": "OthmanAdi/planning-with-files",
       "sourceType": "github",
       "skillPath": "skills/planning-with-files-zh/SKILL.md",
-      "computedHash": "baa099bc0dd6945c02be89be63f5bda63923bef3ddf83dc41538ab77460a4785"
+      "computedHash": "e40b54eadc40458e1d5d788a88e2fab1ff829df2495d5f8497a6ff8a80e78395"
+    },
+    "shadcn": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "computedHash": "f99ef49d9909d380ca683ceb8dc8c25775c20ee38140112c394e037d8c11ee18"
     }
   }
 }
