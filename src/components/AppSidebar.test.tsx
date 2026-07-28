@@ -47,37 +47,55 @@ describe("AppSidebar system information navigation", () => {
     clearMocks();
   });
 
-  it("navigates from the independent machine primary button", async () => {
+  it("opens the machine menu without navigating when the device card is clicked", async () => {
     const user = userEvent.setup();
     renderSidebar();
 
     expect(screen.getByText("Windows 11 Pro · x86_64")).toBeInTheDocument();
     await user.click(
-      screen.getByRole("button", { name: "Open system information" }),
+      screen.getByRole("button", { name: "Open machine actions" }),
+    );
+
+    expect(
+      await screen.findByRole("menuitem", { name: "System information" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("current path")).toHaveTextContent("/");
+  });
+
+  it.each(["{Enter}", " "])(
+    "opens the machine menu with %s without navigating",
+    async (key) => {
+      const user = userEvent.setup();
+      renderSidebar();
+      const button = screen.getByRole("button", {
+        name: "Open machine actions",
+      });
+
+      button.focus();
+      await user.keyboard(key);
+
+      expect(
+        screen.getByRole("menuitem", { name: "System information" }),
+      ).toBeInTheDocument();
+      expect(screen.getByLabelText("current path")).toHaveTextContent("/");
+    },
+  );
+
+  it("navigates only after selecting System information from the menu", async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await user.click(
+      screen.getByRole("button", { name: "Open machine actions" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "System information" }),
     );
 
     expect(screen.getByLabelText("current path")).toHaveTextContent(
       "/system-information",
     );
   });
-
-  it.each(["{Enter}", " "])(
-    "supports keyboard activation with %s",
-    async (key) => {
-      const user = userEvent.setup();
-      renderSidebar();
-      const button = screen.getByRole("button", {
-        name: "Open system information",
-      });
-
-      button.focus();
-      await user.keyboard(key);
-
-      expect(screen.getByLabelText("current path")).toHaveTextContent(
-        "/system-information",
-      );
-    },
-  );
 
   it("copies only the allowlisted diagnostic report", async () => {
     const user = userEvent.setup();

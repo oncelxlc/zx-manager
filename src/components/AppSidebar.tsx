@@ -278,21 +278,24 @@ export function AppSidebar() {
 
         <SidebarSeparator className="m-0"/>
 
-        <SidebarMenu>
-          <SidebarMenuItem className="flex items-center gap-1">
-            <SidebarMenuButton
-              aria-label={t("navigation:labels.openSystemInformation")}
-              className="h-auto min-w-0 flex-1 py-2"
-              isActive={location.pathname === "/system-information"}
-              onClick={openSystemInformation}
-              tooltip={t("navigation:machine.systemInfo")}
-            >
+        <DropdownMenu orientation="vertical">
+          <DropdownMenuTrigger
+            render={
+              <Button
+                aria-label={t("navigation:labels.openMachineActions")}
+                className="h-auto w-full p-2 group-data-[collapsible=icon]:hidden"
+                size="icon-sm"
+                variant="ghost"
+              />
+            }
+          >
+            <div className="flex w-full items-center gap-2">
               <Avatar className="size-8">
                 <AvatarFallback>
                   <GaugeIcon aria-hidden="true"/>
                 </AvatarFallback>
               </Avatar>
-              <div className="min-w-0 flex-auto text-left group-data-[collapsible=icon]:hidden">
+              <div className="min-w-0 flex-auto text-left">
                 <p className="truncate text-xs font-medium">{t("navigation:machine.name")}</p>
                 <p className="truncate text-xs text-muted-foreground">
                   {summaryLoading && !summary
@@ -303,52 +306,41 @@ export function AppSidebar() {
                     )}
                 </p>
               </div>
-            </SidebarMenuButton>
-            <DropdownMenu orientation="vertical">
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    aria-label={t("navigation:labels.openMachineActions")}
-                    className="shrink-0 group-data-[collapsible=icon]:hidden"
-                    size="icon-sm"
-                    variant="ghost"
-                  />
-                }
+              <MoreVerticalIcon aria-hidden="true" data-icon="inline-end"/>
+            </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" side="left">
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={openSystemInformation}>
+                <ShieldCheckIcon/>
+                {t("navigation:machine.systemInfo")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={summaryLoading}
+                onClick={() => void handleRefreshSummary()}
               >
-                <MoreVerticalIcon/>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" side="left">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onClick={openSystemInformation}>
-                    <ShieldCheckIcon/>
-                    {t("navigation:machine.systemInfo")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={summaryLoading}
-                    onClick={() => void handleRefreshSummary()}
-                  >
-                    <RefreshCwIcon/>
-                    {t("navigation:machine.refreshSummary")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void handleCopyDiagnostics()}>
-                    <CopyIcon/>
-                    {t("navigation:machine.copyDiagnostics")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => showMockAction(t("navigation:machine.openGuide"), t("navigation:toast.futureAction"))}>
-                    <BookOpenIcon/>
-                    {t("navigation:machine.openGuide")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator/>
-                <DropdownMenuItem
-                  onClick={() => showMockAction(t("navigation:machine.restartApp"), t("navigation:toast.futureAction"))}>
-                  {t("navigation:machine.restartApp")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-        </SidebarMenu>
+                <RefreshCwIcon/>
+                {t("navigation:machine.refreshSummary")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void handleCopyDiagnostics()}>
+                <CopyIcon/>
+                {t("navigation:machine.copyDiagnostics")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => showMockAction(t("navigation:machine.openGuide"), t("navigation:toast.futureAction"))}>
+                <BookOpenIcon/>
+                {t("navigation:machine.openGuide")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator/>
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                onClick={() => showMockAction(t("navigation:machine.restartApp"), t("navigation:toast.futureAction"))}>
+                {t("navigation:machine.restartApp")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </SidebarFooter>
       <PreferencesDialog onOpenChange={setSettingsOpen} open={settingsOpen}/>
     </Sidebar>
