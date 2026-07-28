@@ -13,6 +13,15 @@ export const router = createBrowserRouter([
             Component: module.DashboardPage,
           })),
       },
+      {
+        path: "system-information",
+        lazy: () =>
+          import("../pages/system-information/SystemInformationPage.tsx").then(
+            (module) => ({
+              Component: module.SystemInformationPage,
+            }),
+          ),
+      },
     ],
   },
 ]);
