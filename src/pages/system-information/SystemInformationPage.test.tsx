@@ -1,8 +1,9 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SidebarProvider } from "@/components/ui/sidebar";
+import MainLayout from "src/layouts/MainLayout";
 import { SystemInformationPage } from "src/pages/system-information/SystemInformationPage";
 import {
   resetSystemInformationStore,
@@ -10,11 +11,19 @@ import {
 } from "src/stores/system-information-store";
 import { systemInformationFixture } from "src/test/system-information-fixture";
 
+vi.mock("src/components/AppSidebar", () => ({
+  AppSidebar: () => null,
+}));
+
 function renderPage() {
   return render(
-    <SidebarProvider>
-      <SystemInformationPage />
-    </SidebarProvider>,
+    <MemoryRouter initialEntries={["/"]}>
+      <Routes>
+        <Route element={<MainLayout />}>
+          <Route index element={<SystemInformationPage />} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
   );
 }
 

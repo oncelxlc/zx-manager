@@ -23,7 +23,6 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -174,7 +173,7 @@ export function AppSidebar() {
   }
 
   async function handleRefreshSummary() {
-    const refreshed = await loadSummary({ force: true });
+    const refreshed = await loadSummary({force: true});
     const error = useSystemInformationStore.getState().summaryError;
     toast.add({
       title: refreshed
@@ -223,9 +222,14 @@ export function AppSidebar() {
   }
 
   return (
-    <Sidebar collapsible="icon" className="w-70">
-      <SidebarHeader className="gap-3 p-3">
-        <div className="flex items-center gap-3 px-1 py-1.5">
+    <Sidebar
+      collapsible="icon"
+      className="w-60 group-data-[side=left]:border-r-0 group-data-[side=right]:border-l-0"
+    >
+      <SidebarHeader className="gap-3 p-3 group-data-[collapsible=icon]:p-2">
+        <div
+          className="flex items-center gap-3 px-1 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+        >
           <div
             className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
             <TerminalSquareIcon className="size-4" aria-hidden="true"/>
@@ -254,7 +258,7 @@ export function AppSidebar() {
         />
       </SidebarContent>
 
-      <SidebarFooter className="gap-2 p-3">
+      <SidebarFooter className="gap-2 p-3 group-data-[collapsible=icon]:p-2">
         <SidebarMenu>
           {footerItems.map((item) => (
             <SidebarMenuItem key={item.labelKey}>
@@ -271,76 +275,82 @@ export function AppSidebar() {
 
         <SidebarSeparator className="m-0"/>
 
-        <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+        <div
+          data-slot="sidebar-preference-actions"
+          className="flex items-center gap-2 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:justify-center"
+        >
           <LanguageSwitcher compact/>
           <ThemeSwitcher compact/>
         </div>
 
         <SidebarSeparator className="m-0"/>
 
-        <DropdownMenu orientation="vertical">
-          <DropdownMenuTrigger
-            render={
-              <Button
-                aria-label={t("navigation:labels.openMachineActions")}
-                className="h-auto w-full p-2 group-data-[collapsible=icon]:hidden"
-                size="icon-sm"
-                variant="ghost"
-              />
-            }
-          >
-            <div className="flex w-full items-center gap-2">
-              <Avatar className="size-8">
-                <AvatarFallback>
-                  <GaugeIcon aria-hidden="true"/>
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-auto text-left">
-                <p className="truncate text-xs font-medium">{t("navigation:machine.name")}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {summaryLoading && !summary
-                    ? t("navigation:machine.platformUnavailable")
-                    : formatMachinePlatform(
-                      summary,
-                      t("navigation:machine.platformUnavailable"),
-                    )}
-                </p>
-              </div>
-              <MoreVerticalIcon aria-hidden="true" data-icon="inline-end"/>
-            </div>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" side="left">
-            <DropdownMenuGroup>
-              <DropdownMenuItem onClick={openSystemInformation}>
-                <ShieldCheckIcon/>
-                {t("navigation:machine.systemInfo")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={summaryLoading}
-                onClick={() => void handleRefreshSummary()}
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <DropdownMenu orientation="vertical">
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton
+                    aria-label={t("navigation:labels.openMachineActions")}
+                    size="lg"
+                  />
+                }
               >
-                <RefreshCwIcon/>
-                {t("navigation:machine.refreshSummary")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void handleCopyDiagnostics()}>
-                <CopyIcon/>
-                {t("navigation:machine.copyDiagnostics")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => showMockAction(t("navigation:machine.openGuide"), t("navigation:toast.futureAction"))}>
-                <BookOpenIcon/>
-                {t("navigation:machine.openGuide")}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator/>
-            <DropdownMenuGroup>
-              <DropdownMenuItem
-                onClick={() => showMockAction(t("navigation:machine.restartApp"), t("navigation:toast.futureAction"))}>
-                {t("navigation:machine.restartApp")}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                <Avatar className="size-8">
+                  <AvatarFallback>
+                    <GaugeIcon aria-hidden="true"/>
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-auto text-left group-data-[collapsible=icon]:hidden">
+                  <p className="truncate text-xs font-medium">{t("navigation:machine.name")}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {summaryLoading && !summary
+                      ? t("navigation:machine.platformUnavailable")
+                      : formatMachinePlatform(
+                        summary,
+                        t("navigation:machine.platformUnavailable"),
+                      )}
+                  </p>
+                </div>
+                <MoreVerticalIcon
+                  aria-hidden="true"
+                  className="ml-auto group-data-[collapsible=icon]:hidden"
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" side="left">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onClick={openSystemInformation}>
+                    <ShieldCheckIcon/>
+                    {t("navigation:machine.systemInfo")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={summaryLoading}
+                    onClick={() => void handleRefreshSummary()}
+                  >
+                    <RefreshCwIcon/>
+                    {t("navigation:machine.refreshSummary")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void handleCopyDiagnostics()}>
+                    <CopyIcon/>
+                    {t("navigation:machine.copyDiagnostics")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => showMockAction(t("navigation:machine.openGuide"), t("navigation:toast.futureAction"))}>
+                    <BookOpenIcon/>
+                    {t("navigation:machine.openGuide")}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator/>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    onClick={() => showMockAction(t("navigation:machine.restartApp"), t("navigation:toast.futureAction"))}>
+                    {t("navigation:machine.restartApp")}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
       <PreferencesDialog onOpenChange={setSettingsOpen} open={settingsOpen}/>
     </Sidebar>

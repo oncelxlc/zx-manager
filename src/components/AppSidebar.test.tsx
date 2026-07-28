@@ -21,11 +21,11 @@ function LocationProbe() {
   return <output aria-label="current path">{location.pathname}</output>;
 }
 
-function renderSidebar() {
+function renderSidebar(defaultOpen = true) {
   return render(
     <MemoryRouter initialEntries={["/"]}>
       <TooltipProvider>
-        <SidebarProvider>
+        <SidebarProvider defaultOpen={defaultOpen}>
           <AppSidebar />
           <LocationProbe />
         </SidebarProvider>
@@ -56,6 +56,64 @@ describe("AppSidebar system information navigation", () => {
       screen.getByRole("button", { name: "Open machine actions" }),
     );
 
+    expect(
+      await screen.findByRole("menuitem", { name: "System information" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("current path")).toHaveTextContent("/");
+  });
+
+  it("keeps preference and machine actions usable when collapsed", async () => {
+    const user = userEvent.setup();
+    const { container } = renderSidebar(false);
+
+    expect(
+      container.querySelector('[data-slot="sidebar"][data-state="collapsed"]'),
+    ).toHaveAttribute("data-collapsible", "icon");
+
+    const header = container.querySelector('[data-sidebar="header"]');
+    const footer = container.querySelector('[data-sidebar="footer"]');
+    const sidebarContainer = container.querySelector(
+      '[data-slot="sidebar-container"]',
+    );
+    const preferenceActions = container.querySelector(
+      '[data-slot="sidebar-preference-actions"]',
+    );
+
+    expect(sidebarContainer).toHaveClass(
+      "group-data-[side=left]:border-r-0",
+    );
+    expect(header).toHaveClass("group-data-[collapsible=icon]:p-2");
+    expect(footer).toHaveClass("group-data-[collapsible=icon]:p-2");
+    expect(preferenceActions).toHaveClass(
+      "group-data-[collapsible=icon]:flex-col",
+    );
+
+    const languageButton = screen.getByRole("button", {
+      name: "Change interface language",
+    });
+    const themeButton = screen.getByRole("button", {
+      name: "Change theme",
+    });
+    const machineButton = screen.getByRole("button", {
+      name: "Open machine actions",
+    });
+
+    expect(languageButton).toBeInTheDocument();
+    expect(themeButton).toBeInTheDocument();
+    expect(machineButton).toHaveAttribute("data-sidebar", "menu-button");
+    expect(machineButton).not.toHaveClass(
+      "group-data-[collapsible=icon]:hidden",
+    );
+
+    await user.click(languageButton);
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    await user.click(themeButton);
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    await user.click(machineButton);
     expect(
       await screen.findByRole("menuitem", { name: "System information" }),
     ).toBeInTheDocument();

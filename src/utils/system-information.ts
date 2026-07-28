@@ -110,8 +110,7 @@ export function formatMachinePlatform(
     return unavailable;
   }
 
-  const operatingSystem =
-    summary.osLongVersion ?? summary.osName ?? summary.osVersion;
+  const operatingSystem = summary.hostName ?? summary.osLongVersion ?? summary.osName ?? summary.osVersion;
   return [operatingSystem, summary.architecture].filter(Boolean).join(" · ")
     || unavailable;
 }
@@ -146,7 +145,7 @@ export function createDiagnosticReport(information: SystemInformation) {
       frequencyMhz: information.cpu.frequencyMhz,
       usagePercent: information.cpu.usagePercent,
     },
-    memory: { ...information.memory },
+    memory: {...information.memory},
     gpus: information.gpus.map((gpu) => ({
       name: gpu.name,
       vendorId: gpu.vendorId,
@@ -166,8 +165,8 @@ export function createDiagnosticReport(information: SystemInformation) {
       usedBytes: disk.usedBytes,
       usagePercent: disk.usagePercent,
     })),
-    runtime: { ...information.runtime },
-    availability: { ...information.availability },
+    runtime: {...information.runtime},
+    availability: {...information.availability},
   };
 }
 

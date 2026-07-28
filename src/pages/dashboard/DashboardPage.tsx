@@ -1,8 +1,7 @@
-import { useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BoxesIcon,
-  ChevronRightIcon,
   CpuIcon,
   HardDriveIcon,
   MemoryStickIcon,
@@ -25,10 +24,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
 import { initialServices } from "src/data/dashboard-mock-data";
+import { useMainLayoutHeader } from "src/layouts/MainLayout";
 import {
   restartService,
   startService,
@@ -62,7 +61,7 @@ export function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const nextServiceSequence = useRef(initialServices.length + 1);
 
-  async function handleRefresh() {
+  const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     await new Promise((resolve) => setTimeout(resolve, 650));
     setRefreshing(false);
@@ -71,7 +70,7 @@ export function DashboardPage() {
       description: t("refreshSuccessDescription"),
       type: "success",
     });
-  }
+  }, [t]);
 
   async function handleOperation(
     service: LocalService,
@@ -167,141 +166,136 @@ export function DashboardPage() {
     });
   }
 
-  function showHeaderAction(title: string) {
+  const showHeaderAction = useCallback((title: string) => {
     toast.add({
       title,
       description: t("headerActions.mockDescription"),
       type: "info",
     });
-  }
+  }, [t]);
+
+  const headerActions = useMemo(
+    () => (
+      <>
+        <Badge variant="success">
+          <span className="size-1.5 rounded-full bg-success" />
+          {t("systemHealthy")}
+        </Badge>
+        <Button
+          disabled={refreshing}
+          onClick={() => void handleRefresh()}
+          variant="outline"
+        >
+          {refreshing ? (
+            <Spinner data-icon="inline-start" />
+          ) : (
+            <RefreshCwIcon data-icon="inline-start" />
+          )}
+          {refreshing ? t("refreshing") : t("common:actions.refresh")}
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                aria-label={t("headerActions.openActions")}
+                size="icon"
+                variant="outline"
+              />
+            }
+          >
+            <MoreHorizontalIcon />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                onClick={() => showHeaderAction(t("headerActions.openSystemReport"))}
+              >
+                <HardDriveIcon />
+                {t("headerActions.openSystemReport")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => showHeaderAction(t("headerActions.dashboardSettings"))}
+              >
+                <Settings2Icon />
+                {t("headerActions.dashboardSettings")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                onClick={() => showHeaderAction(t("headerActions.exportDiagnostics"))}
+              >
+                {t("headerActions.exportDiagnostics")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </>
+    ),
+    [handleRefresh, refreshing, showHeaderAction, t],
+  );
+
+  useMainLayoutHeader({
+    actions: headerActions,
+    title: t("title"),
+  });
 
   return (
-    <div className="min-w-0 mt-14.25">
-      <header className="fixed w-[stretch] top-0 z-20 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
-        <div className="mx-auto flex w-full max-w-[1800px] flex-wrap items-center justify-between gap-4 px-4 py-3 lg:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-            <SidebarTrigger />
-            <span aria-hidden="true" className="h-4 w-px bg-border" />
-            <span className="truncate text-sm text-muted-foreground">
-              {t("common:app.name")}
-            </span>
-            <ChevronRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-            <span className="truncate text-sm font-medium">{t("title")}</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Badge variant="success">
-              <span className="size-1.5 rounded-full bg-success" />
-              {t("systemHealthy")}
-            </Badge>
-            <Button
-              disabled={refreshing}
-              onClick={() => void handleRefresh()}
-              variant="outline"
-            >
-              {refreshing ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <RefreshCwIcon data-icon="inline-start" />
-              )}
-              {refreshing ? t("refreshing") : t("common:actions.refresh")}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    aria-label={t("headerActions.openActions")}
-                    size="icon"
-                    variant="outline"
-                  />
-                }
-              >
-                <MoreHorizontalIcon />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem
-                    onClick={() => showHeaderAction(t("headerActions.openSystemReport"))}
-                  >
-                    <HardDriveIcon />
-                    {t("headerActions.openSystemReport")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => showHeaderAction(t("headerActions.dashboardSettings"))}
-                  >
-                    <Settings2Icon />
-                    {t("headerActions.dashboardSettings")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => showHeaderAction(t("headerActions.exportDiagnostics"))}
-                >
-                  {t("headerActions.exportDiagnostics")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-        </header>
-
-      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-5 p-4 lg:p-6">
-
-        <section
-          aria-label={t("systemStatus")}
-          className="dashboard-kpi-grid grid gap-4"
-        >
-          <MetricCard
-            badge={t("common:status.healthy")}
-            badgeVariant="success"
-            description={t("cards.nginx.description")}
-            detail={t("cards.nginx.detail")}
-            healthy
-            icon={ServerIcon}
-            title={t("cards.nginx.title")}
-            value={t("cards.nginx.value")}
-          />
-          <MetricCard
-            badge="-3.2%"
-            badgeVariant="success"
-            description={t("cards.cpu.description")}
-            detail={t("cards.cpu.detail")}
-            icon={CpuIcon}
-            title={t("cards.cpu.title")}
-            value="24.8%"
-          />
-          <MetricCard
-            badge="40%"
-            badgeVariant="secondary"
-            description={t("cards.memory.description")}
-            detail={t("cards.memory.detail")}
-            icon={MemoryStickIcon}
-            progress={40}
-            title={t("cards.memory.title")}
-            value="6.4 GB"
-          />
-          <MetricCard
-            badge="+2"
-            badgeVariant="secondary"
-            description={t("cards.services.description")}
-            detail={t("cards.services.detail")}
-            icon={BoxesIcon}
-            title={t("cards.services.title")}
-            value="12"
-          />
-        </section>
-
-        <ResourceChart />
-
-        <ServiceWorkspace
-          onAddService={handleAddService}
-          onLocalAction={handleLocalAction}
-          onOperation={handleOperation}
-          onRemove={handleRemove}
-          pendingIds={pendingIds}
-          services={services}
+    <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4 lg:p-6">
+      <section
+        aria-label={t("systemStatus")}
+        className="dashboard-kpi-grid grid gap-4"
+      >
+        <MetricCard
+          badge={t("common:status.healthy")}
+          badgeVariant="success"
+          description={t("cards.nginx.description")}
+          detail={t("cards.nginx.detail")}
+          healthy
+          icon={ServerIcon}
+          title={t("cards.nginx.title")}
+          value={t("cards.nginx.value")}
         />
-      </div>
+        <MetricCard
+          badge="-3.2%"
+          badgeVariant="success"
+          description={t("cards.cpu.description")}
+          detail={t("cards.cpu.detail")}
+          icon={CpuIcon}
+          title={t("cards.cpu.title")}
+          value="24.8%"
+        />
+        <MetricCard
+          badge="40%"
+          badgeVariant="secondary"
+          description={t("cards.memory.description")}
+          detail={t("cards.memory.detail")}
+          icon={MemoryStickIcon}
+          progress={40}
+          title={t("cards.memory.title")}
+          value="6.4 GB"
+        />
+        <MetricCard
+          badge="+2"
+          badgeVariant="secondary"
+          description={t("cards.services.description")}
+          detail={t("cards.services.detail")}
+          icon={BoxesIcon}
+          title={t("cards.services.title")}
+          value="12"
+        />
+      </section>
+
+      <ResourceChart />
+
+      <ServiceWorkspace
+        onAddService={handleAddService}
+        onLocalAction={handleLocalAction}
+        onOperation={handleOperation}
+        onRemove={handleRemove}
+        pendingIds={pendingIds}
+        services={services}
+      />
     </div>
   );
 }
