@@ -271,15 +271,15 @@ export function NetworkMonitorPage() {
       return realtime
         .filter((event) => event.sampledAt >= chartFrom)
         .map((event) => ({
-        sampledAt: event.sampledAt,
-        download:
-          event.sampleState === "sample"
-            ? event.device.downloadBytesPerSecond
-            : null,
-        upload:
-          event.sampleState === "sample"
-            ? event.device.uploadBytesPerSecond
-            : null,
+          sampledAt: event.sampledAt,
+          download:
+            event.sampleState === "sample"
+              ? event.device.downloadBytesPerSecond
+              : null,
+          upload:
+            event.sampleState === "sample"
+              ? event.device.uploadBytesPerSecond
+              : null,
         }));
     },
     [realtime],
@@ -395,7 +395,7 @@ export function NetworkMonitorPage() {
     },
   ];
   const sampleIntervalItems = networkMonitorSampleIntervals.map((interval) => ({
-    label: t("sampling.option", { count: interval }),
+    label: t("sampling.option", {count: interval}),
     value: String(interval),
   }));
 
@@ -497,7 +497,7 @@ export function NetworkMonitorPage() {
                   className="w-32"
                   id="network-sample-interval"
                 >
-                  <SelectValue />
+                  <SelectValue/>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
@@ -564,8 +564,8 @@ export function NetworkMonitorPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
+      <div className="grid gap-4 xl:grid-cols-4">
+        <Card className="xl:col-span-3">
           <CardHeader>
             <CardTitle>{t("interfaces.title")}</CardTitle>
             <CardDescription>{t("interfaces.description")}</CardDescription>
@@ -972,6 +972,7 @@ export function NetworkMonitorPage() {
                   if (result) {
                     toast.add({title: t("clear.success"), type: "success"});
                   }
+                  setClearOpen(false);
                 });
               }}
               variant="destructive"
