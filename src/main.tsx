@@ -7,6 +7,7 @@ import { applyTheme } from "@/components/theme-provider";
 import { StartupScreen } from "src/components/startup/StartupScreen";
 import { initializeI18n } from "src/i18n";
 import { getPreferences } from "src/services/storage/preferences-storage";
+import { restoreNetworkMonitorOnStartup } from "src/services/tauri/network-monitor-startup";
 import type { UserPreferences } from "src/types/preferences";
 
 const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
@@ -39,6 +40,8 @@ async function bootstrap() {
       <App initialTheme={theme} />
     </React.StrictMode>,
   );
+
+  void restoreNetworkMonitorOnStartup(preferences);
 }
 
 void bootstrap();

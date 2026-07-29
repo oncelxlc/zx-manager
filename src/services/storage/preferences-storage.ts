@@ -1,8 +1,10 @@
 import { load, type Store } from "@tauri-apps/plugin-store";
 
 import {
+  isNetworkMonitorSampleInterval,
   isSupportedLocale,
   isThemeMode,
+  type NetworkMonitorSampleInterval,
   type SupportedLocale,
   type ThemeMode,
   type UserPreferences,
@@ -19,6 +21,23 @@ interface StoredPreferencesV1 {
   theme?: ThemeMode;
 }
 
+interface StoredPreferencesV2 {
+  version: 2;
+  locale?: SupportedLocale;
+  theme?: ThemeMode;
+  networkMonitorConfigured?: boolean;
+  networkMonitorStartOnLaunch?: boolean;
+}
+
+interface StoredPreferencesV3 {
+  version: 3;
+  locale?: SupportedLocale;
+  theme?: ThemeMode;
+  networkMonitorConfigured?: boolean;
+  networkMonitorStartOnLaunch?: boolean;
+  networkMonitorSampleIntervalSeconds?: NetworkMonitorSampleInterval;
+}
+
 type PreferencesStore = Pick<Store, "get" | "save" | "set">;
 
 let storePromise: Promise<PreferencesStore> | null | undefined;
@@ -32,14 +51,38 @@ function normalizePreferences(value: unknown): Partial<UserPreferences> {
     return {};
   }
 
-  const preferences = value as StoredPreferencesV1;
-  if (preferences.version !== 1) {
+  const preferences = value as
+    | StoredPreferencesV1
+    | StoredPreferencesV2
+    | StoredPreferencesV3;
+  if (
+    preferences.version !== 1
+    && preferences.version !== 2
+    && preferences.version !== 3
+  ) {
     return {};
   }
 
   return {
     locale: isSupportedLocale(preferences.locale) ? preferences.locale : undefined,
     theme: isThemeMode(preferences.theme) ? preferences.theme : undefined,
+    networkMonitorConfigured:
+      preferences.version !== 1
+      && typeof preferences.networkMonitorConfigured === "boolean"
+        ? preferences.networkMonitorConfigured
+        : undefined,
+    networkMonitorStartOnLaunch:
+      preferences.version !== 1
+      && typeof preferences.networkMonitorStartOnLaunch === "boolean"
+        ? preferences.networkMonitorStartOnLaunch
+        : undefined,
+    networkMonitorSampleIntervalSeconds:
+      preferences.version === 3
+      && isNetworkMonitorSampleInterval(
+        preferences.networkMonitorSampleIntervalSeconds,
+      )
+        ? preferences.networkMonitorSampleIntervalSeconds
+        : 5,
   };
 }
 
@@ -71,10 +114,22 @@ function writeLegacyPreferences(preferences: Partial<UserPreferences>) {
 
   try {
     const current = readLegacyPreferences();
-    const nextValue: StoredPreferencesV1 = {
-      version: 1,
+    const nextValue: StoredPreferencesV3 = {
+      version: 3,
       ...current,
       ...preferences,
+      networkMonitorConfigured:
+        preferences.networkMonitorConfigured
+        ?? current.networkMonitorConfigured
+        ?? false,
+      networkMonitorStartOnLaunch:
+        preferences.networkMonitorStartOnLaunch
+        ?? current.networkMonitorStartOnLaunch
+        ?? false,
+      networkMonitorSampleIntervalSeconds:
+        preferences.networkMonitorSampleIntervalSeconds
+        ?? current.networkMonitorSampleIntervalSeconds
+        ?? 5,
     };
     window.localStorage.setItem(preferencesStorageKey, JSON.stringify(nextValue));
   } catch {
@@ -96,7 +151,11 @@ function clearLegacyPreferences() {
 }
 
 function hasPreferences(preferences: Partial<UserPreferences>) {
-  return preferences.locale !== undefined || preferences.theme !== undefined;
+  return preferences.locale !== undefined
+    || preferences.theme !== undefined
+    || preferences.networkMonitorConfigured !== undefined
+    || preferences.networkMonitorStartOnLaunch !== undefined
+    || preferences.networkMonitorSampleIntervalSeconds !== undefined;
 }
 
 function mergePreferences(
@@ -106,6 +165,14 @@ function mergePreferences(
   return {
     locale: primary.locale ?? fallback.locale,
     theme: primary.theme ?? fallback.theme,
+    networkMonitorConfigured:
+      primary.networkMonitorConfigured ?? fallback.networkMonitorConfigured,
+    networkMonitorStartOnLaunch:
+      primary.networkMonitorStartOnLaunch ?? fallback.networkMonitorStartOnLaunch,
+    networkMonitorSampleIntervalSeconds:
+      primary.networkMonitorSampleIntervalSeconds
+      ?? fallback.networkMonitorSampleIntervalSeconds
+      ?? 5,
   };
 }
 
@@ -113,7 +180,12 @@ function preferencesMatch(
   left: Partial<UserPreferences>,
   right: Partial<UserPreferences>,
 ) {
-  return left.locale === right.locale && left.theme === right.theme;
+  return left.locale === right.locale
+    && left.theme === right.theme
+    && left.networkMonitorConfigured === right.networkMonitorConfigured
+    && left.networkMonitorStartOnLaunch === right.networkMonitorStartOnLaunch
+    && left.networkMonitorSampleIntervalSeconds
+      === right.networkMonitorSampleIntervalSeconds;
 }
 
 async function getStore(): Promise<PreferencesStore | null> {
@@ -137,9 +209,13 @@ async function savePreferences(
   store: PreferencesStore,
   preferences: Partial<UserPreferences>,
 ) {
-  const value: StoredPreferencesV1 = {
-    version: 1,
+  const value: StoredPreferencesV3 = {
+    version: 3,
     ...preferences,
+    networkMonitorConfigured: preferences.networkMonitorConfigured ?? false,
+    networkMonitorStartOnLaunch: preferences.networkMonitorStartOnLaunch ?? false,
+    networkMonitorSampleIntervalSeconds:
+      preferences.networkMonitorSampleIntervalSeconds ?? 5,
   };
   await store.set(storePreferencesKey, value);
   await store.save();
@@ -176,6 +252,20 @@ export async function setLocale(locale: SupportedLocale): Promise<void> {
 
 export async function setTheme(theme: ThemeMode): Promise<void> {
   await updatePreferences({ theme });
+}
+
+export async function setNetworkMonitorConfigured(configured: boolean): Promise<void> {
+  await updatePreferences({ networkMonitorConfigured: configured });
+}
+
+export async function setNetworkMonitorStartOnLaunch(enabled: boolean): Promise<void> {
+  await updatePreferences({ networkMonitorStartOnLaunch: enabled });
+}
+
+export async function setNetworkMonitorSampleInterval(
+  interval: NetworkMonitorSampleInterval,
+): Promise<void> {
+  await updatePreferences({ networkMonitorSampleIntervalSeconds: interval });
 }
 
 async function updatePreferences(preferences: Partial<UserPreferences>) {

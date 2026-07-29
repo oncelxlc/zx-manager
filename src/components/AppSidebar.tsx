@@ -86,7 +86,7 @@ const resourceItems: NavigationItem[] = [
   {labelKey: "items.logs", icon: TerminalSquareIcon},
   {labelKey: "items.certificates", icon: FileKeyIcon},
   {labelKey: "items.networkPorts", icon: CableIcon},
-  {labelKey: "items.systemMonitor", icon: ActivityIcon},
+  {labelKey: "items.networkMonitor", icon: ActivityIcon},
 ];
 
 const footerItems: NavigationItem[] = [
@@ -158,6 +158,8 @@ export function AppSidebar() {
       ? "items.dashboard"
       : location.pathname === "/system-information"
         ? ""
+        : location.pathname === "/network-monitor"
+          ? "items.networkMonitor"
         : activeItem;
 
   useEffect(() => {
@@ -172,6 +174,10 @@ export function AppSidebar() {
     }
     if (labelKey === "items.dashboard") {
       void navigate("/");
+      return;
+    }
+    if (labelKey === "items.networkMonitor") {
+      void navigate("/network-monitor");
       return;
     }
     if (labelKey !== "items.dashboard") {

@@ -3,6 +3,14 @@ fn main() {
         "greet",
         "get_system_summary",
         "get_system_information",
+        "get_network_monitor_capabilities",
+        "get_network_monitor_status",
+        "subscribe_network_realtime",
+        "unsubscribe_network_realtime",
+        "query_network_usage",
+        "set_network_monitor_enabled",
+        "set_network_monitor_sample_interval",
+        "clear_network_usage",
     ]);
     let attributes = tauri_build::Attributes::new().app_manifest(manifest);
 

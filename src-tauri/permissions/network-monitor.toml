@@ -1,0 +1,25 @@
+"$schema" = "schemas/schema.json"
+
+[[set]]
+identifier = "allow-network-monitor-read"
+description = "Read network monitor capabilities, status, realtime samples, and local usage history."
+permissions = [
+  "allow-get-network-monitor-capabilities",
+  "allow-get-network-monitor-status",
+  "allow-subscribe-network-realtime",
+  "allow-unsubscribe-network-realtime",
+  "allow-query-network-usage",
+]
+
+[[set]]
+identifier = "allow-network-monitor-control"
+description = "Enable, disable, or configure network monitoring for the current application session."
+permissions = [
+  "allow-set-network-monitor-enabled",
+  "allow-set-network-monitor-sample-interval",
+]
+
+[[set]]
+identifier = "allow-network-monitor-clear"
+description = "Delete locally stored network usage history."
+permissions = ["allow-clear-network-usage"]

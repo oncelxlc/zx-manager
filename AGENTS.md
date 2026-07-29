@@ -8,6 +8,8 @@ ZxManager is a React 19 + Tauri 2 desktop console for local infrastructure manag
 - Diagnostic text is written through the Tauri clipboard plugin.
 - Theme and locale preferences use Tauri Store, with legacy `localStorage` migration and fallback.
 - Application restart uses the Tauri Process plugin.
+- Network monitoring is opt-in and uses real platform interface counters, an in-memory realtime ring, and a local seven-day SQLite history.
+- Application traffic attribution is deliberately unavailable in v1. Its abstraction, DTOs, and storage dimensions exist, but no estimate or mock traffic may be emitted.
 - Dashboard service data and Start/Stop/Restart/Remove operations remain frontend-only mocks in `src/services/tauri/service-manager.ts`.
 
 Keep that boundary explicit. Never describe a mocked Dashboard action as real system control. Any new host-level operation requires an auditable Rust command or official Tauri plugin plus the narrowest practical capability permission.
@@ -30,7 +32,7 @@ The React and TypeScript application lives in `src/`:
 
 The reusable shadcn/Base UI foundation lives in the root `@/` directory. Primitives are in `@/components/ui/`, theme support is in `@/components/theme-provider.tsx`, hooks are in `@/hooks/`, and shared helpers are in `@/lib/`. Keep application-specific behavior in `src/`. Import the UI layer through `@/…` and application code through `src/…`. Both aliases are configured in `tsconfig.json` and `vite.config.ts`; update both files together if this convention changes.
 
-The Tauri backend lives in `src-tauri/`. Application commands and startup are under `src-tauri/src/`; the system information implementation is split across `src-tauri/src/system_information/`. Main-window capabilities are declared in `src-tauri/capabilities/`, and application-command permissions are in `src-tauri/permissions/`. Keep Rust command names, generated permissions, frontend `invoke()` calls, and TypeScript DTOs synchronized.
+The Tauri backend lives in `src-tauri/`. Application commands and startup are under `src-tauri/src/`; the system information implementation is split across `src-tauri/src/system_information/`, and network monitoring is split across `src-tauri/src/network_monitor/`. Main-window capabilities are declared in `src-tauri/capabilities/`, and application-command permissions are in `src-tauri/permissions/`. Keep Rust command names, generated permissions, frontend `invoke()` calls, and TypeScript DTOs synchronized.
 
 ## Application Conventions
 
@@ -42,6 +44,11 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 - Diagnostic export must remain an explicit allowlist. Do not add host names, disk mount points, driver details, or future DTO fields to copied diagnostics without a privacy review.
 - Use the existing shadcn/Base UI primitives and `cn()` helper rather than adding duplicate primitive components or another styling system.
 - Keep page-specific header state in the route page and register it with `MainLayout`; do not move feature loading state into the layout merely to render header actions.
+- Keep the network Manager disabled and its SQLite connection unopened until the user has configured monitoring and explicitly enables, queries, or clears it. Current-session state and the start-on-launch preference are independent.
+- Network sampling uses the persisted 1/3/5/10-second preference, defaults to five seconds, and must not silently change based on realtime subscriber count.
+- Network realtime consumers must discard old generations and out-of-order sequences, explicitly unsubscribe on page teardown, preserve `null` gaps, and keep bounded arrays.
+- Never total physical, tunnel, and application layers together. Device totals include only operational non-loopback, non-virtual physical interfaces; VPN totals come from tunnel interfaces.
+- Treat network interface counters as cumulative and reset the monotonic baseline after first samples, counter rollback, interface reconstruction, or long sleep gaps.
 
 ## Security and Tauri Boundaries
 
@@ -49,11 +56,15 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 - Run blocking system collection work outside the async UI path. Keep command errors serializable and suitable for localization at the frontend edge.
 - Do not execute arbitrary shell strings from the WebView. Validate identifiers and arguments again in Rust when real service management is introduced.
 - Keep service management mocked until a platform-specific, permission-scoped backend and corresponding tests exist.
+- Network monitor commands are grouped into `allow-network-monitor-read`, `allow-network-monitor-control`, and `allow-network-monitor-clear`. Do not replace these sets with a broad default capability.
+- The network database may store hashed interface identities and byte/time buckets only. Do not add raw MAC addresses, host names, remote addresses, domains, URLs, ports, packet contents, or command lines.
 - Call out every dependency, capability, generated permission, or `tauri.conf.json` change in the final summary and pull request.
 
 ## Build, Test, and Development Commands
 
 Use pnpm and commit `pnpm-lock.yaml` whenever JavaScript dependencies change. Commit `src-tauri/Cargo.lock` whenever Rust dependencies change.
+
+Network monitoring uses `rusqlite` with bundled SQLite, `chrono-tz`, and `sha2`; Windows additionally uses `windows` and `winreg`, while macOS uses `libc`. Its eight commands include the control-scoped sampling interval setter; any changes to these dependencies, commands, the three permission sets, or the database schema must be called out explicitly.
 
 - `pnpm install` installs JavaScript dependencies and configures Husky hooks.
 - `pnpm dev` starts Vite on port 1420.

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-subscribe-network-realtime"
+description = "Enables the subscribe_network_realtime command without any pre-configured scope."
+commands.allow = ["subscribe_network_realtime"]
+
+[[permission]]
+identifier = "deny-subscribe-network-realtime"
+description = "Denies the subscribe_network_realtime command without any pre-configured scope."
+commands.deny = ["subscribe_network_realtime"]

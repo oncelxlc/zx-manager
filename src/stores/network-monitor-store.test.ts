@@ -1,0 +1,183 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const service = vi.hoisted(() => ({
+  clearNetworkUsage: vi.fn(),
+  getNetworkMonitorCapabilities: vi.fn(),
+  getNetworkMonitorStatus: vi.fn(),
+  queryNetworkUsage: vi.fn(),
+  setNetworkMonitorEnabled: vi.fn(),
+  setNetworkMonitorSampleInterval: vi.fn(),
+  subscribeNetworkRealtime: vi.fn(),
+  toNetworkMonitorError: vi.fn((error: unknown) => ({
+    code: "unknown",
+    message: String(error),
+  })),
+}));
+
+vi.mock("src/services/tauri/network-monitor", () => service);
+
+import { useNetworkMonitorStore } from "./network-monitor-store";
+import type {
+  NetworkRealtimeEvent,
+  NetworkUsageResult,
+} from "src/types/network-monitor";
+
+function event(generation: number, sequence: number): NetworkRealtimeEvent {
+  return {
+    generation,
+    sequence,
+    sampledAt: sequence * 1000,
+    elapsedMs: 1000,
+    sampleState: "sample",
+    device: {
+      downloadBytesPerSecond: sequence,
+      uploadBytesPerSecond: sequence,
+      sessionDownloadBytes: sequence,
+      sessionUploadBytes: sequence,
+    },
+    interfaces: [],
+    applications: [],
+    proxyVpn: {
+      proxyConfigured: false,
+      proxyKinds: [],
+      pacEnabled: false,
+      vpnConnected: false,
+      routeMode: null,
+      virtualInterfaceIds: [],
+      traffic: {
+        downloadBytesPerSecond: null,
+        uploadBytesPerSecond: null,
+        sessionDownloadBytes: 0,
+        sessionUploadBytes: 0,
+      },
+      quality: "unavailable",
+    },
+    warnings: [],
+  };
+}
+
+function history(generation: number, groupId: string): NetworkUsageResult {
+  return {
+    generation,
+    requestedFrom: 0,
+    requestedTo: 1000,
+    actualFrom: 0,
+    actualTo: 1000,
+    interval: "second",
+    points: [{
+      from: 0,
+      to: 1000,
+      groupId,
+      layer: "physical",
+      downloadBytes: 1,
+      uploadBytes: 1,
+      quality: "exact",
+    }],
+    totalCount: 1,
+    nextCursor: null,
+    partial: false,
+    warnings: [],
+  };
+}
+
+describe("network monitor store", () => {
+  beforeEach(() => {
+    useNetworkMonitorStore.getState().reset();
+    vi.clearAllMocks();
+    useNetworkMonitorStore.setState({
+      status: {
+        enabled: true,
+        collectorState: "running",
+        generation: 1,
+        subscriberCount: 1,
+        sampleIntervalSeconds: 5,
+        databaseCreated: false,
+        lastSampledAt: null,
+        lastError: null,
+      },
+    });
+  });
+
+  it("drops out-of-order sequences and clears old data on generation changes", () => {
+    const store = useNetworkMonitorStore.getState();
+    store.acceptRealtimeEvent(event(1, 2));
+    store.acceptRealtimeEvent(event(1, 1));
+    expect(useNetworkMonitorStore.getState().realtime.map((item) => item.sequence))
+      .toEqual([2]);
+
+    store.acceptRealtimeEvent(event(2, 1));
+    expect(useNetworkMonitorStore.getState().realtime).toEqual([event(2, 1)]);
+    expect(useNetworkMonitorStore.getState().status?.generation).toBe(2);
+  });
+
+  it("keeps the realtime ring bounded to 600 samples", () => {
+    const store = useNetworkMonitorStore.getState();
+    for (let sequence = 1; sequence <= 605; sequence += 1) {
+      store.acceptRealtimeEvent(event(1, sequence));
+    }
+    expect(useNetworkMonitorStore.getState().realtime).toHaveLength(600);
+    expect(useNetworkMonitorStore.getState().realtime[0]?.sequence).toBe(6);
+  });
+
+  it("ignores a slower history response after a newer query", async () => {
+    let resolveFirst: ((value: NetworkUsageResult) => void) | undefined;
+    let resolveSecond: ((value: NetworkUsageResult) => void) | undefined;
+    service.queryNetworkUsage
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveFirst = resolve;
+      }))
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveSecond = resolve;
+      }));
+    const request = {
+      from: 0,
+      to: 1000,
+      timeZone: "UTC",
+    };
+
+    const first = useNetworkMonitorStore.getState().queryHistory(request);
+    const second = useNetworkMonitorStore.getState().queryHistory(request);
+    resolveSecond?.(history(1, "new"));
+    await second;
+    resolveFirst?.(history(1, "old"));
+    await first;
+
+    expect(useNetworkMonitorStore.getState().history?.points[0]?.groupId).toBe("new");
+  });
+
+  it("invalidates history and realtime data after clearing", async () => {
+    useNetworkMonitorStore.getState().acceptRealtimeEvent(event(1, 1));
+    useNetworkMonitorStore.setState({ history: history(1, "existing") });
+    service.clearNetworkUsage.mockResolvedValue({
+      generation: 2,
+      deletedBuckets: 1,
+      clearedAt: 1000,
+      clearedFrom: null,
+      clearedTo: null,
+    });
+
+    await useNetworkMonitorStore.getState().clearUsage({ scope: "all" });
+
+    expect(useNetworkMonitorStore.getState().realtime).toEqual([]);
+    expect(useNetworkMonitorStore.getState().history).toBeNull();
+    expect(useNetworkMonitorStore.getState().status?.generation).toBe(2);
+  });
+
+  it("updates the sample interval without changing generation or cached data", async () => {
+    useNetworkMonitorStore.getState().acceptRealtimeEvent(event(1, 1));
+    service.setNetworkMonitorSampleInterval.mockResolvedValue({
+      ...useNetworkMonitorStore.getState().status,
+      sampleIntervalSeconds: 10,
+    });
+
+    await expect(
+      useNetworkMonitorStore.getState().setSampleInterval(10),
+    ).resolves.toBe(true);
+
+    expect(service.setNetworkMonitorSampleInterval).toHaveBeenCalledWith(10);
+    expect(useNetworkMonitorStore.getState().status?.sampleIntervalSeconds)
+      .toBe(10);
+    expect(useNetworkMonitorStore.getState().status?.generation).toBe(1);
+    expect(useNetworkMonitorStore.getState().realtime).toHaveLength(1);
+  });
+});

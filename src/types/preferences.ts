@@ -8,9 +8,17 @@ export type ThemeMode = (typeof themeModes)[number];
 
 export type ResolvedTheme = Exclude<ThemeMode, "system">;
 
+export const networkMonitorSampleIntervals = [1, 3, 5, 10] as const;
+
+export type NetworkMonitorSampleInterval =
+  (typeof networkMonitorSampleIntervals)[number];
+
 export interface UserPreferences {
   locale: SupportedLocale;
   theme: ThemeMode;
+  networkMonitorConfigured: boolean;
+  networkMonitorStartOnLaunch: boolean;
+  networkMonitorSampleIntervalSeconds: NetworkMonitorSampleInterval;
 }
 
 export function isSupportedLocale(value: unknown): value is SupportedLocale {
@@ -19,4 +27,13 @@ export function isSupportedLocale(value: unknown): value is SupportedLocale {
 
 export function isThemeMode(value: unknown): value is ThemeMode {
   return typeof value === "string" && themeModes.includes(value as ThemeMode);
+}
+
+export function isNetworkMonitorSampleInterval(
+  value: unknown,
+): value is NetworkMonitorSampleInterval {
+  return typeof value === "number"
+    && networkMonitorSampleIntervals.includes(
+      value as NetworkMonitorSampleInterval,
+    );
 }

@@ -37,7 +37,11 @@ describe("preferences storage", () => {
     loadStore.mockResolvedValue(store);
     const { getPreferences } = await loadPreferencesStorage();
 
-    await expect(getPreferences()).resolves.toEqual({ locale: "en-US", theme: "light" });
+    await expect(getPreferences()).resolves.toEqual({
+      locale: "en-US",
+      theme: "light",
+      networkMonitorSampleIntervalSeconds: 5,
+    });
     expect(loadStore).toHaveBeenCalledWith("preferences.json", { autoSave: false });
   });
 
@@ -48,7 +52,11 @@ describe("preferences storage", () => {
     loadStore.mockResolvedValue(store);
     const { getPreferences } = await loadPreferencesStorage();
 
-    await expect(getPreferences()).resolves.toEqual({ locale: undefined, theme: undefined });
+    await expect(getPreferences()).resolves.toEqual({
+      locale: undefined,
+      theme: undefined,
+      networkMonitorSampleIntervalSeconds: 5,
+    });
   });
 
   it("migrates legacy localStorage preferences after saving the Store", async () => {
@@ -60,11 +68,18 @@ describe("preferences storage", () => {
     );
     const { getPreferences } = await loadPreferencesStorage();
 
-    await expect(getPreferences()).resolves.toEqual({ locale: "en-US", theme: "system" });
-    expect(store.set).toHaveBeenCalledWith("preferences", {
-      version: 1,
+    await expect(getPreferences()).resolves.toEqual({
       locale: "en-US",
       theme: "system",
+      networkMonitorSampleIntervalSeconds: 5,
+    });
+    expect(store.set).toHaveBeenCalledWith("preferences", {
+      version: 3,
+      locale: "en-US",
+      theme: "system",
+      networkMonitorConfigured: false,
+      networkMonitorStartOnLaunch: false,
+      networkMonitorSampleIntervalSeconds: 5,
     });
     expect(store.save).toHaveBeenCalledOnce();
     expect(window.localStorage.getItem("local-console.preferences")).toBeNull();
@@ -78,9 +93,12 @@ describe("preferences storage", () => {
     await expect(getPreferences()).resolves.toEqual({ theme: "light" });
     await setLocale("en-US");
     expect(JSON.parse(window.localStorage.getItem("local-console.preferences") ?? "{}")).toEqual({
-      version: 1,
+      version: 3,
       locale: "en-US",
       theme: "light",
+      networkMonitorConfigured: false,
+      networkMonitorStartOnLaunch: false,
+      networkMonitorSampleIntervalSeconds: 5,
     });
   });
 
@@ -94,10 +112,78 @@ describe("preferences storage", () => {
     await setTheme("system");
 
     expect(store.set).toHaveBeenCalledWith("preferences", {
-      version: 1,
+      version: 3,
       locale: "zh-CN",
       theme: "system",
+      networkMonitorConfigured: false,
+      networkMonitorStartOnLaunch: false,
+      networkMonitorSampleIntervalSeconds: 5,
     });
     expect(store.save).toHaveBeenCalledOnce();
+  });
+
+  it("migrates and updates network monitor v2 preferences", async () => {
+    const store = createStore({
+      preferences: {
+        version: 2,
+        locale: "zh-CN",
+        theme: "dark",
+        networkMonitorConfigured: true,
+        networkMonitorStartOnLaunch: false,
+      },
+    });
+    loadStore.mockResolvedValue(store);
+    const {
+      getPreferences,
+      setNetworkMonitorStartOnLaunch,
+    } = await loadPreferencesStorage();
+
+    await expect(getPreferences()).resolves.toEqual({
+      locale: "zh-CN",
+      theme: "dark",
+      networkMonitorConfigured: true,
+      networkMonitorStartOnLaunch: false,
+      networkMonitorSampleIntervalSeconds: 5,
+    });
+    await setNetworkMonitorStartOnLaunch(true);
+    expect(store.set).toHaveBeenLastCalledWith("preferences", {
+      version: 3,
+      locale: "zh-CN",
+      theme: "dark",
+      networkMonitorConfigured: true,
+      networkMonitorStartOnLaunch: true,
+      networkMonitorSampleIntervalSeconds: 5,
+    });
+  });
+
+  it("validates and persists the network monitor sample interval", async () => {
+    const store = createStore({
+      preferences: {
+        version: 3,
+        locale: "zh-CN",
+        theme: "dark",
+        networkMonitorConfigured: true,
+        networkMonitorStartOnLaunch: false,
+        networkMonitorSampleIntervalSeconds: 2,
+      },
+    });
+    loadStore.mockResolvedValue(store);
+    const {
+      getPreferences,
+      setNetworkMonitorSampleInterval,
+    } = await loadPreferencesStorage();
+
+    await expect(getPreferences()).resolves.toMatchObject({
+      networkMonitorSampleIntervalSeconds: 5,
+    });
+    await setNetworkMonitorSampleInterval(10);
+    expect(store.set).toHaveBeenLastCalledWith("preferences", {
+      version: 3,
+      locale: "zh-CN",
+      theme: "dark",
+      networkMonitorConfigured: true,
+      networkMonitorStartOnLaunch: false,
+      networkMonitorSampleIntervalSeconds: 10,
+    });
   });
 });
