@@ -1,8 +1,21 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useLocation, MemoryRouter } from "react-router";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { restartApplication, toastAdd } = vi.hoisted(() => ({
+  restartApplication: vi.fn(),
+  toastAdd: vi.fn(),
+}));
+
+vi.mock("@/components/ui/toast", () => ({
+  toast: { add: toastAdd },
+}));
+
+vi.mock("src/services/tauri/application", () => ({
+  restartApplication,
+}));
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -36,6 +49,8 @@ function renderSidebar(defaultOpen = true) {
 
 describe("AppSidebar system information navigation", () => {
   beforeEach(() => {
+    restartApplication.mockReset();
+    toastAdd.mockReset();
     resetSystemInformationStore();
     useSystemInformationStore.setState({
       summary: systemSummaryFixture,
@@ -185,5 +200,72 @@ describe("AppSidebar system information navigation", () => {
     expect(clipboardText).not.toContain("private-host");
     expect(clipboardText).not.toContain("C:\\\\private");
     expect(clipboardText).not.toContain("private-driver");
+  });
+
+  it("requires confirmation before restarting the application", async () => {
+    const user = userEvent.setup();
+    const restartPending = new Promise<void>(() => undefined);
+    restartApplication.mockReturnValue(restartPending);
+    renderSidebar();
+
+    await user.click(
+      screen.getByRole("button", { name: "Open machine actions" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Restart app" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Restart ZxManager?" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(restartApplication).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("heading", { name: "Restart ZxManager?" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Open machine actions" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Restart app" }),
+    );
+    const restartButton = await screen.findByRole("button", {
+      name: "Restart app",
+    });
+    await user.click(restartButton);
+
+    expect(restartApplication).toHaveBeenCalledTimes(1);
+    expect(restartButton).toBeDisabled();
+  });
+
+  it("shows an error and keeps the confirmation available when restart fails", async () => {
+    const user = userEvent.setup();
+    restartApplication.mockRejectedValueOnce(
+      new Error("The Process plugin is unavailable."),
+    );
+    renderSidebar();
+
+    await user.click(
+      screen.getByRole("button", { name: "Open machine actions" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Restart app" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Restart app" }),
+    );
+
+    await waitFor(() => {
+      expect(toastAdd).toHaveBeenLastCalledWith({
+        title: "Unable to restart app",
+        description: "The Process plugin is unavailable.",
+        type: "error",
+      });
+    });
+    expect(
+      screen.getByRole("heading", { name: "Restart ZxManager?" }),
+    ).toBeInTheDocument();
   });
 });

@@ -8,7 +8,7 @@ const enUS = {
     groups: { management: "Management", resources: "Resources" },
     items: { certificates: "Certificates", configuration: "Configuration", dashboard: "Dashboard", help: "Help", logs: "Logs", networkPorts: "Network Ports", nginx: "Nginx", search: "Search", services: "Services", settings: "Settings", systemMonitor: "System Monitor" },
     labels: { openMachineActions: "Open machine actions" },
-    machine: { name: "Local Machine", platformUnavailable: "Loading system summary", copyDiagnostics: "Copy diagnostics", openGuide: "Open guide", refreshSummary: "Refresh device summary", restartApp: "Restart app", systemInfo: "System information" },
+    machine: { name: "Local Machine", platformUnavailable: "Loading system summary", copyDiagnostics: "Copy diagnostics", openGuide: "Open guide", refreshSummary: "Refresh device summary", restartApp: "Restart app", restartConfirmationTitle: "Restart ZxManager?", restartConfirmationDescription: "The application will close and restart immediately. Unsaved work may be lost.", restartError: "Unable to restart app", systemInfo: "System information" },
     toast: { copyDiagnosticsError: "Unable to copy diagnostics", copyDiagnosticsSuccess: "Diagnostics copied", copyDiagnosticsSuccessDescription: "Allowlisted JSON without the host name, mount points, or driver details was written to the clipboard.", futureAction: "This action is ready for a future Tauri command.", moduleMock: "This module is represented by a local dashboard mock.", selected: "{{label}} selected", summaryRefreshError: "Unable to refresh device summary", summaryRefreshSuccess: "Device summary updated" },
   },
   dashboard: {

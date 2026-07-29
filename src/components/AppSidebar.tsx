@@ -19,9 +19,21 @@ import {
   SettingsIcon,
   ShieldCheckIcon,
   TerminalSquareIcon,
+  TriangleAlertIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -44,7 +56,9 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
+import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
+import { restartApplication } from "src/services/tauri/application";
 import { writeDiagnosticText } from "src/services/tauri/system-information";
 import { useSystemInformationStore } from "src/stores/system-information-store";
 import {
@@ -130,6 +144,8 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const [activeItem, setActiveItem] = useState("items.dashboard");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [restartConfirmationOpen, setRestartConfirmationOpen] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const summary = useSystemInformationStore((state) => state.summary);
   const information = useSystemInformationStore((state) => state.information);
   const loadSummary = useSystemInformationStore((state) => state.loadSummary);
@@ -215,6 +231,25 @@ export function AppSidebar() {
           : t("systemInformation:errors.unknown");
       toast.add({
         title: t("navigation:toast.copyDiagnosticsError"),
+        description: message,
+        type: "error",
+      });
+    }
+  }
+
+  async function handleRestartApplication() {
+    setRestarting(true);
+    try {
+      await restartApplication();
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : t("systemInformation:errors.unknown");
+      setRestarting(false);
+      toast.add({
+        title: t("navigation:machine.restartError"),
         description: message,
         type: "error",
       });
@@ -343,7 +378,8 @@ export function AppSidebar() {
                 <DropdownMenuSeparator/>
                 <DropdownMenuGroup>
                   <DropdownMenuItem
-                    onClick={() => showMockAction(t("navigation:machine.restartApp"), t("navigation:toast.futureAction"))}>
+                    onClick={() => setRestartConfirmationOpen(true)}
+                  >
                     {t("navigation:machine.restartApp")}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
@@ -353,6 +389,41 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarFooter>
       <PreferencesDialog onOpenChange={setSettingsOpen} open={settingsOpen}/>
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open && !restarting) {
+            setRestartConfirmationOpen(false);
+          }
+        }}
+        open={restartConfirmationOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia>
+              <TriangleAlertIcon aria-hidden="true" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>
+              {t("navigation:machine.restartConfirmationTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("navigation:machine.restartConfirmationDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restarting}>
+              {t("common:actions.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={restarting}
+              onClick={() => void handleRestartApplication()}
+              variant="destructive"
+            >
+              {restarting ? <Spinner data-icon="inline-start" /> : null}
+              {t("navigation:machine.restartApp")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sidebar>
   );
 }

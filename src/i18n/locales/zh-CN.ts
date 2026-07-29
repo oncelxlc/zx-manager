@@ -8,7 +8,7 @@ const zhCN = {
     groups: { management: "管理", resources: "资源" },
     items: { certificates: "证书", configuration: "配置", dashboard: "仪表盘", help: "帮助", logs: "日志", networkPorts: "网络端口", nginx: "Nginx", search: "搜索", services: "服务", settings: "设置", systemMonitor: "系统监控" },
     labels: { openMachineActions: "打开本机操作" },
-    machine: { name: "本地计算机", platformUnavailable: "正在获取系统摘要", copyDiagnostics: "复制诊断信息", openGuide: "打开指南", refreshSummary: "刷新设备摘要", restartApp: "重启应用", systemInfo: "系统信息" },
+    machine: { name: "本地计算机", platformUnavailable: "正在获取系统摘要", copyDiagnostics: "复制诊断信息", openGuide: "打开指南", refreshSummary: "刷新设备摘要", restartApp: "重启应用", restartConfirmationTitle: "重启 ZxManager？", restartConfirmationDescription: "应用将关闭并立即重新启动。未保存的操作可能会丢失。", restartError: "无法重启应用", systemInfo: "系统信息" },
     toast: { copyDiagnosticsError: "无法复制诊断信息", copyDiagnosticsSuccess: "诊断信息已复制", copyDiagnosticsSuccessDescription: "已将不含主机名、挂载点和驱动详情的白名单 JSON 写入剪贴板。", futureAction: "此操作已为后续 Tauri 命令准备就绪。", moduleMock: "此模块当前以本地仪表盘模拟方式呈现。", selected: "已选择 {{label}}", summaryRefreshError: "无法刷新设备摘要", summaryRefreshSuccess: "设备摘要已更新" },
   },
   dashboard: {

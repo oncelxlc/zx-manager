@@ -27,4 +27,5 @@ wgpu = "30.0.0"
 tauri-plugin-clipboard-manager = "2"
 chrono = { version = "0.4.42", features = ["clock", "std"] }
 tauri-plugin-store = "2"
+tauri-plugin-process = "2"
 
