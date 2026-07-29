@@ -544,7 +544,7 @@ export function NetworkMonitorPage() {
 
   if (platformSupported === false) {
     return (
-      <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4 lg:p-6">
+      <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">{t("title")}</h1>
           <p className="text-sm text-muted-foreground">{t("description")}</p>
@@ -559,7 +559,7 @@ export function NetworkMonitorPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4 lg:p-6">
+    <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">{t("title")}</h1>
         <p className="text-sm text-muted-foreground">
@@ -785,7 +785,7 @@ export function NetworkMonitorPage() {
         </CardHeader>
         <CardContent>
           <Table
-            className="min-w-224 table-fixed"
+            className="min-w-4xl table-fixed"
             containerClassName="max-h-[52.5rem] overflow-auto rounded-md border"
           >
             <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:bg-card">

@@ -241,7 +241,7 @@ export function DashboardPage() {
   });
 
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4 lg:p-6">
+    <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4">
       <section
         aria-label={t("systemStatus")}
         className="dashboard-kpi-grid grid gap-4"

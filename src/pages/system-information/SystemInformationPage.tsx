@@ -89,7 +89,7 @@ export function SystemInformationPage() {
   });
 
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4 lg:p-6">
+    <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">{t("title")}</h1>
         <p className="text-sm text-muted-foreground">
