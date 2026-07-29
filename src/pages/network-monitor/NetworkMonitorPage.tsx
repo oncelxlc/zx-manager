@@ -572,7 +572,7 @@ export function NetworkMonitorPage() {
           </CardHeader>
           <CardContent>
             <Table
-              className="min-w-[52rem] table-fixed"
+              className="min-w-208 table-fixed"
               containerClassName="max-h-[52.5rem] overflow-auto rounded-md border"
             >
               <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:bg-card">
@@ -622,7 +622,7 @@ export function NetworkMonitorPage() {
                   </TableRow>
                 ))}
                 {interfaces.length === 0 ? (
-                  <TableRow className="h-[25rem]">
+                  <TableRow className="h-100">
                     <TableCell colSpan={6}>
                       <Empty className="h-full border-0">
                         <EmptyHeader>
@@ -885,7 +885,7 @@ export function NetworkMonitorPage() {
             </Button>
           </div>
           <Table
-            className="min-w-[50rem] table-fixed"
+            className="min-w-200 table-fixed"
             containerClassName="max-h-[52.5rem] overflow-auto rounded-md border"
           >
             <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:bg-card">
@@ -926,7 +926,7 @@ export function NetworkMonitorPage() {
                 </TableRow>
               ))}
               {!history?.points.length ? (
-                <TableRow className="h-[25rem]">
+                <TableRow className="h-100">
                   <TableCell colSpan={5}>
                     <Empty className="h-full border-0">
                       <EmptyHeader>
