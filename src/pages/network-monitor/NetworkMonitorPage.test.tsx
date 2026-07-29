@@ -4,75 +4,72 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const store = vi.hoisted(() => {
-  const interfaces = Array.from({ length: 25 }, (_, index) => ({
-    id: `interface-${index}`,
-    name: `Interface ${index}`,
-    kind: "ethernet",
-    state: "up",
-    layer: "physical",
-    isVirtual: false,
-    tunnelType: null,
+  const applications = Array.from({ length: 25 }, (_, index) => ({
+    applicationId: `application-${index}`,
+    displayName: `App ${index}.exe`,
+    networkPath: (["proxy", "direct", "unknown"] as const)[index % 3]!,
     traffic: {
       downloadBytesPerSecond: index,
       uploadBytesPerSecond: index,
       sessionDownloadBytes: index,
       sessionUploadBytes: index,
     },
-    quality: "exact",
+    quality: index % 3 === 2 ? "partial" as const : "exact" as const,
   }));
   const realtime = [{
     generation: 1,
     sequence: 1,
     sampledAt: Date.now(),
     elapsedMs: 5000,
-    sampleState: "sample",
-    device: {
-      downloadBytesPerSecond: 100,
-      uploadBytesPerSecond: 20,
-      sessionDownloadBytes: 1000,
-      sessionUploadBytes: 200,
+    sampleState: "sample" as const,
+    applications,
+    unknownTraffic: {
+      downloadBytesPerSecond: 2,
+      uploadBytesPerSecond: 2,
+      sessionDownloadBytes: 2,
+      sessionUploadBytes: 2,
     },
-    interfaces,
-    applications: [],
-    proxyVpn: {
-      proxyConfigured: false,
-      proxyKinds: [],
-      pacEnabled: false,
-      vpnConnected: false,
-      routeMode: null,
-      virtualInterfaceIds: [],
-      traffic: {
-        downloadBytesPerSecond: null,
-        uploadBytesPerSecond: null,
-        sessionDownloadBytes: 0,
-        sessionUploadBytes: 0,
-      },
-      quality: "unavailable",
-    },
+    lostEvents: 0,
+    unresolvedEvents: 1,
     warnings: [],
   }];
   const historyPoints = Array.from({ length: 10 }, (_, index) => ({
-    from: index * 1000,
-    to: (index + 1) * 1000,
-    groupId: `group-${index}`,
-    layer: "physical",
+    applicationId: `history-${index}`,
+    displayName: `History ${index}.exe`,
     downloadBytes: index,
     uploadBytes: index,
-    quality: "exact",
+    totalBytes: index * 2,
+    includesUnknown: false,
+    quality: "exact" as const,
   }));
 
   return {
-    interfaces,
+    applications,
+    historyPoints,
     state: {
-      capabilities: null,
+      capabilities: {
+        platform: "windows",
+        platformSupported: true,
+        requiresElevation: true,
+        applicationTraffic: true,
+        proxyClassification: true,
+        historyStorage: true,
+        retentionDays: 7,
+      },
       status: {
+        platformSupported: true,
+        requiresElevation: true,
         enabled: true,
-        collectorState: "running",
+        collectorState: "running" as const,
+        helperState: "running" as const,
         generation: 1,
         subscriberCount: 1,
         sampleIntervalSeconds: 5,
         databaseCreated: true,
         lastSampledAt: Date.now(),
+        lostEvents: 0,
+        unresolvedEvents: 0,
+        partialData: false,
         lastError: null,
       },
       realtime,
@@ -82,7 +79,6 @@ const store = vi.hoisted(() => {
         requestedTo: 10_000,
         actualFrom: 0,
         actualTo: 10_000,
-        interval: "second",
         points: historyPoints,
         totalCount: 25,
         nextCursor: "10",
@@ -143,46 +139,40 @@ vi.mock("recharts", () => ({
 
 import { NetworkMonitorPage } from "./NetworkMonitorPage";
 
-describe("NetworkMonitorPage tables", () => {
+describe("NetworkMonitorPage application traffic", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    store.state.realtime[0].interfaces = store.interfaces;
-    store.state.history.points = Array.from({ length: 10 }, (_, index) => ({
-      from: index * 1000,
-      to: (index + 1) * 1000,
-      groupId: `group-${index}`,
-      layer: "physical",
-      downloadBytes: index,
-      uploadBytes: index,
-      quality: "exact",
-    }));
+    store.state.capabilities.platformSupported = true;
+    store.state.realtime[0].applications = store.applications;
+    store.state.history.points = store.historyPoints;
     store.state.history.totalCount = 25;
+    store.state.error = null;
   });
 
-  it("uses fixed columns, a twenty-row scroll viewport, and independent pagination", async () => {
+  it("uses application columns, bounded table viewports, and independent pagination", async () => {
     const user = userEvent.setup();
     render(<NetworkMonitorPage />);
 
     const tables = screen.getAllByRole("table");
     expect(tables).toHaveLength(2);
-    expect(tables[0]).toHaveClass("table-fixed", "min-w-[52rem]");
-    expect(tables[1]).toHaveClass("table-fixed", "min-w-[50rem]");
+    expect(tables[0]).toHaveClass("table-fixed", "min-w-224");
+    expect(tables[1]).toHaveClass("table-fixed", "min-w-176");
     expect(tables[0]?.closest("[data-slot=table-container]")).toHaveClass(
       "max-h-[52.5rem]",
       "overflow-auto",
     );
-    expect(screen.getByRole("columnheader", { name: "Kind" }))
-      .toHaveClass("w-32");
-    expect(screen.getByRole("columnheader", { name: "Time" }))
-      .toHaveClass("w-48");
-    expect(screen.getByTitle("Interface 0")).toBeInTheDocument();
-    expect(screen.queryByTitle("Interface 10")).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Download rate" }))
+      .toHaveClass("w-40");
+    expect(screen.getByRole("columnheader", { name: "Total" }))
+      .toHaveClass("w-40");
+    expect(screen.getByTitle("App 24.exe")).toBeInTheDocument();
+    expect(screen.queryByTitle("App 12.exe")).not.toBeInTheDocument();
 
     const secondPageButtons = screen.getAllByRole("button", {
       name: "Go to page 2",
     });
     await user.click(secondPageButtons[0]!);
-    expect(screen.getByTitle("Interface 10")).toBeInTheDocument();
+    expect(screen.getByTitle("App 12.exe")).toBeInTheDocument();
 
     await user.click(secondPageButtons[1]!);
     await waitFor(() => {
@@ -192,17 +182,46 @@ describe("NetworkMonitorPage tables", () => {
     });
   });
 
-  it("keeps empty tables at the default ten-row height", () => {
-    store.state.realtime[0].interfaces = [];
+  it("keeps empty application and history tables at the default height", () => {
+    store.state.realtime[0].applications = [];
     store.state.history.points = [];
     store.state.history.totalCount = 0;
 
     render(<NetworkMonitorPage />);
 
     expect(screen.getByText("Waiting for the first real sample.").closest("tr"))
-      .toHaveClass("h-[25rem]");
+      .toHaveClass("h-100");
     expect(screen.getByText("No history is available for this range.").closest("tr"))
-      .toHaveClass("h-[25rem]");
+      .toHaveClass("h-100");
+  });
+
+  it("keeps realtime and history path selectors independent", async () => {
+    const user = userEvent.setup();
+    render(<NetworkMonitorPage />);
+
+    const proxyButtons = screen.getAllByRole("button", { name: "Proxy" });
+    await user.click(proxyButtons[0]!);
+    expect(screen.getByTitle("App 24.exe")).toBeInTheDocument();
+    expect(screen.queryByTitle("App 23.exe")).not.toBeInTheDocument();
+
+    const directButtons = screen.getAllByRole("button", { name: "Non-proxy" });
+    await user.click(directButtons[1]!);
+    await waitFor(() => {
+      expect(store.state.queryHistory).toHaveBeenCalledWith(
+        expect.objectContaining({ networkPath: "direct" }),
+      );
+    });
+    expect(screen.getByTitle("App 24.exe")).toBeInTheDocument();
+  });
+
+  it("includes unknown traffic only in the realtime All selection", async () => {
+    const user = userEvent.setup();
+    render(<NetworkMonitorPage />);
+
+    expect(screen.getByTitle("App 23.exe")).toBeInTheDocument();
+    const proxyButtons = screen.getAllByRole("button", { name: "Proxy" });
+    await user.click(proxyButtons[0]!);
+    expect(screen.queryByTitle("App 23.exe")).not.toBeInTheDocument();
   });
 
   it("persists a successful sample interval change", async () => {
@@ -216,5 +235,37 @@ describe("NetworkMonitorPage tables", () => {
       expect(store.state.setSampleInterval).toHaveBeenCalledWith(10);
       expect(storage.setNetworkMonitorSampleInterval).toHaveBeenCalledWith(10);
     });
+  });
+
+  it("shows only the Windows support notice on unsupported systems", () => {
+    store.state.capabilities.platformSupported = false;
+    render(<NetworkMonitorPage />);
+
+    expect(
+      screen.getByText("Network monitoring is not supported on this system"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("uses the same unsupported-only state when the browser runtime rejects initialization", () => {
+    const mutableState = store.state as unknown as {
+      capabilities: typeof store.state.capabilities | null;
+      error: { code: "unsupportedPlatform"; message: string } | null;
+    };
+    const capabilities = mutableState.capabilities;
+    mutableState.capabilities = null;
+    mutableState.error = {
+      code: "unsupportedPlatform",
+      message: "Tauri is unavailable",
+    };
+
+    render(<NetworkMonitorPage />);
+
+    expect(
+      screen.getByText("Network monitoring is not supported on this system"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    mutableState.capabilities = capabilities;
+    mutableState.error = null;
   });
 });

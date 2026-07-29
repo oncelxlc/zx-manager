@@ -13,7 +13,7 @@ import type { UserPreferences } from "src/types/preferences";
 const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
 
 flushSync(() => {
-  root.render(<StartupScreen />);
+  root.render(<StartupScreen/>);
 });
 
 async function bootstrap() {
@@ -37,7 +37,7 @@ async function bootstrap() {
 
   root.render(
     <React.StrictMode>
-      <App initialTheme={theme} />
+      <App initialTheme={theme}/>
     </React.StrictMode>,
   );
 

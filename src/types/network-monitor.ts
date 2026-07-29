@@ -1,5 +1,6 @@
-export type TrafficLayer = "physical" | "tunnel" | "application";
-export type AttributionQuality = "exact" | "interfaceOnly" | "unavailable";
+export type AttributionQuality = "exact" | "partial";
+export type NetworkPath = "proxy" | "direct" | "unknown";
+export type NetworkPathFilter = "all" | "proxy" | "direct";
 export type SampleState = "sample" | "gap" | "paused";
 export type CollectorState =
   | "disabled"
@@ -7,22 +8,15 @@ export type CollectorState =
   | "running"
   | "degraded"
   | "stopped";
-export type InterfaceKind =
-  | "ethernet"
-  | "wifi"
-  | "tunnel"
-  | "loopback"
-  | "virtual"
-  | "other";
-export type InterfaceState = "up" | "down" | "unknown";
-export type RouteMode = "fullTunnel" | "splitTunnel" | "direct" | "unknown";
-export type QueryInterval = "auto" | "second" | "minute" | "fiveMinutes";
-export type QueryGroupBy = "time" | "interface" | "application" | "proxySession";
+export type HelperState = "stopped" | "starting" | "running" | "failed";
 
 export interface NetworkMonitorCommandError {
   code:
     | "invalidRequest"
     | "unsupportedPlatform"
+    | "elevationCancelled"
+    | "helperDisconnected"
+    | "protocolMismatch"
     | "collectorUnavailable"
     | "storageUnavailable"
     | "internal"
@@ -35,31 +29,30 @@ export interface NetworkMonitorWarning {
   message: string | null;
 }
 
-export interface CapabilityStatus {
-  available: boolean;
-  quality: AttributionQuality;
-  reason: string | null;
-}
-
 export interface NetworkMonitorCapabilities {
   platform: string;
-  interfaceTraffic: CapabilityStatus;
-  applicationTraffic: CapabilityStatus;
-  proxyConfiguration: CapabilityStatus;
-  vpnDetection: CapabilityStatus;
-  routeModeDetection: CapabilityStatus;
-  historyStorage: CapabilityStatus;
+  platformSupported: boolean;
+  requiresElevation: boolean;
+  applicationTraffic: boolean;
+  proxyClassification: boolean;
+  historyStorage: boolean;
   retentionDays: number;
 }
 
 export interface NetworkMonitorStatus {
+  platformSupported: boolean;
+  requiresElevation: boolean;
   enabled: boolean;
   collectorState: CollectorState;
+  helperState: HelperState;
   generation: number;
   subscriberCount: number;
   sampleIntervalSeconds: number;
   databaseCreated: boolean;
   lastSampledAt: number | null;
+  lostEvents: number;
+  unresolvedEvents: number;
+  partialData: boolean;
   lastError: NetworkMonitorWarning | null;
 }
 
@@ -70,32 +63,10 @@ export interface TrafficValues {
   sessionUploadBytes: number;
 }
 
-export interface InterfaceTrafficSnapshot {
-  id: string;
-  name: string;
-  kind: InterfaceKind;
-  state: InterfaceState;
-  layer: TrafficLayer;
-  isVirtual: boolean;
-  tunnelType: string | null;
-  traffic: TrafficValues;
-  quality: AttributionQuality;
-}
-
 export interface ApplicationTrafficSnapshot {
   applicationId: string;
   displayName: string;
-  traffic: TrafficValues;
-  quality: AttributionQuality;
-}
-
-export interface ProxyVpnSnapshot {
-  proxyConfigured: boolean;
-  proxyKinds: string[];
-  pacEnabled: boolean;
-  vpnConnected: boolean;
-  routeMode: RouteMode | null;
-  virtualInterfaceIds: string[];
+  networkPath: NetworkPath;
   traffic: TrafficValues;
   quality: AttributionQuality;
 }
@@ -106,10 +77,10 @@ export interface NetworkRealtimeEvent {
   sampledAt: number;
   elapsedMs: number | null;
   sampleState: SampleState;
-  device: TrafficValues;
-  interfaces: InterfaceTrafficSnapshot[];
   applications: ApplicationTrafficSnapshot[];
-  proxyVpn: ProxyVpnSnapshot;
+  unknownTraffic: TrafficValues;
+  lostEvents: number;
+  unresolvedEvents: number;
   warnings: NetworkMonitorWarning[];
 }
 
@@ -122,24 +93,19 @@ export interface NetworkSubscription {
 export interface NetworkUsageQuery {
   from: number;
   to: number;
-  interval?: QueryInterval;
-  groupBy?: QueryGroupBy;
-  interfaceIds?: string[];
-  applicationIds?: string[];
-  proxySessionIds?: string[];
-  layers?: TrafficLayer[];
+  networkPath: NetworkPathFilter;
   timeZone: string;
   limit?: number;
   cursor?: string;
 }
 
 export interface NetworkUsagePoint {
-  from: number;
-  to: number;
-  groupId: string;
-  layer: TrafficLayer;
+  applicationId: string;
+  displayName: string;
   downloadBytes: number;
   uploadBytes: number;
+  totalBytes: number;
+  includesUnknown: boolean;
   quality: AttributionQuality;
 }
 
@@ -149,7 +115,6 @@ export interface NetworkUsageResult {
   requestedTo: number;
   actualFrom: number;
   actualTo: number;
-  interval: QueryInterval;
   points: NetworkUsagePoint[];
   totalCount: number;
   nextCursor: string | null;
@@ -158,16 +123,11 @@ export interface NetworkUsageResult {
 }
 
 export interface ClearNetworkUsageRequest {
-  scope: "all" | "application" | "timeRange";
-  applicationId?: string;
-  from?: number;
-  to?: number;
+  scope: "all";
 }
 
 export interface ClearNetworkUsageResult {
   generation: number;
   deletedBuckets: number;
   clearedAt: number;
-  clearedFrom: number | null;
-  clearedTo: number | null;
 }

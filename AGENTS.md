@@ -8,8 +8,8 @@ ZxManager is a React 19 + Tauri 2 desktop console for local infrastructure manag
 - Diagnostic text is written through the Tauri clipboard plugin.
 - Theme and locale preferences use Tauri Store, with legacy `localStorage` migration and fallback.
 - Application restart uses the Tauri Process plugin.
-- Network monitoring is opt-in and uses real platform interface counters, an in-memory realtime ring, and a local seven-day SQLite history.
-- Application traffic attribution is deliberately unavailable in v1. Its abstraction, DTOs, and storage dimensions exist, but no estimate or mock traffic may be emitted.
+- Network monitoring is opt-in and Windows 10/11-only. An elevated same-executable helper owns the ETW session and sends application/path aggregates to the unelevated main process.
+- Application traffic uses TCP/UDP ETW payload PIDs and byte counts, an in-memory realtime ring, and a local seven-day SQLite history. Non-Windows platforms keep the route but emit no estimate or mock traffic.
 - Dashboard service data and Start/Stop/Restart/Remove operations remain frontend-only mocks in `src/services/tauri/service-manager.ts`.
 
 Keep that boundary explicit. Never describe a mocked Dashboard action as real system control. Any new host-level operation requires an auditable Rust command or official Tauri plugin plus the narrowest practical capability permission.
@@ -47,8 +47,9 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 - Keep the network Manager disabled and its SQLite connection unopened until the user has configured monitoring and explicitly enables, queries, or clears it. Current-session state and the start-on-launch preference are independent.
 - Network sampling uses the persisted 1/3/5/10-second preference, defaults to five seconds, and must not silently change based on realtime subscriber count.
 - Network realtime consumers must discard old generations and out-of-order sequences, explicitly unsubscribe on page teardown, preserve `null` gaps, and keep bounded arrays.
-- Never total physical, tunnel, and application layers together. Device totals include only operational non-loopback, non-virtual physical interfaces; VPN totals come from tunnel interfaces.
-- Treat network interface counters as cumulative and reset the monotonic baseline after first samples, counter rollback, interface reconstruction, or long sleep gaps.
+- Keep realtime and history path filters independent. `all` includes `unknown`; `proxy` and `direct` exclude it. Merge path records for the same application only after applying the active filter.
+- Treat application traffic as process-event aggregation, not physical line-rate totals. Local proxy forwarding may be counted for both the client and proxy application and must retain the UI warning.
+- Non-Windows builds must retain the network route and navigation but render only the unsupported-platform state.
 
 ## Security and Tauri Boundaries
 
@@ -57,14 +58,17 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 - Do not execute arbitrary shell strings from the WebView. Validate identifiers and arguments again in Rust when real service management is introduced.
 - Keep service management mocked until a platform-specific, permission-scoped backend and corresponding tests exist.
 - Network monitor commands are grouped into `allow-network-monitor-read`, `allow-network-monitor-control`, and `allow-network-monitor-clear`. Do not replace these sets with a broad default capability.
-- The network database may store hashed interface identities and byte/time buckets only. Do not add raw MAC addresses, host names, remote addresses, domains, URLs, ports, packet contents, or command lines.
+- Keep the main Tauri process unelevated. Only the hidden network helper may request UAC elevation, and it must validate the local pipe ACL, launched PID, nonce, and protocol version before exchanging aggregates.
+- ETW callbacks must use the payload PID and byte count, enqueue bounded raw events, and leave process resolution and proxy classification to the helper aggregation thread.
+- The network database may store normalized executable-path hashes, executable file names, path classes, quality flags, and byte/time buckets only. Do not add full executable paths, PIDs, raw MAC addresses, host names, remote addresses, domains, URLs, ports, packet contents, or command lines.
+- Static proxy endpoints may classify traffic as `proxy`; PAC, auto-detect, transparent proxies, TUN, read failures, and ambiguous flows must remain `unknown`. Never relabel VPN traffic as proxy traffic.
 - Call out every dependency, capability, generated permission, or `tauri.conf.json` change in the final summary and pull request.
 
 ## Build, Test, and Development Commands
 
 Use pnpm and commit `pnpm-lock.yaml` whenever JavaScript dependencies change. Commit `src-tauri/Cargo.lock` whenever Rust dependencies change.
 
-Network monitoring uses `rusqlite` with bundled SQLite, `chrono-tz`, and `sha2`; Windows additionally uses `windows` and `winreg`, while macOS uses `libc`. Its eight commands include the control-scoped sampling interval setter; any changes to these dependencies, commands, the three permission sets, or the database schema must be called out explicitly.
+Network monitoring uses `rusqlite` with bundled SQLite, `chrono-tz`, and `sha2`; Windows additionally uses `windows` and `winreg`. Its eight commands include the control-scoped sampling interval setter; any changes to these dependencies, Windows API features, commands, the three permission sets, helper protocol, or database schema must be called out explicitly. Schema v2 transactionally clears incompatible v1 interface/VPN history instead of inventing application attribution.
 
 - `pnpm install` installs JavaScript dependencies and configures Husky hooks.
 - `pnpm dev` starts Vite on port 1420.

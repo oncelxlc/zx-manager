@@ -29,48 +29,44 @@ function event(generation: number, sequence: number): NetworkRealtimeEvent {
     sampledAt: sequence * 1000,
     elapsedMs: 1000,
     sampleState: "sample",
-    device: {
-      downloadBytesPerSecond: sequence,
-      uploadBytesPerSecond: sequence,
-      sessionDownloadBytes: sequence,
-      sessionUploadBytes: sequence,
-    },
-    interfaces: [],
-    applications: [],
-    proxyVpn: {
-      proxyConfigured: false,
-      proxyKinds: [],
-      pacEnabled: false,
-      vpnConnected: false,
-      routeMode: null,
-      virtualInterfaceIds: [],
+    applications: [{
+      applicationId: "app",
+      displayName: "app.exe",
+      networkPath: "direct",
       traffic: {
-        downloadBytesPerSecond: null,
-        uploadBytesPerSecond: null,
-        sessionDownloadBytes: 0,
-        sessionUploadBytes: 0,
+        downloadBytesPerSecond: sequence,
+        uploadBytesPerSecond: sequence,
+        sessionDownloadBytes: sequence,
+        sessionUploadBytes: sequence,
       },
-      quality: "unavailable",
+      quality: "exact",
+    }],
+    unknownTraffic: {
+      downloadBytesPerSecond: 0,
+      uploadBytesPerSecond: 0,
+      sessionDownloadBytes: 0,
+      sessionUploadBytes: 0,
     },
+    lostEvents: 0,
+    unresolvedEvents: 0,
     warnings: [],
   };
 }
 
-function history(generation: number, groupId: string): NetworkUsageResult {
+function history(generation: number, applicationId: string): NetworkUsageResult {
   return {
     generation,
     requestedFrom: 0,
     requestedTo: 1000,
     actualFrom: 0,
     actualTo: 1000,
-    interval: "second",
     points: [{
-      from: 0,
-      to: 1000,
-      groupId,
-      layer: "physical",
+      applicationId,
+      displayName: `${applicationId}.exe`,
       downloadBytes: 1,
       uploadBytes: 1,
+      totalBytes: 2,
+      includesUnknown: false,
       quality: "exact",
     }],
     totalCount: 1,
@@ -86,13 +82,19 @@ describe("network monitor store", () => {
     vi.clearAllMocks();
     useNetworkMonitorStore.setState({
       status: {
+        platformSupported: true,
+        requiresElevation: true,
         enabled: true,
         collectorState: "running",
+        helperState: "running",
         generation: 1,
         subscriberCount: 1,
         sampleIntervalSeconds: 5,
         databaseCreated: false,
         lastSampledAt: null,
+        lostEvents: 0,
+        unresolvedEvents: 0,
+        partialData: false,
         lastError: null,
       },
     });
@@ -132,6 +134,7 @@ describe("network monitor store", () => {
     const request = {
       from: 0,
       to: 1000,
+      networkPath: "all" as const,
       timeZone: "UTC",
     };
 
@@ -142,7 +145,8 @@ describe("network monitor store", () => {
     resolveFirst?.(history(1, "old"));
     await first;
 
-    expect(useNetworkMonitorStore.getState().history?.points[0]?.groupId).toBe("new");
+    expect(useNetworkMonitorStore.getState().history?.points[0]?.applicationId)
+      .toBe("new");
   });
 
   it("invalidates history and realtime data after clearing", async () => {
@@ -152,8 +156,6 @@ describe("network monitor store", () => {
       generation: 2,
       deletedBuckets: 1,
       clearedAt: 1000,
-      clearedFrom: null,
-      clearedTo: null,
     });
 
     await useNetworkMonitorStore.getState().clearUsage({ scope: "all" });

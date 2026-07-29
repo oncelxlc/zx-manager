@@ -267,6 +267,16 @@ export const useNetworkMonitorStore = create<NetworkMonitorStoreState>(
               ...state.status,
               generation: event.generation,
               lastSampledAt: event.sampledAt,
+              lostEvents: state.status.lostEvents + event.lostEvents,
+              unresolvedEvents:
+                state.status.unresolvedEvents + event.unresolvedEvents,
+              partialData:
+                state.status.partialData
+                || event.lostEvents > 0
+                || event.unresolvedEvents > 0,
+              collectorState:
+                event.sampleState === "gap" ? "degraded" : "running",
+              helperState: "running",
             }
           : state.status,
       });
