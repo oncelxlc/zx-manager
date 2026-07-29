@@ -84,7 +84,8 @@ describe("MainLayout", () => {
     const content = container.querySelector('[data-slot="sidebar-inset"]');
     expect(content).toHaveClass(
       "bg-background",
-      "lg:m-2",
+      "mb-2",
+      "mr-2",
       "lg:w-auto",
       "lg:rounded-xl",
     );

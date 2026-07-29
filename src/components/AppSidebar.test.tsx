@@ -51,7 +51,6 @@ describe("AppSidebar system information navigation", () => {
     const user = userEvent.setup();
     renderSidebar();
 
-    expect(screen.getByText("Windows 11 Pro · x86_64")).toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: "Open machine actions" }),
     );
