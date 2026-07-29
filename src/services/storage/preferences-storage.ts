@@ -1,3 +1,5 @@
+import { load, type Store } from "@tauri-apps/plugin-store";
+
 import {
   isSupportedLocale,
   isThemeMode,
@@ -8,6 +10,8 @@ import {
 
 const preferencesStorageKey = "local-console.preferences";
 const legacyThemeStorageKey = "vite-ui-theme";
+const storeFileName = "preferences.json";
+const storePreferencesKey = "preferences";
 
 interface StoredPreferencesV1 {
   version: 1;
@@ -15,44 +19,58 @@ interface StoredPreferencesV1 {
   theme?: ThemeMode;
 }
 
+type PreferencesStore = Pick<Store, "get" | "save" | "set">;
+
+let storePromise: Promise<PreferencesStore> | null | undefined;
+
 function canUseStorage() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
-function readStoredPreferences(): Partial<UserPreferences> {
+function normalizePreferences(value: unknown): Partial<UserPreferences> {
+  if (typeof value !== "object" || value === null) {
+    return {};
+  }
+
+  const preferences = value as StoredPreferencesV1;
+  if (preferences.version !== 1) {
+    return {};
+  }
+
+  return {
+    locale: isSupportedLocale(preferences.locale) ? preferences.locale : undefined,
+    theme: isThemeMode(preferences.theme) ? preferences.theme : undefined,
+  };
+}
+
+function readLegacyPreferences(): Partial<UserPreferences> {
   if (!canUseStorage()) {
     return {};
   }
 
   try {
     const rawValue = window.localStorage.getItem(preferencesStorageKey);
-    if (rawValue) {
-      const parsedValue: unknown = JSON.parse(rawValue);
-      if (typeof parsedValue === "object" && parsedValue !== null) {
-        const value = parsedValue as StoredPreferencesV1;
-        if (value.version === 1) {
-          return {
-            locale: isSupportedLocale(value.locale) ? value.locale : undefined,
-            theme: isThemeMode(value.theme) ? value.theme : undefined,
-          };
-        }
-      }
-    }
-
+    const storedPreferences = rawValue
+      ? normalizePreferences(JSON.parse(rawValue) as unknown)
+      : {};
     const legacyTheme = window.localStorage.getItem(legacyThemeStorageKey);
-    return isThemeMode(legacyTheme) ? { theme: legacyTheme } : {};
+
+    return {
+      ...storedPreferences,
+      theme: storedPreferences.theme ?? (isThemeMode(legacyTheme) ? legacyTheme : undefined),
+    };
   } catch {
     return {};
   }
 }
 
-function writeStoredPreferences(preferences: Partial<UserPreferences>) {
+function writeLegacyPreferences(preferences: Partial<UserPreferences>) {
   if (!canUseStorage()) {
     return;
   }
 
   try {
-    const current = readStoredPreferences();
+    const current = readLegacyPreferences();
     const nextValue: StoredPreferencesV1 = {
       version: 1,
       ...current,
@@ -64,18 +82,116 @@ function writeStoredPreferences(preferences: Partial<UserPreferences>) {
   }
 }
 
-export async function getPreferences(): Promise<Partial<UserPreferences>> {
-  const preferences = readStoredPreferences();
-  if (canUseStorage() && !window.localStorage.getItem(preferencesStorageKey) && preferences.theme) {
-    writeStoredPreferences(preferences);
+function clearLegacyPreferences() {
+  if (!canUseStorage()) {
+    return;
   }
-  return preferences;
+
+  try {
+    window.localStorage.removeItem(preferencesStorageKey);
+    window.localStorage.removeItem(legacyThemeStorageKey);
+  } catch {
+    // The Store write already succeeded; a blocked legacy cleanup is harmless.
+  }
+}
+
+function hasPreferences(preferences: Partial<UserPreferences>) {
+  return preferences.locale !== undefined || preferences.theme !== undefined;
+}
+
+function mergePreferences(
+  primary: Partial<UserPreferences>,
+  fallback: Partial<UserPreferences>,
+): Partial<UserPreferences> {
+  return {
+    locale: primary.locale ?? fallback.locale,
+    theme: primary.theme ?? fallback.theme,
+  };
+}
+
+function preferencesMatch(
+  left: Partial<UserPreferences>,
+  right: Partial<UserPreferences>,
+) {
+  return left.locale === right.locale && left.theme === right.theme;
+}
+
+async function getStore(): Promise<PreferencesStore | null> {
+  if (storePromise === null) {
+    return null;
+  }
+
+  if (!storePromise) {
+    storePromise = load(storeFileName, { autoSave: false });
+  }
+
+  try {
+    return await storePromise;
+  } catch {
+    storePromise = null;
+    return null;
+  }
+}
+
+async function savePreferences(
+  store: PreferencesStore,
+  preferences: Partial<UserPreferences>,
+) {
+  const value: StoredPreferencesV1 = {
+    version: 1,
+    ...preferences,
+  };
+  await store.set(storePreferencesKey, value);
+  await store.save();
+}
+
+export async function getPreferences(): Promise<Partial<UserPreferences>> {
+  const store = await getStore();
+  const legacyPreferences = readLegacyPreferences();
+
+  if (!store) {
+    return legacyPreferences;
+  }
+
+  try {
+    const storedPreferences = normalizePreferences(
+      await store.get<unknown>(storePreferencesKey),
+    );
+    const preferences = mergePreferences(storedPreferences, legacyPreferences);
+
+    if (hasPreferences(legacyPreferences) && !preferencesMatch(preferences, storedPreferences)) {
+      await savePreferences(store, preferences);
+      clearLegacyPreferences();
+    }
+
+    return preferences;
+  } catch {
+    return legacyPreferences;
+  }
 }
 
 export async function setLocale(locale: SupportedLocale): Promise<void> {
-  writeStoredPreferences({ locale });
+  await updatePreferences({ locale });
 }
 
 export async function setTheme(theme: ThemeMode): Promise<void> {
-  writeStoredPreferences({ theme });
+  await updatePreferences({ theme });
+}
+
+async function updatePreferences(preferences: Partial<UserPreferences>) {
+  const store = await getStore();
+  if (!store) {
+    writeLegacyPreferences(preferences);
+    return;
+  }
+
+  try {
+    const storedPreferences = normalizePreferences(
+      await store.get<unknown>(storePreferencesKey),
+    );
+    await savePreferences(store, mergePreferences(preferences, storedPreferences));
+    clearLegacyPreferences();
+  } catch {
+    writeLegacyPreferences(preferences);
+  }
 }

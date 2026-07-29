@@ -5,6 +5,16 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "opener:default",
+    "allow-greet",
+    "allow-get-system-summary",
+    "allow-get-system-information",
+    "clipboard-manager:allow-write-text",
+    "store:allow-load",
+    "store:allow-get-store",
+    "store:allow-get",
+    "store:allow-set",
+    "store:allow-save",
+    "process:allow-restart"
   ]
 }
