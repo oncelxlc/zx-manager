@@ -8,12 +8,15 @@ pub struct NetworkMonitorError {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub enum NetworkMonitorErrorCode {
     InvalidRequest,
     UnsupportedPlatform,
+    ElevationCancelled,
+    HelperDisconnected,
+    ProtocolMismatch,
     CollectorUnavailable,
     StorageUnavailable,
     Internal,

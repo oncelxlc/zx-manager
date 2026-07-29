@@ -1,13 +1,10 @@
 use super::dto::{
-    AttributionQuality, ClearNetworkUsageRequest, ClearScope, NetworkMonitorWarning,
-    NetworkUsagePoint, NetworkUsageQuery, NetworkUsageResult, QueryGroupBy, QueryInterval,
-    TrafficLayer,
+    AttributionQuality, ClearNetworkUsageRequest, ClearScope, NetworkMonitorWarning, NetworkPath,
+    NetworkUsagePoint, NetworkUsageQuery, NetworkUsageResult,
 };
 use super::error::{NetworkMonitorError, NetworkMonitorErrorCode, NetworkMonitorResult};
 use chrono::Utc;
 use chrono_tz::Tz;
-#[cfg(test)]
-use rusqlite::OptionalExtension;
 use rusqlite::{params, Connection};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -15,7 +12,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const MAX_QUERY_SPAN_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
 const RETENTION_MS: i64 = MAX_QUERY_SPAN_MS;
 const DEFAULT_LIMIT: u32 = 1_000;
@@ -25,11 +22,9 @@ const HARD_LIMIT: u32 = 5_000;
 pub struct UsageBucketDelta {
     pub bucket_start: i64,
     pub interval_seconds: u32,
-    pub layer: TrafficLayer,
-    pub interface_id: String,
-    pub interface_name: String,
     pub application_id: String,
-    pub proxy_session_id: String,
+    pub display_name: String,
+    pub network_path: NetworkPath,
     pub download_bytes: u64,
     pub upload_bytes: u64,
     pub quality: AttributionQuality,
@@ -69,8 +64,6 @@ enum StorageCommand {
 #[derive(Debug)]
 pub struct StorageClearResult {
     pub deleted_buckets: usize,
-    pub cleared_from: Option<i64>,
-    pub cleared_to: Option<i64>,
 }
 
 impl StorageWorker {
@@ -225,71 +218,60 @@ fn configure_and_migrate(database: &Connection) -> NetworkMonitorResult<()> {
             format!("unsupported database schema version {version}"),
         ));
     }
-    if version == 0 {
-        database
-            .execute_batch(
-                "BEGIN IMMEDIATE;
-                 CREATE TABLE application_identity (
-                   id TEXT PRIMARY KEY NOT NULL,
-                   display_name TEXT NOT NULL,
-                   created_at INTEGER NOT NULL
-                 );
-                 CREATE TABLE network_interface (
-                   id TEXT PRIMARY KEY NOT NULL,
-                   display_name TEXT NOT NULL,
-                   created_at INTEGER NOT NULL
-                 );
-                 CREATE TABLE proxy_session (
-                   id TEXT PRIMARY KEY NOT NULL,
-                   kind TEXT NOT NULL,
-                   created_at INTEGER NOT NULL
-                 );
-                 CREATE TABLE usage_bucket (
-                   bucket_start INTEGER NOT NULL,
-                   interval_seconds INTEGER NOT NULL,
-                   layer TEXT NOT NULL,
-                   interface_id TEXT NOT NULL,
-                   application_id TEXT NOT NULL,
-                   proxy_session_id TEXT NOT NULL,
-                   download_bytes INTEGER NOT NULL,
-                   upload_bytes INTEGER NOT NULL,
-                   quality TEXT NOT NULL,
-                   PRIMARY KEY (
-                     bucket_start, interval_seconds, layer, interface_id,
-                     application_id, proxy_session_id
-                   ),
-                   FOREIGN KEY(interface_id) REFERENCES network_interface(id),
-                   FOREIGN KEY(application_id) REFERENCES application_identity(id),
-                   FOREIGN KEY(proxy_session_id) REFERENCES proxy_session(id)
-                 );
-                 CREATE INDEX usage_bucket_range_idx
-                   ON usage_bucket(bucket_start, interval_seconds, layer);
-                 CREATE TABLE committed_batch (
-                   batch_id TEXT PRIMARY KEY NOT NULL,
-                   committed_at INTEGER NOT NULL
-                 );
-                 INSERT INTO application_identity(id, display_name, created_at)
-                   VALUES ('0', 'Unavailable', 0);
-                 INSERT INTO network_interface(id, display_name, created_at)
-                   VALUES ('0', 'Unspecified', 0);
-                 INSERT INTO proxy_session(id, kind, created_at)
-                   VALUES ('0', 'none', 0);
-                 PRAGMA user_version=1;
-                 COMMIT;",
-            )
-            .map_err(NetworkMonitorError::storage)?;
+    if version == SCHEMA_VERSION {
+        return Ok(());
     }
-    Ok(())
+
+    database
+        .execute_batch(
+            "BEGIN IMMEDIATE;
+             DROP TABLE IF EXISTS usage_bucket;
+             DROP TABLE IF EXISTS network_interface;
+             DROP TABLE IF EXISTS proxy_session;
+             DROP TABLE IF EXISTS application_identity;
+             DROP TABLE IF EXISTS committed_batch;
+             CREATE TABLE application_identity (
+               id TEXT PRIMARY KEY NOT NULL,
+               display_name TEXT NOT NULL,
+               created_at INTEGER NOT NULL,
+               last_seen_at INTEGER NOT NULL
+             );
+             CREATE TABLE usage_bucket (
+               bucket_start INTEGER NOT NULL,
+               interval_seconds INTEGER NOT NULL,
+               application_id TEXT NOT NULL,
+               network_path TEXT NOT NULL CHECK (
+                 network_path IN ('proxy', 'direct', 'unknown')
+               ),
+               download_bytes INTEGER NOT NULL,
+               upload_bytes INTEGER NOT NULL,
+               quality TEXT NOT NULL,
+               PRIMARY KEY (
+                 bucket_start, interval_seconds, application_id, network_path
+               ),
+               FOREIGN KEY(application_id) REFERENCES application_identity(id)
+             );
+             CREATE INDEX usage_bucket_range_path_idx
+               ON usage_bucket(bucket_start, network_path, application_id);
+             CREATE TABLE committed_batch (
+               batch_id TEXT PRIMARY KEY NOT NULL,
+               committed_at INTEGER NOT NULL
+             );
+             PRAGMA user_version=2;
+             COMMIT;",
+        )
+        .map_err(NetworkMonitorError::storage)
 }
 
 fn write_batch(database: &mut Connection, batch: UsageBatch) -> NetworkMonitorResult<()> {
     let transaction = database
         .transaction()
         .map_err(NetworkMonitorError::storage)?;
+    let now = Utc::now().timestamp_millis();
     let inserted = transaction
         .execute(
             "INSERT OR IGNORE INTO committed_batch(batch_id, committed_at) VALUES (?1, ?2)",
-            params![batch.batch_id, Utc::now().timestamp_millis()],
+            params![batch.batch_id, now],
         )
         .map_err(NetworkMonitorError::storage)?;
     if inserted == 0 {
@@ -300,35 +282,35 @@ fn write_batch(database: &mut Connection, batch: UsageBatch) -> NetworkMonitorRe
     for row in batch.rows {
         transaction
             .execute(
-                "INSERT OR IGNORE INTO network_interface(id, display_name, created_at)
-                 VALUES (?1, ?2, ?3)",
-                params![
-                    row.interface_id,
-                    row.interface_name,
-                    Utc::now().timestamp_millis()
-                ],
+                "INSERT INTO application_identity(id, display_name, created_at, last_seen_at)
+                 VALUES (?1, ?2, ?3, ?3)
+                 ON CONFLICT(id) DO UPDATE SET
+                   display_name = excluded.display_name,
+                   last_seen_at = excluded.last_seen_at",
+                params![row.application_id, row.display_name, now],
             )
             .map_err(NetworkMonitorError::storage)?;
         transaction
             .execute(
                 "INSERT INTO usage_bucket(
-                   bucket_start, interval_seconds, layer, interface_id, application_id,
-                   proxy_session_id, download_bytes, upload_bytes, quality
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                   bucket_start, interval_seconds, application_id, network_path,
+                   download_bytes, upload_bytes, quality
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(
-                   bucket_start, interval_seconds, layer, interface_id,
-                   application_id, proxy_session_id
+                   bucket_start, interval_seconds, application_id, network_path
                  ) DO UPDATE SET
                    download_bytes = download_bytes + excluded.download_bytes,
                    upload_bytes = upload_bytes + excluded.upload_bytes,
-                   quality = excluded.quality",
+                   quality = CASE
+                     WHEN quality = 'partial' OR excluded.quality = 'partial'
+                       THEN 'partial'
+                     ELSE 'exact'
+                   END",
                 params![
                     row.bucket_start,
                     row.interval_seconds,
-                    row.layer.as_str(),
-                    row.interface_id,
                     row.application_id,
-                    row.proxy_session_id,
+                    row.network_path.as_str(),
                     to_sql_integer(row.download_bytes),
                     to_sql_integer(row.upload_bytes),
                     row.quality.as_str(),
@@ -339,20 +321,23 @@ fn write_batch(database: &mut Connection, batch: UsageBatch) -> NetworkMonitorRe
     transaction.commit().map_err(NetworkMonitorError::storage)
 }
 
+#[derive(Debug)]
+struct UsageAggregate {
+    display_name: String,
+    download_bytes: u64,
+    upload_bytes: u64,
+    includes_unknown: bool,
+    partial: bool,
+}
+
 fn query_usage(
     database: &Connection,
     request: NetworkUsageQuery,
     generation: u64,
 ) -> NetworkMonitorResult<NetworkUsageResult> {
     validate_query(&request)?;
-    let now = Utc::now().timestamp_millis();
-    let interval = resolve_interval(
-        request.interval.unwrap_or(QueryInterval::Auto),
-        request.to - request.from,
-    );
-    let interval_ms = interval_milliseconds(interval);
-    let actual_from = request.from.div_euclid(interval_ms) * interval_ms;
-    let actual_to = ceil_to(request.to, interval_ms);
+    let actual_from = request.from.div_euclid(60_000) * 60_000;
+    let actual_to = ceil_to(request.to, 60_000);
     let limit = request.limit.unwrap_or(DEFAULT_LIMIT).min(HARD_LIMIT) as usize;
     let offset = request
         .cursor
@@ -363,83 +348,94 @@ fn query_usage(
 
     let mut statement = database
         .prepare(
-            "SELECT bucket_start, interval_seconds, layer, interface_id,
-                    application_id, proxy_session_id, download_bytes,
-                    upload_bytes, quality
+            "SELECT usage_bucket.application_id, application_identity.display_name,
+                    usage_bucket.network_path, usage_bucket.download_bytes,
+                    usage_bucket.upload_bytes, usage_bucket.quality
              FROM usage_bucket
-             WHERE bucket_start >= ?1 AND bucket_start < ?2
-             ORDER BY bucket_start ASC",
+             JOIN application_identity
+               ON application_identity.id = usage_bucket.application_id
+             WHERE usage_bucket.bucket_start >= ?1
+               AND usage_bucket.bucket_start < ?2",
         )
         .map_err(NetworkMonitorError::storage)?;
     let rows = statement
         .query_map(params![actual_from, actual_to], |row| {
-            Ok(StoredRow {
-                bucket_start: row.get(0)?,
-                interval_seconds: row.get(1)?,
-                layer: parse_layer(row.get::<_, String>(2)?.as_str()),
-                interface_id: row.get(3)?,
-                application_id: row.get(4)?,
-                proxy_session_id: row.get(5)?,
-                download_bytes: row.get::<_, i64>(6)?.max(0) as u64,
-                upload_bytes: row.get::<_, i64>(7)?.max(0) as u64,
-                quality: parse_quality(row.get::<_, String>(8)?.as_str()),
-            })
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                parse_network_path(&row.get::<_, String>(2)?),
+                row.get::<_, i64>(3)?.max(0) as u64,
+                row.get::<_, i64>(4)?.max(0) as u64,
+                row.get::<_, String>(5)?,
+            ))
         })
         .map_err(NetworkMonitorError::storage)?;
 
-    let group_by = request.group_by.unwrap_or(QueryGroupBy::Time);
-    let mut grouped: BTreeMap<(i64, String, &'static str), NetworkUsagePoint> = BTreeMap::new();
+    let mut grouped = BTreeMap::<String, UsageAggregate>::new();
     for row in rows {
-        let row = row.map_err(NetworkMonitorError::storage)?;
-        if !request.layers.is_empty() && !request.layers.contains(&row.layer) {
+        let (application_id, display_name, path, download, upload, quality) =
+            row.map_err(NetworkMonitorError::storage)?;
+        if !request.network_path.includes(path) {
             continue;
         }
-        if !request.interface_ids.is_empty() && !request.interface_ids.contains(&row.interface_id) {
-            continue;
-        }
-        if !request.application_ids.is_empty()
-            && !request.application_ids.contains(&row.application_id)
-        {
-            continue;
-        }
-        if !request.proxy_session_ids.is_empty()
-            && !request.proxy_session_ids.contains(&row.proxy_session_id)
-        {
-            continue;
-        }
-        let bucket_start = row.bucket_start.div_euclid(interval_ms) * interval_ms;
-        let group_id = match group_by {
-            QueryGroupBy::Time => "all".to_owned(),
-            QueryGroupBy::Interface => row.interface_id,
-            QueryGroupBy::Application => row.application_id,
-            QueryGroupBy::ProxySession => row.proxy_session_id,
-        };
-        let key = (bucket_start, group_id.clone(), row.layer.as_str());
-        let point = grouped.entry(key).or_insert(NetworkUsagePoint {
-            from: bucket_start,
-            to: bucket_start + interval_ms,
-            group_id,
-            layer: row.layer,
+        let aggregate = grouped.entry(application_id).or_insert(UsageAggregate {
+            display_name,
             download_bytes: 0,
             upload_bytes: 0,
-            quality: row.quality,
+            includes_unknown: false,
+            partial: false,
         });
-        point.download_bytes = point.download_bytes.saturating_add(row.download_bytes);
-        point.upload_bytes = point.upload_bytes.saturating_add(row.upload_bytes);
+        aggregate.download_bytes = aggregate.download_bytes.saturating_add(download);
+        aggregate.upload_bytes = aggregate.upload_bytes.saturating_add(upload);
+        aggregate.includes_unknown |= path == NetworkPath::Unknown;
+        aggregate.partial |= quality == "partial";
     }
 
-    let all_points: Vec<_> = grouped.into_values().collect();
+    let mut all_points = grouped
+        .into_iter()
+        .map(|(application_id, aggregate)| {
+            let total_bytes = aggregate
+                .download_bytes
+                .saturating_add(aggregate.upload_bytes);
+            NetworkUsagePoint {
+                application_id,
+                display_name: aggregate.display_name,
+                download_bytes: aggregate.download_bytes,
+                upload_bytes: aggregate.upload_bytes,
+                total_bytes,
+                includes_unknown: aggregate.includes_unknown,
+                quality: if aggregate.partial || aggregate.includes_unknown {
+                    AttributionQuality::Partial
+                } else {
+                    AttributionQuality::Exact
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+    all_points.sort_by(|left, right| {
+        right
+            .total_bytes
+            .cmp(&left.total_bytes)
+            .then_with(|| left.application_id.cmp(&right.application_id))
+    });
+
+    let partial = all_points
+        .iter()
+        .any(|point| point.quality == AttributionQuality::Partial);
     let total_count = all_points.len() as u64;
-    let partial = offset.saturating_add(limit) < all_points.len();
+    let has_more = offset.saturating_add(limit) < all_points.len();
     let points = all_points
         .into_iter()
         .skip(offset)
         .take(limit)
         .collect::<Vec<_>>();
-    let next_cursor = partial.then(|| (offset + points.len()).to_string());
+    let next_cursor = has_more.then(|| (offset + points.len()).to_string());
     let mut warnings = Vec::new();
-    if request.from < now - RETENTION_MS {
+    if request.from < Utc::now().timestamp_millis() - RETENTION_MS {
         warnings.push(NetworkMonitorWarning::new("queryBeforeRetentionWindow"));
+    }
+    if partial {
+        warnings.push(NetworkMonitorWarning::new("partialApplicationData"));
     }
 
     Ok(NetworkUsageResult {
@@ -448,7 +444,6 @@ fn query_usage(
         requested_to: request.to,
         actual_from,
         actual_to,
-        interval,
         points,
         total_count,
         next_cursor,
@@ -461,64 +456,23 @@ fn clear_usage(
     database: &mut Connection,
     request: ClearNetworkUsageRequest,
 ) -> NetworkMonitorResult<StorageClearResult> {
+    match request.scope {
+        ClearScope::All => {}
+    }
     let transaction = database
         .transaction()
         .map_err(NetworkMonitorError::storage)?;
-    let (deleted_buckets, cleared_from, cleared_to) = match request.scope {
-        ClearScope::All => (
-            transaction
-                .execute("DELETE FROM usage_bucket", [])
-                .map_err(NetworkMonitorError::storage)?,
-            None,
-            None,
-        ),
-        ClearScope::Application => {
-            let application_id = request
-                .application_id
-                .as_deref()
-                .ok_or_else(|| invalid_request("applicationId is required"))?;
-            (
-                transaction
-                    .execute(
-                        "DELETE FROM usage_bucket WHERE application_id = ?1",
-                        params![application_id],
-                    )
-                    .map_err(NetworkMonitorError::storage)?,
-                None,
-                None,
-            )
-        }
-        ClearScope::TimeRange => {
-            let from = request
-                .from
-                .ok_or_else(|| invalid_request("from is required"))?;
-            let to = request
-                .to
-                .ok_or_else(|| invalid_request("to is required"))?;
-            if from >= to {
-                return Err(invalid_request("from must be before to"));
-            }
-            let normalized_from = from.div_euclid(60_000) * 60_000;
-            let normalized_to = ceil_to(to, 60_000);
-            (
-                transaction
-                    .execute(
-                        "DELETE FROM usage_bucket
-                         WHERE bucket_start >= ?1 AND bucket_start < ?2",
-                        params![normalized_from, normalized_to],
-                    )
-                    .map_err(NetworkMonitorError::storage)?,
-                Some(normalized_from),
-                Some(normalized_to),
-            )
-        }
-    };
+    let deleted_buckets = transaction
+        .execute("DELETE FROM usage_bucket", [])
+        .map_err(NetworkMonitorError::storage)?;
+    transaction
+        .execute("DELETE FROM application_identity", [])
+        .map_err(NetworkMonitorError::storage)?;
+    transaction
+        .execute("DELETE FROM committed_batch", [])
+        .map_err(NetworkMonitorError::storage)?;
     transaction.commit().map_err(NetworkMonitorError::storage)?;
-    Ok(StorageClearResult {
-        deleted_buckets,
-        cleared_from,
-        cleared_to,
-    })
+    Ok(StorageClearResult { deleted_buckets })
 }
 
 fn maintain_history(database: &mut Connection, now: i64) -> NetworkMonitorResult<()> {
@@ -530,19 +484,17 @@ fn maintain_history(database: &mut Connection, now: i64) -> NetworkMonitorResult
     transaction
         .execute(
             "INSERT INTO usage_bucket(
-               bucket_start, interval_seconds, layer, interface_id, application_id,
-               proxy_session_id, download_bytes, upload_bytes, quality
+               bucket_start, interval_seconds, application_id, network_path,
+               download_bytes, upload_bytes, quality
              )
-             SELECT (bucket_start / 300000) * 300000, 300, layer, interface_id,
-                    application_id, proxy_session_id, SUM(download_bytes),
-                    SUM(upload_bytes), MIN(quality)
+             SELECT (bucket_start / 300000) * 300000, 300, application_id,
+                    network_path, SUM(download_bytes), SUM(upload_bytes),
+                    CASE WHEN SUM(quality = 'partial') > 0 THEN 'partial' ELSE 'exact' END
              FROM usage_bucket
              WHERE interval_seconds = 60 AND bucket_start >= ?1 AND bucket_start < ?2
-             GROUP BY (bucket_start / 300000), layer, interface_id,
-                      application_id, proxy_session_id
+             GROUP BY (bucket_start / 300000), application_id, network_path
              ON CONFLICT(
-               bucket_start, interval_seconds, layer, interface_id,
-               application_id, proxy_session_id
+               bucket_start, interval_seconds, application_id, network_path
              ) DO UPDATE SET
                download_bytes = excluded.download_bytes,
                upload_bytes = excluded.upload_bytes,
@@ -572,20 +524,6 @@ fn maintain_history(database: &mut Connection, now: i64) -> NetworkMonitorResult
     transaction.commit().map_err(NetworkMonitorError::storage)
 }
 
-#[derive(Debug)]
-struct StoredRow {
-    bucket_start: i64,
-    #[allow(dead_code)]
-    interval_seconds: u32,
-    layer: TrafficLayer,
-    interface_id: String,
-    application_id: String,
-    proxy_session_id: String,
-    download_bytes: u64,
-    upload_bytes: u64,
-    quality: AttributionQuality,
-}
-
 fn validate_query(request: &NetworkUsageQuery) -> NetworkMonitorResult<()> {
     if request.from >= request.to {
         return Err(invalid_request("from must be before to"));
@@ -606,20 +544,11 @@ fn validate_query(request: &NetworkUsageQuery) -> NetworkMonitorResult<()> {
     Ok(())
 }
 
-fn resolve_interval(requested: QueryInterval, span: i64) -> QueryInterval {
-    match requested {
-        QueryInterval::Auto if span <= 10 * 60 * 1_000 => QueryInterval::Second,
-        QueryInterval::Auto if span <= 24 * 60 * 60 * 1_000 => QueryInterval::Minute,
-        QueryInterval::Auto => QueryInterval::FiveMinutes,
-        value => value,
-    }
-}
-
-fn interval_milliseconds(interval: QueryInterval) -> i64 {
-    match interval {
-        QueryInterval::Second => 1_000,
-        QueryInterval::Minute | QueryInterval::Auto => 60_000,
-        QueryInterval::FiveMinutes => 300_000,
+fn parse_network_path(value: &str) -> NetworkPath {
+    match value {
+        "proxy" => NetworkPath::Proxy,
+        "direct" => NetworkPath::Direct,
+        _ => NetworkPath::Unknown,
     }
 }
 
@@ -630,22 +559,6 @@ fn ceil_to(value: i64, interval: i64) -> i64 {
         } else {
             interval
         }
-}
-
-fn parse_layer(value: &str) -> TrafficLayer {
-    match value {
-        "tunnel" => TrafficLayer::Tunnel,
-        "application" => TrafficLayer::Application,
-        _ => TrafficLayer::Physical,
-    }
-}
-
-fn parse_quality(value: &str) -> AttributionQuality {
-    match value {
-        "exact" => AttributionQuality::Exact,
-        "interfaceOnly" => AttributionQuality::InterfaceOnly,
-        _ => AttributionQuality::Unavailable,
-    }
 }
 
 fn invalid_request(message: impl Into<String>) -> NetworkMonitorError {
@@ -666,36 +579,32 @@ fn to_sql_integer(value: u64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network_monitor::dto::{ClearScope, NetworkPathFilter};
     use tempfile::tempdir;
 
-    fn test_batch(id: &str) -> UsageBatch {
-        UsageBatch {
-            batch_id: id.to_owned(),
-            rows: vec![UsageBucketDelta {
-                bucket_start: 60_000,
-                interval_seconds: 60,
-                layer: TrafficLayer::Physical,
-                interface_id: "interface".to_owned(),
-                interface_name: "Test interface".to_owned(),
-                application_id: "0".to_owned(),
-                proxy_session_id: "0".to_owned(),
-                download_bytes: 100,
-                upload_bytes: 20,
-                quality: AttributionQuality::Exact,
-            }],
+    fn row(
+        application_id: &str,
+        display_name: &str,
+        path: NetworkPath,
+        download_bytes: u64,
+    ) -> UsageBucketDelta {
+        UsageBucketDelta {
+            bucket_start: 60_000,
+            interval_seconds: 60,
+            application_id: application_id.to_owned(),
+            display_name: display_name.to_owned(),
+            network_path: path,
+            download_bytes,
+            upload_bytes: 20,
+            quality: AttributionQuality::Exact,
         }
     }
 
-    fn query() -> NetworkUsageQuery {
+    fn query(path: NetworkPathFilter) -> NetworkUsageQuery {
         NetworkUsageQuery {
             from: 0,
             to: 120_000,
-            interval: Some(QueryInterval::Minute),
-            group_by: Some(QueryGroupBy::Time),
-            interface_ids: Vec::new(),
-            application_ids: Vec::new(),
-            proxy_session_ids: Vec::new(),
-            layers: Vec::new(),
+            network_path: path,
             time_zone: "Asia/Shanghai".to_owned(),
             limit: None,
             cursor: None,
@@ -703,82 +612,130 @@ mod tests {
     }
 
     #[test]
-    fn migration_creates_sentinel_dimensions_and_idempotent_batches() {
+    fn v1_migration_discards_incompatible_interface_history() {
         let directory = tempdir().unwrap();
         let path = directory.path().join("usage.sqlite3");
-        let mut database = Connection::open(path).unwrap();
-        configure_and_migrate(&database).unwrap();
-        write_batch(&mut database, test_batch("stable-batch")).unwrap();
-        write_batch(&mut database, test_batch("stable-batch")).unwrap();
-        let result = query_usage(&database, query(), 3).unwrap();
-        assert_eq!(result.points.len(), 1);
-        assert_eq!(result.points[0].download_bytes, 100);
-        let sentinel: Option<String> = database
-            .query_row(
-                "SELECT id FROM application_identity WHERE id = '0'",
-                [],
-                |row| row.get(0),
+        let database = Connection::open(path).unwrap();
+        database
+            .execute_batch(
+                "CREATE TABLE usage_bucket(value INTEGER);
+                 INSERT INTO usage_bucket(value) VALUES (1);
+                 PRAGMA user_version=1;",
             )
-            .optional()
             .unwrap();
-        assert_eq!(sentinel.as_deref(), Some("0"));
+        configure_and_migrate(&database).unwrap();
+        let version: i64 = database
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        let count: i64 = database
+            .query_row("SELECT COUNT(*) FROM usage_bucket", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        assert_eq!(count, 0);
     }
 
     #[test]
-    fn clear_time_range_returns_normalized_bucket_boundaries() {
-        let database = Connection::open_in_memory().unwrap();
+    fn query_filters_paths_merges_applications_and_sorts_by_total() {
+        let mut database = Connection::open_in_memory().unwrap();
         configure_and_migrate(&database).unwrap();
-        let mut database = database;
-        write_batch(&mut database, test_batch("clear-batch")).unwrap();
-        let result = clear_usage(
+        write_batch(
             &mut database,
-            ClearNetworkUsageRequest {
-                scope: ClearScope::TimeRange,
-                application_id: None,
-                from: Some(60_001),
-                to: Some(61_000),
+            UsageBatch {
+                batch_id: "batch".to_owned(),
+                rows: vec![
+                    row("browser", "browser.exe", NetworkPath::Direct, 100),
+                    row("browser", "browser.exe", NetworkPath::Proxy, 200),
+                    row("sync", "sync.exe", NetworkPath::Unknown, 500),
+                ],
             },
         )
         .unwrap();
-        assert_eq!(result.cleared_from, Some(60_000));
-        assert_eq!(result.cleared_to, Some(120_000));
-        assert_eq!(result.deleted_buckets, 1);
+
+        let all = query_usage(&database, query(NetworkPathFilter::All), 3).unwrap();
+        assert_eq!(all.points[0].application_id, "sync");
+        assert_eq!(all.points[1].download_bytes, 300);
+        assert!(all.points[0].includes_unknown);
+
+        let proxy = query_usage(&database, query(NetworkPathFilter::Proxy), 3).unwrap();
+        assert_eq!(proxy.points.len(), 1);
+        assert_eq!(proxy.points[0].download_bytes, 200);
+        assert!(!proxy.points[0].includes_unknown);
     }
 
     #[test]
-    fn invalid_timezone_and_excessive_span_are_rejected() {
-        let database = Connection::open_in_memory().unwrap();
+    fn committed_batches_are_idempotent_and_clear_removes_identities() {
+        let mut database = Connection::open_in_memory().unwrap();
         configure_and_migrate(&database).unwrap();
-        let mut request = query();
-        request.time_zone = "not-a-zone".to_owned();
-        assert!(query_usage(&database, request, 0).is_err());
+        let batch = UsageBatch {
+            batch_id: "stable".to_owned(),
+            rows: vec![row("app", "app.exe", NetworkPath::Direct, 100)],
+        };
+        write_batch(&mut database, batch.clone()).unwrap();
+        write_batch(&mut database, batch).unwrap();
+        let result = query_usage(&database, query(NetworkPathFilter::All), 0).unwrap();
+        assert_eq!(result.points[0].download_bytes, 100);
 
-        let mut request = query();
-        request.to = MAX_QUERY_SPAN_MS + 1;
-        assert!(query_usage(&database, request, 0).is_err());
+        let cleared = clear_usage(
+            &mut database,
+            ClearNetworkUsageRequest {
+                scope: ClearScope::All,
+            },
+        )
+        .unwrap();
+        assert_eq!(cleared.deleted_buckets, 1);
+        let identity_count: i64 = database
+            .query_row("SELECT COUNT(*) FROM application_identity", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(identity_count, 0);
     }
 
     #[test]
-    fn query_reports_total_count_before_cursor_pagination() {
-        let database = Connection::open_in_memory().unwrap();
+    fn maintenance_compresses_after_one_day_and_removes_after_seven_days() {
+        const DAY: i64 = 24 * 60 * 60 * 1_000;
+        let now = 10 * DAY;
+        let mut database = Connection::open_in_memory().unwrap();
         configure_and_migrate(&database).unwrap();
-        let mut database = database;
-        write_batch(&mut database, test_batch("page-one")).unwrap();
-        let mut second_batch = test_batch("page-two");
-        second_batch.rows[0].bucket_start = 120_000;
-        write_batch(&mut database, second_batch).unwrap();
+        let mut expired = row("app", "app.exe", NetworkPath::Direct, 10);
+        expired.bucket_start = now - 8 * DAY;
+        let mut compressed_one = row("app", "app.exe", NetworkPath::Direct, 20);
+        compressed_one.bucket_start = now - 2 * DAY;
+        let mut compressed_two = row("app", "app.exe", NetworkPath::Direct, 30);
+        compressed_two.bucket_start = now - 2 * DAY + 60_000;
+        let mut recent = row("app", "app.exe", NetworkPath::Direct, 40);
+        recent.bucket_start = now - 60 * 60 * 1_000;
+        write_batch(
+            &mut database,
+            UsageBatch {
+                batch_id: "maintenance".to_owned(),
+                rows: vec![expired, compressed_one, compressed_two, recent],
+            },
+        )
+        .unwrap();
 
-        let mut first_request = query();
-        first_request.to = 180_000;
-        first_request.limit = Some(1);
-        let first = query_usage(&database, first_request.clone(), 0).unwrap();
-        assert_eq!(first.total_count, 2);
-        assert_eq!(first.points.len(), 1);
-        assert_eq!(first.next_cursor.as_deref(), Some("1"));
+        maintain_history(&mut database, now).unwrap();
 
-        first_request.cursor = Some("1".to_owned());
-        let second = query_usage(&database, first_request, 0).unwrap();
-        assert_eq!(second.total_count, 2);
-        assert_eq!(second.points[0].from, 120_000);
+        let one_minute: i64 = database
+            .query_row(
+                "SELECT COUNT(*) FROM usage_bucket WHERE interval_seconds = 60",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let five_minute: (i64, i64) = database
+            .query_row(
+                "SELECT COUNT(*), SUM(download_bytes)
+                 FROM usage_bucket WHERE interval_seconds = 300",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let total: i64 = database
+            .query_row("SELECT COUNT(*) FROM usage_bucket", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(one_minute, 1);
+        assert_eq!(five_minute, (1, 50));
+        assert_eq!(total, 2);
     }
 }

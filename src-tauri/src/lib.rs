@@ -47,3 +47,7 @@ pub fn run() {
         }
     });
 }
+
+pub fn try_run_network_monitor_helper() -> bool {
+    network_monitor::try_run_helper_from_args()
+}

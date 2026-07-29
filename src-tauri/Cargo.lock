@@ -6023,7 +6023,6 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
- "libc",
  "rusqlite",
  "serde",
  "serde_json",
