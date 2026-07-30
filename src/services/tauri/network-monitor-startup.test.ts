@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const service = vi.hoisted(() => ({
   prepareNetworkMonitor: vi.fn(),
+  setNetworkMonitorEnabled: vi.fn(),
   setNetworkMonitorSampleInterval: vi.fn(),
 }));
 
@@ -14,9 +15,10 @@ describe("network monitor startup restore", () => {
     vi.clearAllMocks();
   });
 
-  it("prepares authorization before applying the persisted interval", async () => {
+  it("starts monitoring by default after authorization and interval restoration", async () => {
     service.prepareNetworkMonitor.mockResolvedValue({});
     service.setNetworkMonitorSampleInterval.mockResolvedValue({});
+    service.setNetworkMonitorEnabled.mockResolvedValue({});
 
     await restoreNetworkMonitorOnStartup({
       networkMonitorSampleIntervalSeconds: 10,
@@ -24,9 +26,22 @@ describe("network monitor startup restore", () => {
 
     expect(service.setNetworkMonitorSampleInterval).toHaveBeenCalledWith(10);
     expect(service.prepareNetworkMonitor).toHaveBeenCalledOnce();
+    expect(service.setNetworkMonitorEnabled).toHaveBeenCalledWith(true);
     expect(
       service.setNetworkMonitorSampleInterval.mock.invocationCallOrder[0],
     ).toBeGreaterThan(service.prepareNetworkMonitor.mock.invocationCallOrder[0]!);
+    expect(
+      service.setNetworkMonitorEnabled.mock.invocationCallOrder[0],
+    ).toBeGreaterThan(service.setNetworkMonitorSampleInterval.mock.invocationCallOrder[0]!);
+  });
+
+  it("does not start monitoring when launch preference is disabled", async () => {
+    service.prepareNetworkMonitor.mockResolvedValue({});
+    service.setNetworkMonitorSampleInterval.mockResolvedValue({});
+
+    await restoreNetworkMonitorOnStartup({ networkMonitorStartOnLaunch: false });
+
+    expect(service.setNetworkMonitorEnabled).not.toHaveBeenCalled();
   });
 
   it("keeps authorization and preference restoration non-blocking", async () => {
@@ -40,5 +55,6 @@ describe("network monitor startup restore", () => {
       }),
     ).resolves.toBeUndefined();
     expect(service.prepareNetworkMonitor).toHaveBeenCalledOnce();
+    expect(service.setNetworkMonitorEnabled).not.toHaveBeenCalled();
   });
 });

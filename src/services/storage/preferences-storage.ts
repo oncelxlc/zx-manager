@@ -29,17 +29,22 @@ interface StoredPreferencesV2 {
   networkMonitorStartOnLaunch?: boolean;
 }
 
-interface StoredPreferencesV4 {
-  version: 4;
+interface StoredPreferencesV5 {
+  version: 5;
   locale?: SupportedLocale;
   theme?: ThemeMode;
   networkMonitorConfigured?: boolean;
+  networkMonitorStartOnLaunch?: boolean;
   networkMonitorSampleIntervalSeconds?: NetworkMonitorSampleInterval;
 }
 
-interface StoredPreferencesV3 extends Omit<StoredPreferencesV4, "version"> {
+interface StoredPreferencesV4 extends Omit<StoredPreferencesV5, "version"> {
+  version: 4;
+  networkMonitorStartOnLaunch?: never;
+}
+
+interface StoredPreferencesV3 extends Omit<StoredPreferencesV5, "version"> {
   version: 3;
-  networkMonitorStartOnLaunch?: boolean;
 }
 
 type PreferencesStore = Pick<Store, "get" | "save" | "set">;
@@ -59,12 +64,14 @@ function normalizePreferences(value: unknown): Partial<UserPreferences> {
     | StoredPreferencesV1
     | StoredPreferencesV2
     | StoredPreferencesV3
-    | StoredPreferencesV4;
+    | StoredPreferencesV4
+    | StoredPreferencesV5;
   if (
     preferences.version !== 1
     && preferences.version !== 2
     && preferences.version !== 3
     && preferences.version !== 4
+    && preferences.version !== 5
   ) {
     return {};
   }
@@ -77,8 +84,17 @@ function normalizePreferences(value: unknown): Partial<UserPreferences> {
       && typeof preferences.networkMonitorConfigured === "boolean"
         ? preferences.networkMonitorConfigured
         : undefined,
+    networkMonitorStartOnLaunch:
+      (preferences.version === 2
+        || preferences.version === 3
+        || preferences.version === 5)
+      && typeof preferences.networkMonitorStartOnLaunch === "boolean"
+        ? preferences.networkMonitorStartOnLaunch
+        : true,
     networkMonitorSampleIntervalSeconds:
-      (preferences.version === 3 || preferences.version === 4)
+      (preferences.version === 3
+        || preferences.version === 4
+        || preferences.version === 5)
       && isNetworkMonitorSampleInterval(
         preferences.networkMonitorSampleIntervalSeconds,
       )
@@ -115,14 +131,18 @@ function writeLegacyPreferences(preferences: Partial<UserPreferences>) {
 
   try {
     const current = readLegacyPreferences();
-    const nextValue: StoredPreferencesV4 = {
-      version: 4,
+    const nextValue: StoredPreferencesV5 = {
+      version: 5,
       ...current,
       ...preferences,
       networkMonitorConfigured:
         preferences.networkMonitorConfigured
         ?? current.networkMonitorConfigured
         ?? false,
+      networkMonitorStartOnLaunch:
+        preferences.networkMonitorStartOnLaunch
+        ?? current.networkMonitorStartOnLaunch
+        ?? true,
       networkMonitorSampleIntervalSeconds:
         preferences.networkMonitorSampleIntervalSeconds
         ?? current.networkMonitorSampleIntervalSeconds
@@ -151,6 +171,7 @@ function hasPreferences(preferences: Partial<UserPreferences>) {
   return preferences.locale !== undefined
     || preferences.theme !== undefined
     || preferences.networkMonitorConfigured !== undefined
+    || preferences.networkMonitorStartOnLaunch !== undefined
     || preferences.networkMonitorSampleIntervalSeconds !== undefined;
 }
 
@@ -163,6 +184,10 @@ function mergePreferences(
     theme: primary.theme ?? fallback.theme,
     networkMonitorConfigured:
       primary.networkMonitorConfigured ?? fallback.networkMonitorConfigured,
+    networkMonitorStartOnLaunch:
+      primary.networkMonitorStartOnLaunch
+      ?? fallback.networkMonitorStartOnLaunch
+      ?? true,
     networkMonitorSampleIntervalSeconds:
       primary.networkMonitorSampleIntervalSeconds
       ?? fallback.networkMonitorSampleIntervalSeconds
@@ -177,6 +202,7 @@ function preferencesMatch(
   return left.locale === right.locale
     && left.theme === right.theme
     && left.networkMonitorConfigured === right.networkMonitorConfigured
+    && left.networkMonitorStartOnLaunch === right.networkMonitorStartOnLaunch
     && left.networkMonitorSampleIntervalSeconds
       === right.networkMonitorSampleIntervalSeconds;
 }
@@ -202,10 +228,12 @@ async function savePreferences(
   store: PreferencesStore,
   preferences: Partial<UserPreferences>,
 ) {
-  const value: StoredPreferencesV4 = {
-    version: 4,
+  const value: StoredPreferencesV5 = {
+    version: 5,
     ...preferences,
     networkMonitorConfigured: preferences.networkMonitorConfigured ?? false,
+    networkMonitorStartOnLaunch:
+      preferences.networkMonitorStartOnLaunch ?? true,
     networkMonitorSampleIntervalSeconds:
       preferences.networkMonitorSampleIntervalSeconds ?? 5,
   };
@@ -248,6 +276,12 @@ export async function setTheme(theme: ThemeMode): Promise<void> {
 
 export async function setNetworkMonitorConfigured(configured: boolean): Promise<void> {
   await updatePreferences({ networkMonitorConfigured: configured });
+}
+
+export async function setNetworkMonitorStartOnLaunch(
+  startOnLaunch: boolean,
+): Promise<void> {
+  await updatePreferences({ networkMonitorStartOnLaunch: startOnLaunch });
 }
 
 export async function setNetworkMonitorSampleInterval(

@@ -268,7 +268,11 @@ export function NetworkMonitorPage() {
     let active = true;
     void getPreferences().then((preferences) => {
       if (active) {
-        setConfigured(preferences.networkMonitorConfigured ?? false);
+        setConfigured(
+          preferences.networkMonitorStartOnLaunch
+          ?? preferences.networkMonitorConfigured
+          ?? true,
+        );
       }
     });
     void initialize();
@@ -517,7 +521,7 @@ export function NetworkMonitorPage() {
         </p>
       </div>
 
-      {configured === false ? (
+      {configured === false && !status?.enabled ? (
         <Card>
           <CardHeader>
             <CardTitle>{t("onboarding.title")}</CardTitle>
