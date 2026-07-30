@@ -3,56 +3,23 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import {
   ActivityIcon,
-  BookOpenIcon,
   BoxIcon,
   CableIcon,
   CircleHelpIcon,
-  CopyIcon,
   FileCodeIcon,
   FileKeyIcon,
-  GaugeIcon,
   LayoutDashboardIcon,
-  MoreVerticalIcon,
-  RefreshCwIcon,
   SearchIcon,
   ServerCogIcon,
   SettingsIcon,
-  ShieldCheckIcon,
   TerminalSquareIcon,
-  TriangleAlertIcon,
 } from "lucide-react";
 
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogMedia,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
 import { restartApplication } from "src/services/tauri/application";
 import { writeDiagnosticText } from "src/services/tauri/system-information";
@@ -62,13 +29,12 @@ import {
   getErrorTranslationKey,
   serializeDiagnosticReport,
 } from "src/utils/system-information";
-import { LanguageSwitcher } from "./preferences/LanguageSwitcher";
 import { PreferencesDialog } from "./preferences/PreferencesDialog";
-import { ThemeSwitcher } from "./preferences/ThemeSwitcher";
 import {
   NavigationGroup,
   type NavigationItem,
 } from "./navigation/NavigationGroup";
+import { SidebarFooterContent } from "./sidebar/SidebarFooterContent";
 
 const managementItems: NavigationItem[] = [
   {labelKey: "items.dashboard", icon: LayoutDashboardIcon},
@@ -82,12 +48,6 @@ const resourceItems: NavigationItem[] = [
   {labelKey: "items.certificates", icon: FileKeyIcon},
   {labelKey: "items.networkPorts", icon: CableIcon},
   {labelKey: "items.networkMonitor", icon: ActivityIcon},
-];
-
-const footerItems: NavigationItem[] = [
-  {labelKey: "items.settings", icon: SettingsIcon},
-  {labelKey: "items.help", icon: CircleHelpIcon},
-  {labelKey: "items.search", icon: SearchIcon},
 ];
 
 function showMockAction(label: string, description: string) {
@@ -259,137 +219,30 @@ export function AppSidebar() {
         />
       </SidebarContent>
 
-      <SidebarFooter className="gap-2 p-3 group-data-[collapsible=icon]:p-2">
-        <SidebarMenu>
-          {footerItems.map((item) => (
-            <SidebarMenuItem key={item.labelKey}>
-              <SidebarMenuButton
-                onClick={() => handleItemSelect(item.labelKey)}
-                tooltip={t(`navigation:${item.labelKey}`)}
-              >
-                <item.icon/>
-                <span>{t(`navigation:${item.labelKey}`)}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
-
-        <SidebarSeparator className="m-0"/>
-
-        <div
-          data-slot="sidebar-preference-actions"
-          className="flex items-center gap-2 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:justify-center"
-        >
-          <LanguageSwitcher compact/>
-          <ThemeSwitcher compact/>
-        </div>
-
-        <SidebarSeparator className="m-0"/>
-
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <DropdownMenu orientation="vertical">
-              <DropdownMenuTrigger
-                render={
-                  <SidebarMenuButton
-                    aria-label={t("navigation:labels.openMachineActions")}
-                    size="lg"
-                  />
-                }
-              >
-                <Avatar className="size-8">
-                  <AvatarFallback>
-                    <GaugeIcon aria-hidden="true"/>
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-auto text-left group-data-[collapsible=icon]:hidden">
-                  <p className="truncate text-xs font-medium">{t("navigation:machine.name")}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {summaryLoading && !summary
-                      ? t("navigation:machine.platformUnavailable")
-                      : formatMachinePlatform(
-                        summary,
-                        t("navigation:machine.platformUnavailable"),
-                      )}
-                  </p>
-                </div>
-                <MoreVerticalIcon
-                  aria-hidden="true"
-                  className="ml-auto group-data-[collapsible=icon]:hidden"
-                />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" side="left">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onClick={openSystemInformation}>
-                    <ShieldCheckIcon/>
-                    {t("navigation:machine.systemInfo")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={summaryLoading}
-                    onClick={() => void handleRefreshSummary()}
-                  >
-                    <RefreshCwIcon/>
-                    {t("navigation:machine.refreshSummary")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void handleCopyDiagnostics()}>
-                    <CopyIcon/>
-                    {t("navigation:machine.copyDiagnostics")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => showMockAction(t("navigation:machine.openGuide"), t("navigation:toast.futureAction"))}>
-                    <BookOpenIcon/>
-                    {t("navigation:machine.openGuide")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator/>
-                <DropdownMenuGroup>
-                  <DropdownMenuItem
-                    onClick={() => setRestartConfirmationOpen(true)}
-                  >
-                    {t("navigation:machine.restartApp")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
-      <PreferencesDialog onOpenChange={setSettingsOpen} open={settingsOpen}/>
-      <AlertDialog
-        onOpenChange={(open) => {
+      <SidebarFooterContent
+        footerItems={[
+          {labelKey: "items.settings", icon: SettingsIcon},
+          {labelKey: "items.help", icon: CircleHelpIcon},
+          {labelKey: "items.search", icon: SearchIcon},
+        ]}
+        onCopyDiagnostics={() => void handleCopyDiagnostics()}
+        onItemSelect={handleItemSelect}
+        onOpenGuide={() => showMockAction(t("navigation:machine.openGuide"), t("navigation:toast.futureAction"))}
+        onOpenSystemInformation={openSystemInformation}
+        onRefreshSummary={() => void handleRefreshSummary()}
+        onRestart={() => void handleRestartApplication()}
+        onRestartConfirmationChange={(open) => {
           if (!open && !restarting) {
             setRestartConfirmationOpen(false);
           }
         }}
-        open={restartConfirmationOpen}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogMedia>
-              <TriangleAlertIcon aria-hidden="true" />
-            </AlertDialogMedia>
-            <AlertDialogTitle>
-              {t("navigation:machine.restartConfirmationTitle")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("navigation:machine.restartConfirmationDescription")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={restarting}>
-              {t("common:actions.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={restarting}
-              onClick={() => void handleRestartApplication()}
-              variant="destructive"
-            >
-              {restarting ? <Spinner data-icon="inline-start" /> : null}
-              {t("navigation:machine.restartApp")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onRestartRequest={() => setRestartConfirmationOpen(true)}
+        restartConfirmationOpen={restartConfirmationOpen}
+        restarting={restarting}
+        summary={summary}
+        summaryLoading={summaryLoading}
+      />
+      <PreferencesDialog onOpenChange={setSettingsOpen} open={settingsOpen}/>
     </Sidebar>
   );
 }

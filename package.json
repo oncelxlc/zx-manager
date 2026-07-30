@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "typecheck": "tsc --noEmit && node scripts/check-component-size.mjs",
+    "check:component-size": "node scripts/check-component-size.mjs",
+    "test": "vitest run && node --test scripts/check-component-size.node-test.mjs",
     "test:watch": "vitest",
     "preview": "vite preview",
     "tauri": "tauri",
