@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  DatabaseIcon,
   NetworkIcon,
   RefreshCwIcon,
   ShieldAlertIcon,
@@ -72,130 +71,34 @@ import {
   NetworkTablePagination,
   type NetworkTablePageSize,
 } from "src/components/network-monitor/NetworkTablePagination";
+import { NetworkMonitorOnboarding } from "src/components/network-monitor/NetworkMonitorOnboarding";
+import {
+  aggregateApplications,
+  compareApplications,
+  getSafePageIndex,
+  rangeDurations,
+  systemApplicationId,
+  toLocalInputValue,
+  type ApplicationSortBy,
+  type RangePreset,
+  unknownApplicationId,
+} from "src/components/network-monitor/network-monitor-utils";
+import { useNetworkMonitorLifecycle } from "src/components/network-monitor/useNetworkMonitorLifecycle";
 import { useMainLayoutHeader } from "src/layouts/MainLayout";
 import {
-  getPreferences,
   setNetworkMonitorConfigured,
   setNetworkMonitorSampleInterval as persistNetworkMonitorSampleInterval,
 } from "src/services/storage/preferences-storage";
 import { useNetworkMonitorStore } from "src/stores/network-monitor-store";
-import type {
-  ApplicationTrafficSnapshot,
-  AttributionQuality,
-  NetworkPathFilter,
-  NetworkUsageSortBy,
-  SortDirection,
-  TrafficValues,
-} from "src/types/network-monitor";
+import type { NetworkPathFilter, NetworkUsageSortBy, SortDirection } from "src/types/network-monitor";
 import {
   networkMonitorSampleIntervals,
   type NetworkMonitorSampleInterval,
 } from "src/types/preferences";
 import { formatDataRate, formatDataSize } from "src/utils/format-data-size";
 
-type RangePreset = "10m" | "1h" | "24h" | "7d" | "custom";
-
-interface AggregatedApplication {
-  applicationId: string;
-  displayName: string;
-  traffic: TrafficValues;
-  quality: AttributionQuality;
-}
-
-type ApplicationSortBy =
-  | "application"
-  | "downloadRate"
-  | "uploadRate"
-  | "download"
-  | "upload";
-
-const rangeDurations: Record<Exclude<RangePreset, "custom">, number> = {
-  "10m": 10 * 60 * 1_000,
-  "1h": 60 * 60 * 1_000,
-  "24h": 24 * 60 * 60 * 1_000,
-  "7d": 7 * 24 * 60 * 60 * 1_000,
-};
-
 const defaultPageSize: NetworkTablePageSize = 10;
 const pathFilterValues: NetworkPathFilter[] = ["all", "proxy", "direct"];
-const unknownApplicationId = "0".repeat(64);
-const systemApplicationId = "f".repeat(64);
-
-function toLocalInputValue(timestamp: number) {
-  const date = new Date(
-    timestamp - new Date(timestamp).getTimezoneOffset() * 60_000,
-  );
-  return date.toISOString().slice(0, 16);
-}
-
-function pathMatches(
-  application: ApplicationTrafficSnapshot,
-  filter: NetworkPathFilter,
-) {
-  return filter === "all" || application.networkPath === filter;
-}
-
-function aggregateApplications(
-  applications: ApplicationTrafficSnapshot[],
-  filter: NetworkPathFilter,
-): AggregatedApplication[] {
-  const grouped = new Map<string, AggregatedApplication>();
-  for (const application of applications) {
-    if (!pathMatches(application, filter)) {
-      continue;
-    }
-    const existing = grouped.get(application.applicationId);
-    if (existing) {
-      existing.traffic.downloadBytesPerSecond =
-        (existing.traffic.downloadBytesPerSecond ?? 0)
-        + (application.traffic.downloadBytesPerSecond ?? 0);
-      existing.traffic.uploadBytesPerSecond =
-        (existing.traffic.uploadBytesPerSecond ?? 0)
-        + (application.traffic.uploadBytesPerSecond ?? 0);
-      existing.traffic.sessionDownloadBytes +=
-        application.traffic.sessionDownloadBytes;
-      existing.traffic.sessionUploadBytes +=
-        application.traffic.sessionUploadBytes;
-      if (application.quality === "partial") {
-        existing.quality = "partial";
-      }
-      continue;
-    }
-    grouped.set(application.applicationId, {
-      applicationId: application.applicationId,
-      displayName: application.displayName,
-      traffic: {...application.traffic},
-      quality: application.quality,
-    });
-  }
-  return [...grouped.values()];
-}
-
-function compareApplications(
-  left: AggregatedApplication,
-  right: AggregatedApplication,
-  sortBy: ApplicationSortBy,
-  direction: SortDirection,
-) {
-  const comparison = (() => {
-    switch (sortBy) {
-      case "application":
-        return left.displayName.localeCompare(right.displayName);
-      case "downloadRate":
-        return (left.traffic.downloadBytesPerSecond ?? 0)
-          - (right.traffic.downloadBytesPerSecond ?? 0);
-      case "uploadRate":
-        return (left.traffic.uploadBytesPerSecond ?? 0)
-          - (right.traffic.uploadBytesPerSecond ?? 0);
-      case "download":
-        return left.traffic.sessionDownloadBytes - right.traffic.sessionDownloadBytes;
-      case "upload":
-        return left.traffic.sessionUploadBytes - right.traffic.sessionUploadBytes;
-    }
-  })();
-  const ordered = direction === "asc" ? comparison : -comparison;
-  return ordered || left.applicationId.localeCompare(right.applicationId);
-}
 
 export function NetworkMonitorPage() {
   const {i18n, t} = useTranslation(["networkMonitor", "common"]);
@@ -234,7 +137,11 @@ export function NetworkMonitorPage() {
     [t],
   );
 
-  const [configured, setConfigured] = useState<boolean | null>(null);
+  const { configured, setConfigured } = useNetworkMonitorLifecycle({
+    initialize,
+    startRealtime,
+    stopRealtime,
+  });
   const platformSupported =
     capabilities?.platformSupported
     ?? (error?.code === "unsupportedPlatform" ? false : undefined);
@@ -264,25 +171,6 @@ export function NetworkMonitorPage() {
   const [historyPageSize, setHistoryPageSize] =
     useState<NetworkTablePageSize>(defaultPageSize);
 
-  useEffect(() => {
-    let active = true;
-    void getPreferences().then((preferences) => {
-      if (active) {
-        setConfigured(
-          preferences.networkMonitorStartOnLaunch
-          ?? preferences.networkMonitorConfigured
-          ?? true,
-        );
-      }
-    });
-    void initialize();
-    void startRealtime();
-    return () => {
-      active = false;
-      void stopRealtime();
-    };
-  }, [initialize, startRealtime, stopRealtime]);
-
   const runHistoryQuery = useCallback(() => {
     const now = Date.now();
     const from =
@@ -302,7 +190,13 @@ export function NetworkMonitorPage() {
       to,
       networkPath: historyPath,
       limit: historyPageSize,
-      cursor: String(historyPageIndex * historyPageSize),
+      cursor: String(
+        getSafePageIndex(
+          historyPageIndex,
+          history?.totalCount ?? 0,
+          historyPageSize,
+        ) * historyPageSize,
+      ),
       sortBy: historySortBy,
       sortDirection: historySortDirection,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
@@ -312,6 +206,7 @@ export function NetworkMonitorPage() {
     customTo,
     historyPageIndex,
     historyPageSize,
+    history?.totalCount,
     historyPath,
     historySortBy,
     historySortDirection,
@@ -352,34 +247,19 @@ export function NetworkMonitorPage() {
     1,
     Math.ceil(applications.length / applicationPageSize),
   );
-  const visibleApplications = applications.slice(
-    applicationPageIndex * applicationPageSize,
-    (applicationPageIndex + 1) * applicationPageSize,
+  const safeApplicationPageIndex = Math.min(
+    applicationPageIndex,
+    applicationPageCount - 1,
   );
-
-  useEffect(() => {
-    if (applicationPageIndex >= applicationPageCount) {
-      setApplicationPageIndex(applicationPageCount - 1);
-    }
-  }, [applicationPageCount, applicationPageIndex]);
-
-  useEffect(() => {
-    const pageCount = Math.max(
-      1,
-      Math.ceil((history?.totalCount ?? 0) / historyPageSize),
-    );
-    if (historyPageIndex >= pageCount) {
-      setHistoryPageIndex(pageCount - 1);
-    }
-  }, [history?.totalCount, historyPageIndex, historyPageSize]);
-
-  useEffect(() => {
-    setApplicationPageIndex(0);
-  }, [applicationPath, applicationSortBy, applicationSortDirection, status?.generation]);
-
-  useEffect(() => {
-    setHistoryPageIndex(0);
-  }, [historyPath, historySortBy, historySortDirection, range, status?.generation]);
+  const visibleApplications = applications.slice(
+    safeApplicationPageIndex * applicationPageSize,
+    (safeApplicationPageIndex + 1) * applicationPageSize,
+  );
+  const safeHistoryPageIndex = getSafePageIndex(
+    historyPageIndex,
+    history?.totalCount ?? 0,
+    historyPageSize,
+  );
 
   const handleCurrentSession = useCallback(async () => {
     const succeeded = await setEnabled(!status?.enabled);
@@ -476,6 +356,7 @@ export function NetworkMonitorPage() {
       return currentDirection === "asc" ? "desc" : "asc";
     });
     setApplicationSortBy(sortBy);
+    setApplicationPageIndex(0);
   }, [applicationSortBy]);
 
   const setHistorySort = useCallback((sortBy: NetworkUsageSortBy) => {
@@ -486,6 +367,7 @@ export function NetworkMonitorPage() {
       return currentDirection === "asc" ? "desc" : "asc";
     });
     setHistorySortBy(sortBy);
+    setHistoryPageIndex(0);
   }, [historySortBy]);
 
   if (platformSupported === false) {
@@ -522,32 +404,15 @@ export function NetworkMonitorPage() {
       </div>
 
       {configured === false && !status?.enabled ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("onboarding.title")}</CardTitle>
-            <CardDescription>{t("onboarding.description")}</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <Alert>
-              <DatabaseIcon/>
-              <AlertTitle>{t("onboarding.storageTitle")}</AlertTitle>
-              <AlertDescription>
-                {t("onboarding.storageDescription")}
-              </AlertDescription>
-            </Alert>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => void handleFirstChoice(true)}>
-                {t("onboarding.start")}
-              </Button>
-              <Button
-                onClick={() => void handleFirstChoice(false)}
-                variant="outline"
-              >
-                {t("onboarding.notNow")}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <NetworkMonitorOnboarding
+          description={t("onboarding.description")}
+          notNowLabel={t("onboarding.notNow")}
+          onChoice={(start) => void handleFirstChoice(start)}
+          startLabel={t("onboarding.start")}
+          storageDescription={t("onboarding.storageDescription")}
+          storageTitle={t("onboarding.storageTitle")}
+          title={t("onboarding.title")}
+        />
       ) : null}
 
       {error || status?.lastError ? (
@@ -628,6 +493,7 @@ export function NetworkMonitorPage() {
                 const value = values[0] as NetworkPathFilter | undefined;
                 if (value) {
                   setApplicationPath(value);
+                  setApplicationPageIndex(0);
                 }
               }}
               value={[applicationPath]}
@@ -761,7 +627,7 @@ export function NetworkMonitorPage() {
               setApplicationPageSize(pageSize);
               setApplicationPageIndex(0);
             }}
-            pageIndex={applicationPageIndex}
+            pageIndex={safeApplicationPageIndex}
             pageSize={applicationPageSize}
             totalCount={applications.length}
           />
@@ -779,9 +645,10 @@ export function NetworkMonitorPage() {
               <FieldLabel>{t("history.range")}</FieldLabel>
               <ToggleGroup
                 onValueChange={(values) => {
-                  const value = values[0] as RangePreset | undefined;
-                  if (value) {
-                    setRange(value);
+                const value = values[0] as RangePreset | undefined;
+                if (value) {
+                  setRange(value);
+                  setHistoryPageIndex(0);
                   }
                 }}
                 value={[range]}
@@ -826,9 +693,10 @@ export function NetworkMonitorPage() {
               <FieldLabel>{t("pathFilter.history")}</FieldLabel>
               <ToggleGroup
                 onValueChange={(values) => {
-                  const value = values[0] as NetworkPathFilter | undefined;
-                  if (value) {
-                    setHistoryPath(value);
+                const value = values[0] as NetworkPathFilter | undefined;
+                if (value) {
+                  setHistoryPath(value);
+                  setHistoryPageIndex(0);
                   }
                 }}
                 value={[historyPath]}
@@ -959,7 +827,7 @@ export function NetworkMonitorPage() {
               setHistoryPageSize(pageSize);
               setHistoryPageIndex(0);
             }}
-            pageIndex={historyPageIndex}
+            pageIndex={safeHistoryPageIndex}
             pageSize={historyPageSize}
             totalCount={history?.totalCount ?? 0}
           />
@@ -984,6 +852,8 @@ export function NetworkMonitorPage() {
                 void clearUsage({scope: "all"}).then((result) => {
                   if (result) {
                     toast.add({title: t("clear.success"), type: "success"});
+                    setApplicationPageIndex(0);
+                    setHistoryPageIndex(0);
                   }
                   setClearOpen(false);
                 });

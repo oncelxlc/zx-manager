@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BoxesIcon,
@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 import { MetricCard } from "src/components/dashboard/MetricCard";
-import { ResourceChart } from "src/components/dashboard/ResourceChart";
+import { ResourceChartSkeleton } from "src/components/dashboard/ResourceChartSkeleton";
 import { ServiceWorkspace } from "src/components/dashboard/ServiceWorkspace";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,12 @@ const operationHandlers = {
   stop: stopService,
   restart: restartService,
 } satisfies Record<ServiceOperation, (serviceId: string) => Promise<void>>;
+
+const ResourceChart = lazy(() =>
+  import("src/components/dashboard/ResourceChart").then((module) => ({
+    default: module.ResourceChart,
+  })),
+);
 
 function createServiceId(name: string, sequence: number) {
   const slug = name
@@ -286,7 +292,9 @@ export function DashboardPage() {
         />
       </section>
 
-      <ResourceChart />
+      <Suspense fallback={<ResourceChartSkeleton />}>
+        <ResourceChart />
+      </Suspense>
 
       <ServiceWorkspace
         onAddService={handleAddService}

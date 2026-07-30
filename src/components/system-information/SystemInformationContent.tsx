@@ -42,6 +42,7 @@ import {
   formatPercent,
 } from "src/utils/system-information";
 import type { SystemInformation } from "src/types/system-information";
+import { SystemSummaryCard } from "./SystemSummaryCard";
 
 function DetailRow({
   label,
@@ -87,36 +88,6 @@ function SectionCard({
   );
 }
 
-function SummaryCard({
-  detail,
-  icon,
-  label,
-  progress,
-  value,
-}: {
-  detail: string;
-  icon: ReactNode;
-  label: string;
-  progress?: number | null;
-  value: string;
-}) {
-  return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between">
-        <CardDescription>{label}</CardDescription>
-        <span className="text-muted-foreground">{icon}</span>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <p className="truncate text-2xl font-semibold tracking-tight">{value}</p>
-        {progress !== undefined && progress !== null ? (
-          <Progress aria-label={label} value={progress} />
-        ) : null}
-        <p className="truncate text-xs text-muted-foreground">{detail}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
 export function SystemInformationContent({
   information,
 }: {
@@ -147,7 +118,7 @@ export function SystemInformationContent({
         aria-label={t("summary.title")}
         className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
       >
-        <SummaryCard
+        <SystemSummaryCard
           detail={information.system.architecture ?? unavailable}
           icon={<MonitorCogIcon aria-hidden="true" />}
           label={t("summary.operatingSystem")}
@@ -157,14 +128,14 @@ export function SystemInformationContent({
             ?? unavailable
           }
         />
-        <SummaryCard
+        <SystemSummaryCard
           detail={information.cpu.model ?? unavailable}
           icon={<CpuIcon aria-hidden="true" />}
           label={t("summary.cpuUsage")}
           progress={information.cpu.usagePercent}
           value={formatPercent(information.cpu.usagePercent, locale, unavailable)}
         />
-        <SummaryCard
+        <SystemSummaryCard
           detail={t("summary.memoryDetail", {
             total: formatBytes(
               information.memory.totalBytes,
@@ -181,7 +152,7 @@ export function SystemInformationContent({
             unavailable,
           )}
         />
-        <SummaryCard
+        <SystemSummaryCard
           detail={t("summary.diskCount", { count: information.disks.length })}
           icon={<HardDriveIcon aria-hidden="true" />}
           label={t("summary.storageUsage")}

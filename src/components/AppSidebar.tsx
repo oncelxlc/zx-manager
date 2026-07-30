@@ -21,7 +21,6 @@ import {
   TerminalSquareIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 
 import {
   AlertDialog,
@@ -47,9 +46,6 @@ import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -69,11 +65,10 @@ import {
 import { LanguageSwitcher } from "./preferences/LanguageSwitcher";
 import { PreferencesDialog } from "./preferences/PreferencesDialog";
 import { ThemeSwitcher } from "./preferences/ThemeSwitcher";
-
-interface NavigationItem {
-  labelKey: string;
-  icon: LucideIcon;
-}
+import {
+  NavigationGroup,
+  type NavigationItem,
+} from "./navigation/NavigationGroup";
 
 const managementItems: NavigationItem[] = [
   {labelKey: "items.dashboard", icon: LayoutDashboardIcon},
@@ -101,41 +96,6 @@ function showMockAction(label: string, description: string) {
     description,
     type: "info",
   });
-}
-
-function NavigationGroup({
-                           label,
-                           items,
-                           activeItem,
-                           onItemSelect,
-                         }: {
-  label: string;
-  items: NavigationItem[];
-  activeItem: string;
-  onItemSelect: (labelKey: string) => void;
-}) {
-  const {t} = useTranslation("navigation");
-  return (
-    <SidebarGroup>
-      <SidebarGroupLabel>{label}</SidebarGroupLabel>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {items.map((item) => (
-            <SidebarMenuItem key={item.labelKey}>
-              <SidebarMenuButton
-                isActive={activeItem === item.labelKey}
-                onClick={() => onItemSelect(item.labelKey)}
-                tooltip={t(item.labelKey)}
-              >
-                <item.icon/>
-                <span>{t(item.labelKey)}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
-  );
 }
 
 export function AppSidebar() {

@@ -122,6 +122,33 @@ describe("network monitor store", () => {
     expect(useNetworkMonitorStore.getState().realtime[0]?.sequence).toBe(6);
   });
 
+  it("shares an in-flight realtime subscription and cleans it up after the final consumer", async () => {
+    let resolveSubscription: ((value: {
+      subscription: { subscriptionId: number; generation: number; initialEvents: NetworkRealtimeEvent[] };
+      cleanup: () => Promise<void>;
+    }) => void) | undefined;
+    const cleanup = vi.fn(async () => undefined);
+    service.subscribeNetworkRealtime.mockReturnValue(new Promise((resolve) => {
+      resolveSubscription = resolve;
+    }));
+
+    const store = useNetworkMonitorStore.getState();
+    const first = store.startRealtime();
+    const second = store.startRealtime();
+    expect(service.subscribeNetworkRealtime).toHaveBeenCalledOnce();
+
+    resolveSubscription?.({
+      subscription: { subscriptionId: 1, generation: 1, initialEvents: [] },
+      cleanup,
+    });
+    await Promise.all([first, second]);
+
+    await store.stopRealtime();
+    expect(cleanup).not.toHaveBeenCalled();
+    await store.stopRealtime();
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
   it("ignores a slower history response after a newer query", async () => {
     let resolveFirst: ((value: NetworkUsageResult) => void) | undefined;
     let resolveSecond: ((value: NetworkUsageResult) => void) | undefined;

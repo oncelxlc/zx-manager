@@ -52,6 +52,8 @@ interface NetworkMonitorStoreState {
 }
 
 let realtimeSubscription: NetworkRealtimeSubscription | null = null;
+let realtimeSubscriptionPromise: Promise<NetworkRealtimeSubscription | null> | null = null;
+let realtimeConsumerCount = 0;
 let statusRequestSequence = 0;
 let historyRequestSequence = 0;
 
@@ -107,23 +109,41 @@ export const useNetworkMonitorStore = create<NetworkMonitorStoreState>(
     },
 
     startRealtime: async () => {
+      realtimeConsumerCount += 1;
       if (realtimeSubscription) {
         return;
       }
-      try {
-        const subscription = await subscribeNetworkRealtime((event) => {
+      if (!realtimeSubscriptionPromise) {
+        const pendingSubscription = subscribeNetworkRealtime((event) => {
           get().acceptRealtimeEvent(event);
-        });
-        realtimeSubscription = subscription;
-        for (const event of subscription.subscription.initialEvents) {
-          get().acceptRealtimeEvent(event);
-        }
-      } catch (error) {
-        set({ error: toNetworkMonitorError(error) });
+        })
+          .then((subscription) => {
+            realtimeSubscription = subscription;
+            for (const event of subscription.subscription.initialEvents) {
+              get().acceptRealtimeEvent(event);
+            }
+            return subscription;
+          })
+          .catch((error) => {
+            set({ error: toNetworkMonitorError(error) });
+            return null;
+          })
+          .finally(() => {
+            if (realtimeSubscriptionPromise === pendingSubscription) {
+              realtimeSubscriptionPromise = null;
+            }
+          });
+        realtimeSubscriptionPromise = pendingSubscription;
       }
+      await realtimeSubscriptionPromise;
     },
 
     stopRealtime: async () => {
+      realtimeConsumerCount = Math.max(0, realtimeConsumerCount - 1);
+      if (realtimeConsumerCount > 0) {
+        return;
+      }
+      await realtimeSubscriptionPromise;
       const subscription = realtimeSubscription;
       realtimeSubscription = null;
       if (!subscription) {
@@ -285,7 +305,15 @@ export const useNetworkMonitorStore = create<NetworkMonitorStoreState>(
     reset: () => {
       statusRequestSequence += 1;
       historyRequestSequence += 1;
+      realtimeConsumerCount = 0;
+      const subscription = realtimeSubscription;
       realtimeSubscription = null;
+      void realtimeSubscriptionPromise?.then((pendingSubscription) => {
+        if (realtimeConsumerCount === 0) {
+          void pendingSubscription?.cleanup();
+        }
+      });
+      void subscription?.cleanup();
       set(initialState());
     },
   }),
