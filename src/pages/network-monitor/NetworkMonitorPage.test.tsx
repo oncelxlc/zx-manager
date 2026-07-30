@@ -46,6 +46,7 @@ const store = vi.hoisted(() => {
   return {
     applications,
     historyPoints,
+    realtime,
     state: {
       capabilities: {
         platform: "windows",
@@ -143,6 +144,7 @@ describe("NetworkMonitorPage application traffic", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     store.state.capabilities.platformSupported = true;
+    store.state.realtime = store.realtime;
     store.state.realtime[0].applications = store.applications;
     store.state.history.points = store.historyPoints;
     store.state.history.totalCount = 25;
@@ -223,6 +225,29 @@ describe("NetworkMonitorPage application traffic", () => {
     const proxyButtons = screen.getAllByRole("button", { name: "Proxy" });
     await user.click(proxyButtons[0]!);
     expect(screen.queryByTitle("App 23.exe")).not.toBeInTheDocument();
+  });
+
+  it("renders an application received after the page has mounted", () => {
+    const { rerender } = render(<NetworkMonitorPage />);
+    store.state.realtime = [{
+      ...store.state.realtime[0]!,
+      sequence: 2,
+      applications: [{
+        applicationId: "late-arrival",
+        displayName: "Late arrival.exe",
+        networkPath: "direct",
+        traffic: {
+          downloadBytesPerSecond: 1024,
+          uploadBytesPerSecond: 512,
+          sessionDownloadBytes: 1024,
+          sessionUploadBytes: 512,
+        },
+        quality: "exact",
+      }],
+    }];
+
+    rerender(<NetworkMonitorPage />);
+    expect(screen.getByTitle("Late arrival.exe")).toBeInTheDocument();
   });
 
   it("sorts application rows locally and sends history sorting before pagination", async () => {

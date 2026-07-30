@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { toast } from "@/components/ui/toast";
@@ -84,6 +84,7 @@ export function useNetworkMonitorController() {
   const [applicationPageSize, setApplicationPageSize] = useState<NetworkTablePageSize>(defaultPageSize);
   const [historyPageIndex, setHistoryPageIndex] = useState(0);
   const [historyPageSize, setHistoryPageSize] = useState<NetworkTablePageSize>(defaultPageSize);
+  const lastHistoryQueryKey = useRef<string | null>(null);
 
   const applicationDisplayName = useCallback((applicationId: string, displayName: string) => {
     if (applicationId === systemApplicationId) return t("applications.system");
@@ -112,8 +113,40 @@ export function useNetworkMonitorController() {
   }, [customFrom, customTo, history?.totalCount, historyPageIndex, historyPageSize, historyPath, historySortBy, historySortDirection, queryHistory, range, t]);
 
   useEffect(() => {
-    if (configured && status && platformSupported) runHistoryQuery();
-  }, [configured, platformSupported, runHistoryQuery, status?.generation]);
+    if (!configured || !status || !platformSupported) {
+      return;
+    }
+    // Ignore result-only updates: they must not turn one history request into a loop.
+    const queryKey = [
+      status.generation,
+      range,
+      customFrom,
+      customTo,
+      historyPath,
+      historySortBy,
+      historySortDirection,
+      historyPageIndex,
+      historyPageSize,
+    ].join("|");
+    if (lastHistoryQueryKey.current === queryKey) {
+      return;
+    }
+    lastHistoryQueryKey.current = queryKey;
+    runHistoryQuery();
+  }, [
+    configured,
+    customFrom,
+    customTo,
+    historyPageIndex,
+    historyPageSize,
+    historyPath,
+    historySortBy,
+    historySortDirection,
+    platformSupported,
+    range,
+    runHistoryQuery,
+    status,
+  ]);
 
   // Aggregate before sorting: direct/proxy variants never render as duplicate apps.
   const applications = useMemo(() => [...aggregateApplications(

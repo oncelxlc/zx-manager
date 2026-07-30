@@ -26,8 +26,14 @@ export function useNetworkMonitorLifecycle({
         );
       }
     });
-    void initialize();
-    void startRealtime();
+    // Establish the Channel after the initial manager snapshot. Starting both
+    // invokes concurrently can leave the page subscribed before startup has
+    // completed, which yields an empty stream until the route is remounted.
+    void initialize().finally(() => {
+      if (active) {
+        void startRealtime();
+      }
+    });
     return () => {
       active = false;
       void stopRealtime();
