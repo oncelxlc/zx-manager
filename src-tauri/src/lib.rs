@@ -1,4 +1,5 @@
 mod network_monitor;
+mod startup;
 mod system_information;
 
 use tauri::Manager;
@@ -26,6 +27,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            startup::complete_startup,
             system_information::get_system_summary,
             system_information::get_system_information,
             network_monitor::commands::get_network_monitor_capabilities,
@@ -39,12 +41,24 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
-    app.run(|app_handle, event| {
-        if matches!(event, tauri::RunEvent::Exit) {
-            app_handle
-                .state::<network_monitor::NetworkMonitorManager>()
-                .shutdown();
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::WindowEvent { label, event, .. }
+            if label == "splashscreen"
+                && matches!(event, tauri::WindowEvent::CloseRequested { .. }) =>
+        {
+            let main_window_visible = app_handle
+                .get_webview_window("main")
+                .and_then(|window| window.is_visible().ok())
+                .unwrap_or(false);
+
+            if !main_window_visible {
+                app_handle.exit(0);
+            }
         }
+        tauri::RunEvent::Exit => app_handle
+            .state::<network_monitor::NetworkMonitorManager>()
+            .shutdown(),
+        _ => {}
     });
 }
 

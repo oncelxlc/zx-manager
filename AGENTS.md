@@ -7,6 +7,7 @@ ZxManager is a React 19 + Tauri 2 desktop console for local infrastructure manag
 - System summary and detailed system information are collected by Rust commands.
 - Diagnostic text is written through the Tauri clipboard plugin.
 - Theme and locale preferences use Tauri Store, with legacy `localStorage` migration and fallback.
+- A static, permissionless splashscreen is shown while the hidden main window loads preferences, theme, localization, and the initial route. The main window performs an explicit permission-scoped handoff after its layout mounts.
 - Application restart uses the Tauri Process plugin.
 - Network monitoring is opt-in and Windows 10/11-only. An elevated same-executable helper owns the ETW session and sends application/path aggregates to the unelevated main process.
 - Application traffic uses TCP/UDP ETW payload PIDs and byte counts, an in-memory realtime ring, and a local seven-day SQLite history. Non-Windows platforms keep the route but emit no estimate or mock traffic.
@@ -36,7 +37,7 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 
 ## Application Conventions
 
-- Preserve the startup sequence in `src/main.tsx`: render the startup screen, load preferences, apply the theme, initialize i18n, and then render the application. Preference or localization failures must not prevent the shell from opening.
+- Preserve the two-window startup sequence: show `public/splashscreen.html`, keep `main` hidden, render the React fallback, load preferences, apply the theme, initialize i18n, mount the initial route, and then invoke the idempotent startup handoff. Preference or localization failures must not prevent the shell from opening, and network-monitor restoration must remain non-blocking.
 - Use `react-i18next` for all user-visible product text. Add matching keys to `src/i18n/locales/zh-CN.ts` and `src/i18n/locales/en-US.ts`; keep identifiers stable and translate dynamic labels at the rendering edge.
 - Read and write UI preferences only through `src/services/storage/preferences-storage.ts`. Tauri Store is primary; the `localStorage` path is retained for migration and graceful browser/plugin fallback.
 - Keep all frontend-to-desktop calls behind `src/services/tauri/`. Components and stores should not call `invoke()`, plugins, or browser storage directly.
@@ -54,6 +55,7 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 ## Security and Tauri Boundaries
 
 - Grant the narrowest Tauri capability required for each command or plugin action. Do not replace specific permissions with broad defaults for convenience.
+- Keep the `splashscreen` window outside every capability. Only `main` may invoke `complete_startup`, which must show the main window before closing the splashscreen and remain safe to call more than once.
 - Run blocking system collection work outside the async UI path. Keep command errors serializable and suitable for localization at the frontend edge.
 - Do not execute arbitrary shell strings from the WebView. Validate identifiers and arguments again in Rust when real service management is introduced.
 - Keep service management mocked until a platform-specific, permission-scoped backend and corresponding tests exist.

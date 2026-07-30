@@ -1,6 +1,7 @@
 fn main() {
     let manifest = tauri_build::AppManifest::new().commands(&[
         "greet",
+        "complete_startup",
         "get_system_summary",
         "get_system_information",
         "get_network_monitor_capabilities",

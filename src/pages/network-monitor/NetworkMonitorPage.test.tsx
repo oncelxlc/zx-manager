@@ -155,7 +155,7 @@ describe("NetworkMonitorPage application traffic", () => {
 
     const tables = screen.getAllByRole("table");
     expect(tables).toHaveLength(2);
-    expect(tables[0]).toHaveClass("table-fixed", "min-w-224");
+    expect(tables[0]).toHaveClass("table-fixed", "min-w-4xl");
     expect(tables[1]).toHaveClass("table-fixed", "min-w-176");
     expect(tables[0]?.closest("[data-slot=table-container]")).toHaveClass(
       "max-h-[52.5rem]",

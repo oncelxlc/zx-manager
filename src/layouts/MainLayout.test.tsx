@@ -7,12 +7,20 @@ import {
   Routes,
   useNavigate,
 } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import MainLayout, { useMainLayoutHeader } from "src/layouts/MainLayout";
 
+const { completeStartup } = vi.hoisted(() => ({
+  completeStartup: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock("src/components/AppSidebar", () => ({
   AppSidebar: () => <aside data-slot="app-sidebar" />,
+}));
+
+vi.mock("src/services/tauri/startup", () => ({
+  completeStartup,
 }));
 
 function DashboardFixture() {
@@ -68,6 +76,18 @@ function renderLayout() {
 }
 
 describe("MainLayout", () => {
+  beforeEach(() => {
+    completeStartup.mockClear();
+  });
+
+  it("hands off from the splashscreen after the layout mounts", async () => {
+    renderLayout();
+
+    await waitFor(() => {
+      expect(completeStartup).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("merges the header and sidebar layer around an inset content surface", async () => {
     const { container } = renderLayout();
 

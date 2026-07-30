@@ -18,6 +18,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { completeStartup } from "src/services/tauri/startup";
 
 interface MainLayoutHeaderOptions {
   title: string;
@@ -73,6 +74,12 @@ export default function MainLayout() {
   );
   const activeHeader =
     headerConfig?.pathname === location.pathname ? headerConfig : null;
+
+  useEffect(() => {
+    void completeStartup().catch(() => {
+      // Keep the static splashscreen visible if the native handoff fails.
+    });
+  }, []);
 
   return (
     <SidebarProvider className="bg-sidebar"

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-complete-startup"
+description = "Enables the complete_startup command without any pre-configured scope."
+commands.allow = ["complete_startup"]
+
+[[permission]]
+identifier = "deny-complete-startup"
+description = "Denies the complete_startup command without any pre-configured scope."
+commands.deny = ["complete_startup"]
