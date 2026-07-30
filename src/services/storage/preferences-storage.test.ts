@@ -74,11 +74,10 @@ describe("preferences storage", () => {
       networkMonitorSampleIntervalSeconds: 5,
     });
     expect(store.set).toHaveBeenCalledWith("preferences", {
-      version: 3,
+      version: 4,
       locale: "en-US",
       theme: "system",
       networkMonitorConfigured: false,
-      networkMonitorStartOnLaunch: false,
       networkMonitorSampleIntervalSeconds: 5,
     });
     expect(store.save).toHaveBeenCalledOnce();
@@ -93,11 +92,10 @@ describe("preferences storage", () => {
     await expect(getPreferences()).resolves.toEqual({ theme: "light" });
     await setLocale("en-US");
     expect(JSON.parse(window.localStorage.getItem("local-console.preferences") ?? "{}")).toEqual({
-      version: 3,
+      version: 4,
       locale: "en-US",
       theme: "light",
       networkMonitorConfigured: false,
-      networkMonitorStartOnLaunch: false,
       networkMonitorSampleIntervalSeconds: 5,
     });
   });
@@ -112,17 +110,16 @@ describe("preferences storage", () => {
     await setTheme("system");
 
     expect(store.set).toHaveBeenCalledWith("preferences", {
-      version: 3,
+      version: 4,
       locale: "zh-CN",
       theme: "system",
       networkMonitorConfigured: false,
-      networkMonitorStartOnLaunch: false,
       networkMonitorSampleIntervalSeconds: 5,
     });
     expect(store.save).toHaveBeenCalledOnce();
   });
 
-  it("migrates and updates network monitor v2 preferences", async () => {
+  it("ignores the retired start-on-launch preference during migration", async () => {
     const store = createStore({
       preferences: {
         version: 2,
@@ -135,24 +132,22 @@ describe("preferences storage", () => {
     loadStore.mockResolvedValue(store);
     const {
       getPreferences,
-      setNetworkMonitorStartOnLaunch,
+      setNetworkMonitorSampleInterval,
     } = await loadPreferencesStorage();
 
     await expect(getPreferences()).resolves.toEqual({
       locale: "zh-CN",
       theme: "dark",
       networkMonitorConfigured: true,
-      networkMonitorStartOnLaunch: false,
       networkMonitorSampleIntervalSeconds: 5,
     });
-    await setNetworkMonitorStartOnLaunch(true);
+    await setNetworkMonitorSampleInterval(10);
     expect(store.set).toHaveBeenLastCalledWith("preferences", {
-      version: 3,
+      version: 4,
       locale: "zh-CN",
       theme: "dark",
       networkMonitorConfigured: true,
-      networkMonitorStartOnLaunch: true,
-      networkMonitorSampleIntervalSeconds: 5,
+      networkMonitorSampleIntervalSeconds: 10,
     });
   });
 
@@ -163,7 +158,6 @@ describe("preferences storage", () => {
         locale: "zh-CN",
         theme: "dark",
         networkMonitorConfigured: true,
-        networkMonitorStartOnLaunch: false,
         networkMonitorSampleIntervalSeconds: 2,
       },
     });
@@ -178,11 +172,10 @@ describe("preferences storage", () => {
     });
     await setNetworkMonitorSampleInterval(10);
     expect(store.set).toHaveBeenLastCalledWith("preferences", {
-      version: 3,
+      version: 4,
       locale: "zh-CN",
       theme: "dark",
       networkMonitorConfigured: true,
-      networkMonitorStartOnLaunch: false,
       networkMonitorSampleIntervalSeconds: 10,
     });
   });

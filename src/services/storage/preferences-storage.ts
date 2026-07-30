@@ -29,13 +29,17 @@ interface StoredPreferencesV2 {
   networkMonitorStartOnLaunch?: boolean;
 }
 
-interface StoredPreferencesV3 {
-  version: 3;
+interface StoredPreferencesV4 {
+  version: 4;
   locale?: SupportedLocale;
   theme?: ThemeMode;
   networkMonitorConfigured?: boolean;
-  networkMonitorStartOnLaunch?: boolean;
   networkMonitorSampleIntervalSeconds?: NetworkMonitorSampleInterval;
+}
+
+interface StoredPreferencesV3 extends Omit<StoredPreferencesV4, "version"> {
+  version: 3;
+  networkMonitorStartOnLaunch?: boolean;
 }
 
 type PreferencesStore = Pick<Store, "get" | "save" | "set">;
@@ -54,11 +58,13 @@ function normalizePreferences(value: unknown): Partial<UserPreferences> {
   const preferences = value as
     | StoredPreferencesV1
     | StoredPreferencesV2
-    | StoredPreferencesV3;
+    | StoredPreferencesV3
+    | StoredPreferencesV4;
   if (
     preferences.version !== 1
     && preferences.version !== 2
     && preferences.version !== 3
+    && preferences.version !== 4
   ) {
     return {};
   }
@@ -71,13 +77,8 @@ function normalizePreferences(value: unknown): Partial<UserPreferences> {
       && typeof preferences.networkMonitorConfigured === "boolean"
         ? preferences.networkMonitorConfigured
         : undefined,
-    networkMonitorStartOnLaunch:
-      preferences.version !== 1
-      && typeof preferences.networkMonitorStartOnLaunch === "boolean"
-        ? preferences.networkMonitorStartOnLaunch
-        : undefined,
     networkMonitorSampleIntervalSeconds:
-      preferences.version === 3
+      (preferences.version === 3 || preferences.version === 4)
       && isNetworkMonitorSampleInterval(
         preferences.networkMonitorSampleIntervalSeconds,
       )
@@ -114,17 +115,13 @@ function writeLegacyPreferences(preferences: Partial<UserPreferences>) {
 
   try {
     const current = readLegacyPreferences();
-    const nextValue: StoredPreferencesV3 = {
-      version: 3,
+    const nextValue: StoredPreferencesV4 = {
+      version: 4,
       ...current,
       ...preferences,
       networkMonitorConfigured:
         preferences.networkMonitorConfigured
         ?? current.networkMonitorConfigured
-        ?? false,
-      networkMonitorStartOnLaunch:
-        preferences.networkMonitorStartOnLaunch
-        ?? current.networkMonitorStartOnLaunch
         ?? false,
       networkMonitorSampleIntervalSeconds:
         preferences.networkMonitorSampleIntervalSeconds
@@ -154,7 +151,6 @@ function hasPreferences(preferences: Partial<UserPreferences>) {
   return preferences.locale !== undefined
     || preferences.theme !== undefined
     || preferences.networkMonitorConfigured !== undefined
-    || preferences.networkMonitorStartOnLaunch !== undefined
     || preferences.networkMonitorSampleIntervalSeconds !== undefined;
 }
 
@@ -167,8 +163,6 @@ function mergePreferences(
     theme: primary.theme ?? fallback.theme,
     networkMonitorConfigured:
       primary.networkMonitorConfigured ?? fallback.networkMonitorConfigured,
-    networkMonitorStartOnLaunch:
-      primary.networkMonitorStartOnLaunch ?? fallback.networkMonitorStartOnLaunch,
     networkMonitorSampleIntervalSeconds:
       primary.networkMonitorSampleIntervalSeconds
       ?? fallback.networkMonitorSampleIntervalSeconds
@@ -183,7 +177,6 @@ function preferencesMatch(
   return left.locale === right.locale
     && left.theme === right.theme
     && left.networkMonitorConfigured === right.networkMonitorConfigured
-    && left.networkMonitorStartOnLaunch === right.networkMonitorStartOnLaunch
     && left.networkMonitorSampleIntervalSeconds
       === right.networkMonitorSampleIntervalSeconds;
 }
@@ -209,11 +202,10 @@ async function savePreferences(
   store: PreferencesStore,
   preferences: Partial<UserPreferences>,
 ) {
-  const value: StoredPreferencesV3 = {
-    version: 3,
+  const value: StoredPreferencesV4 = {
+    version: 4,
     ...preferences,
     networkMonitorConfigured: preferences.networkMonitorConfigured ?? false,
-    networkMonitorStartOnLaunch: preferences.networkMonitorStartOnLaunch ?? false,
     networkMonitorSampleIntervalSeconds:
       preferences.networkMonitorSampleIntervalSeconds ?? 5,
   };
@@ -256,10 +248,6 @@ export async function setTheme(theme: ThemeMode): Promise<void> {
 
 export async function setNetworkMonitorConfigured(configured: boolean): Promise<void> {
   await updatePreferences({ networkMonitorConfigured: configured });
-}
-
-export async function setNetworkMonitorStartOnLaunch(enabled: boolean): Promise<void> {
-  await updatePreferences({ networkMonitorStartOnLaunch: enabled });
 }
 
 export async function setNetworkMonitorSampleInterval(

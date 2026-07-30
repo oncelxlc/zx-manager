@@ -6,6 +6,7 @@ description = "Read network monitor capabilities, status, realtime samples, and 
 permissions = [
   "allow-get-network-monitor-capabilities",
   "allow-get-network-monitor-status",
+  "allow-prepare-network-monitor",
   "allow-subscribe-network-realtime",
   "allow-unsubscribe-network-realtime",
   "allow-query-network-usage",

@@ -6,6 +6,7 @@ fn main() {
         "get_system_information",
         "get_network_monitor_capabilities",
         "get_network_monitor_status",
+        "prepare_network_monitor",
         "subscribe_network_realtime",
         "unsubscribe_network_realtime",
         "query_network_usage",

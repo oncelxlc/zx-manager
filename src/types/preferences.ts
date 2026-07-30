@@ -17,7 +17,6 @@ export interface UserPreferences {
   locale: SupportedLocale;
   theme: ThemeMode;
   networkMonitorConfigured: boolean;
-  networkMonitorStartOnLaunch: boolean;
   networkMonitorSampleIntervalSeconds: NetworkMonitorSampleInterval;
 }
 

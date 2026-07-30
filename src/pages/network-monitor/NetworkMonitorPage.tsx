@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  AppWindowIcon,
   ArrowDownIcon,
   ArrowUpIcon,
   DatabaseIcon,
@@ -11,13 +10,6 @@ import {
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 import {
   Alert,
@@ -45,12 +37,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "@/components/ui/chart";
 import {
   Empty,
   EmptyHeader,
@@ -97,7 +83,8 @@ import type {
   ApplicationTrafficSnapshot,
   AttributionQuality,
   NetworkPathFilter,
-  NetworkRealtimeEvent,
+  NetworkUsageSortBy,
+  SortDirection,
   TrafficValues,
 } from "src/types/network-monitor";
 import {
@@ -114,6 +101,13 @@ interface AggregatedApplication {
   traffic: TrafficValues;
   quality: AttributionQuality;
 }
+
+type ApplicationSortBy =
+  | "application"
+  | "downloadRate"
+  | "uploadRate"
+  | "download"
+  | "upload";
 
 const rangeDurations: Record<Exclude<RangePreset, "custom">, number> = {
   "10m": 10 * 60 * 1_000,
@@ -174,58 +168,33 @@ function aggregateApplications(
       quality: application.quality,
     });
   }
-  return [...grouped.values()].sort((left, right) => {
-    const leftRate =
-      (left.traffic.downloadBytesPerSecond ?? 0)
-      + (left.traffic.uploadBytesPerSecond ?? 0);
-    const rightRate =
-      (right.traffic.downloadBytesPerSecond ?? 0)
-      + (right.traffic.uploadBytesPerSecond ?? 0);
-    return rightRate - leftRate || left.applicationId.localeCompare(right.applicationId);
-  });
+  return [...grouped.values()];
 }
 
-function sumApplicationTraffic(
-  applications: AggregatedApplication[],
-): TrafficValues {
-  return applications.reduce<TrafficValues>(
-    (total, application) => ({
-      downloadBytesPerSecond:
-        (total.downloadBytesPerSecond ?? 0)
-        + (application.traffic.downloadBytesPerSecond ?? 0),
-      uploadBytesPerSecond:
-        (total.uploadBytesPerSecond ?? 0)
-        + (application.traffic.uploadBytesPerSecond ?? 0),
-      sessionDownloadBytes:
-        total.sessionDownloadBytes
-        + application.traffic.sessionDownloadBytes,
-      sessionUploadBytes:
-        total.sessionUploadBytes
-        + application.traffic.sessionUploadBytes,
-    }),
-    {
-      downloadBytesPerSecond: 0,
-      uploadBytesPerSecond: 0,
-      sessionDownloadBytes: 0,
-      sessionUploadBytes: 0,
-    },
-  );
-}
-
-function eventTraffic(
-  event: NetworkRealtimeEvent,
-  filter: NetworkPathFilter,
+function compareApplications(
+  left: AggregatedApplication,
+  right: AggregatedApplication,
+  sortBy: ApplicationSortBy,
+  direction: SortDirection,
 ) {
-  if (event.sampleState !== "sample") {
-    return {download: null, upload: null};
-  }
-  const traffic = sumApplicationTraffic(
-    aggregateApplications(event.applications, filter),
-  );
-  return {
-    download: traffic.downloadBytesPerSecond,
-    upload: traffic.uploadBytesPerSecond,
-  };
+  const comparison = (() => {
+    switch (sortBy) {
+      case "application":
+        return left.displayName.localeCompare(right.displayName);
+      case "downloadRate":
+        return (left.traffic.downloadBytesPerSecond ?? 0)
+          - (right.traffic.downloadBytesPerSecond ?? 0);
+      case "uploadRate":
+        return (left.traffic.uploadBytesPerSecond ?? 0)
+          - (right.traffic.uploadBytesPerSecond ?? 0);
+      case "download":
+        return left.traffic.sessionDownloadBytes - right.traffic.sessionDownloadBytes;
+      case "upload":
+        return left.traffic.sessionUploadBytes - right.traffic.sessionUploadBytes;
+    }
+  })();
+  const ordered = direction === "asc" ? comparison : -comparison;
+  return ordered || left.applicationId.localeCompare(right.applicationId);
 }
 
 export function NetworkMonitorPage() {
@@ -269,9 +238,17 @@ export function NetworkMonitorPage() {
   const platformSupported =
     capabilities?.platformSupported
     ?? (error?.code === "unsupportedPlatform" ? false : undefined);
-  const [realtimePath, setRealtimePath] =
+  const [applicationPath, setApplicationPath] =
     useState<NetworkPathFilter>("all");
+  const [applicationSortBy, setApplicationSortBy] =
+    useState<ApplicationSortBy>("downloadRate");
+  const [applicationSortDirection, setApplicationSortDirection] =
+    useState<SortDirection>("desc");
   const [historyPath, setHistoryPath] = useState<NetworkPathFilter>("all");
+  const [historySortBy, setHistorySortBy] =
+    useState<NetworkUsageSortBy>("total");
+  const [historySortDirection, setHistorySortDirection] =
+    useState<SortDirection>("desc");
   const [range, setRange] = useState<RangePreset>("1h");
   const [customFrom, setCustomFrom] = useState(() =>
     toLocalInputValue(Date.now() - 60 * 60 * 1_000),
@@ -322,6 +299,8 @@ export function NetworkMonitorPage() {
       networkPath: historyPath,
       limit: historyPageSize,
       cursor: String(historyPageIndex * historyPageSize),
+      sortBy: historySortBy,
+      sortDirection: historySortDirection,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     });
   }, [
@@ -330,6 +309,8 @@ export function NetworkMonitorPage() {
     historyPageIndex,
     historyPageSize,
     historyPath,
+    historySortBy,
+    historySortDirection,
     queryHistory,
     range,
     t,
@@ -348,12 +329,20 @@ export function NetworkMonitorPage() {
 
   const latest = realtime[realtime.length - 1];
   const applications = useMemo(
-    () => aggregateApplications(latest?.applications ?? [], realtimePath),
-    [latest?.applications, realtimePath],
-  );
-  const selectedTraffic = useMemo(
-    () => sumApplicationTraffic(applications),
-    [applications],
+    () => [...aggregateApplications(latest?.applications ?? [], applicationPath)].sort(
+      (left, right) => compareApplications(
+        left,
+        right,
+        applicationSortBy,
+        applicationSortDirection,
+      ),
+    ),
+    [
+      applicationPath,
+      applicationSortBy,
+      applicationSortDirection,
+      latest?.applications,
+    ],
   );
   const applicationPageCount = Math.max(
     1,
@@ -382,33 +371,11 @@ export function NetworkMonitorPage() {
 
   useEffect(() => {
     setApplicationPageIndex(0);
-  }, [realtimePath, status?.generation]);
+  }, [applicationPath, applicationSortBy, applicationSortDirection, status?.generation]);
 
   useEffect(() => {
     setHistoryPageIndex(0);
-  }, [historyPath, range, status?.generation]);
-
-  const chartData = useMemo(() => {
-    const latestSampledAt =
-      realtime[realtime.length - 1]?.sampledAt ?? Date.now();
-    const chartFrom = latestSampledAt - rangeDurations["10m"];
-    return realtime
-      .filter((event) => event.sampledAt >= chartFrom)
-      .map((event) => ({
-        sampledAt: event.sampledAt,
-        ...eventTraffic(event, realtimePath),
-      }));
-  }, [realtime, realtimePath]);
-  const chartConfig = {
-    download: {
-      color: "var(--chart-1)",
-      label: t("metrics.downloadRate"),
-    },
-    upload: {
-      color: "var(--chart-2)",
-      label: t("metrics.uploadRate"),
-    },
-  } satisfies ChartConfig;
+  }, [historyPath, historySortBy, historySortDirection, range, status?.generation]);
 
   const handleCurrentSession = useCallback(async () => {
     const succeeded = await setEnabled(!status?.enabled);
@@ -496,51 +463,26 @@ export function NetworkMonitorPage() {
     label: t("sampling.option", {count: interval}),
     value: String(interval),
   }));
-  const unknownBytes =
-    (latest?.unknownTraffic.sessionDownloadBytes ?? 0)
-    + (latest?.unknownTraffic.sessionUploadBytes ?? 0);
-  const summaryCards = [
-    {
-      icon: ArrowDownIcon,
-      label: t("metrics.downloadRate"),
-      value: formatDataRate(
-        selectedTraffic.downloadBytesPerSecond,
-        locale,
-      ),
-    },
-    {
-      icon: ArrowUpIcon,
-      label: t("metrics.uploadRate"),
-      value: formatDataRate(selectedTraffic.uploadBytesPerSecond, locale),
-    },
-    {
-      icon: null,
-      label: t("metrics.sessionDownload"),
-      value: formatDataSize(selectedTraffic.sessionDownloadBytes, locale),
-    },
-    {
-      icon: null,
-      label: t("metrics.sessionUpload"),
-      value: formatDataSize(selectedTraffic.sessionUploadBytes, locale),
-    },
-    {
-      icon: AppWindowIcon,
-      label: t("metrics.activeApplications"),
-      value: String(
-        applications.filter(
-          (application) =>
-            (application.traffic.downloadBytesPerSecond ?? 0)
-            + (application.traffic.uploadBytesPerSecond ?? 0)
-            > 0,
-        ).length,
-      ),
-    },
-    {
-      icon: TriangleAlertIcon,
-      label: t("metrics.unclassifiedTraffic"),
-      value: formatDataSize(unknownBytes, locale),
-    },
-  ];
+
+  const setApplicationSort = useCallback((sortBy: ApplicationSortBy) => {
+    setApplicationSortDirection((currentDirection) => {
+      if (applicationSortBy !== sortBy) {
+        return sortBy === "application" ? "asc" : "desc";
+      }
+      return currentDirection === "asc" ? "desc" : "asc";
+    });
+    setApplicationSortBy(sortBy);
+  }, [applicationSortBy]);
+
+  const setHistorySort = useCallback((sortBy: NetworkUsageSortBy) => {
+    setHistorySortDirection((currentDirection) => {
+      if (historySortBy !== sortBy) {
+        return sortBy === "application" ? "asc" : "desc";
+      }
+      return currentDirection === "asc" ? "desc" : "asc";
+    });
+    setHistorySortBy(sortBy);
+  }, [historySortBy]);
 
   if (platformSupported === false) {
     return (
@@ -634,64 +576,16 @@ export function NetworkMonitorPage() {
         </Alert>
       ) : null}
 
-      {unknownBytes > 0 ? (
-        <Alert>
-          <TriangleAlertIcon/>
-          <AlertTitle>{t("quality.unknownTitle")}</AlertTitle>
-          <AlertDescription>{t("quality.unknownDescription")}</AlertDescription>
-        </Alert>
-      ) : null}
-
       <Alert>
         <NetworkIcon/>
         <AlertTitle>{t("quality.aggregateTitle")}</AlertTitle>
         <AlertDescription>{t("quality.aggregateDescription")}</AlertDescription>
       </Alert>
 
-      <Field orientation="horizontal">
-        <FieldTitle id="network-realtime-path-label">
-          {t("pathFilter.realtime")}
-        </FieldTitle>
-        <ToggleGroup
-          aria-labelledby="network-realtime-path-label"
-          onValueChange={(values) => {
-            const value = values[0] as NetworkPathFilter | undefined;
-            if (value) {
-              setRealtimePath(value);
-            }
-          }}
-          value={[realtimePath]}
-          variant="outline"
-        >
-          {pathFilterValues.map((value) => (
-            <ToggleGroupItem key={value} value={value}>
-              {t(`pathFilter.options.${value}`)}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-      </Field>
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-        {summaryCards.map((card) => {
-          const Icon = card.icon;
-          return (
-            <Card key={card.label}>
-              <CardHeader>
-                <CardDescription>{card.label}</CardDescription>
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  {Icon ? <Icon aria-hidden="true"/> : null}
-                  {card.value}
-                </CardTitle>
-              </CardHeader>
-            </Card>
-          );
-        })}
-      </div>
-
       <Card>
         <CardHeader>
-          <CardTitle>{t("realtime.title")}</CardTitle>
-          <CardDescription>{t("realtime.description")}</CardDescription>
+          <CardTitle>{t("applications.title")}</CardTitle>
+          <CardDescription>{t("applications.description")}</CardDescription>
           <CardAction>
             <Field data-disabled={sampleIntervalLoading ? "" : undefined}>
               <FieldLabel htmlFor="network-sample-interval">
@@ -700,15 +594,10 @@ export function NetworkMonitorPage() {
               <Select
                 disabled={sampleIntervalLoading}
                 items={sampleIntervalItems}
-                onValueChange={(value) =>
-                  void handleSampleIntervalChange(value)
-                }
-                value={String(status?.sampleIntervalSeconds ?? 3)}
+                onValueChange={(value) => void handleSampleIntervalChange(value)}
+                value={String(status?.sampleIntervalSeconds ?? 5)}
               >
-                <SelectTrigger
-                  className="w-32"
-                  id="network-sample-interval"
-                >
+                <SelectTrigger className="w-32" id="network-sample-interval">
                   <SelectValue/>
                 </SelectTrigger>
                 <SelectContent>
@@ -724,84 +613,74 @@ export function NetworkMonitorPage() {
             </Field>
           </CardAction>
         </CardHeader>
-        <CardContent>
-          <ChartContainer
-            className="h-70 w-full aspect-auto"
-            config={chartConfig}
-            initialDimension={{width: 900, height: 280}}
-          >
-            <LineChart
-              accessibilityLayer
-              data={chartData}
-              margin={{bottom: 0, left: 0, right: 16, top: 8}}
+        <CardContent className="flex flex-col gap-5">
+          <Field orientation="horizontal">
+            <FieldTitle id="network-application-path-label">
+              {t("pathFilter.applications")}
+            </FieldTitle>
+            <ToggleGroup
+              aria-labelledby="network-application-path-label"
+              onValueChange={(values) => {
+                const value = values[0] as NetworkPathFilter | undefined;
+                if (value) {
+                  setApplicationPath(value);
+                }
+              }}
+              value={[applicationPath]}
+              variant="outline"
             >
-              <CartesianGrid strokeDasharray="3 3" vertical={false}/>
-              <XAxis
-                dataKey="sampledAt"
-                tickFormatter={(value: number) =>
-                  new Intl.DateTimeFormat(locale, {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }).format(value)
-                }
-                tickLine={false}
-              />
-              <YAxis
-                tickFormatter={(value: number) =>
-                  formatDataSize(value, locale)
-                }
-                tickLine={false}
-                width={72}
-              />
-              <ChartTooltip
-                content={<ChartTooltipContent/>}
-                cursor={false}
-              />
-              <Line
-                connectNulls={false}
-                dataKey="download"
-                dot={false}
-                stroke="var(--color-download)"
-                strokeWidth={2}
-                type="monotone"
-              />
-              <Line
-                connectNulls={false}
-                dataKey="upload"
-                dot={false}
-                stroke="var(--color-upload)"
-                strokeWidth={2}
-                type="monotone"
-              />
-            </LineChart>
-          </ChartContainer>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("applications.title")}</CardTitle>
-          <CardDescription>{t("applications.description")}</CardDescription>
-        </CardHeader>
-        <CardContent>
+              {pathFilterValues.map((value) => (
+                <ToggleGroupItem key={value} value={value}>
+                  {t(`pathFilter.options.${value}`)}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </Field>
           <Table
             className="min-w-4xl table-fixed"
             containerClassName="max-h-[52.5rem] overflow-auto rounded-md border"
           >
             <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:bg-card">
               <TableRow>
-                <TableHead>{t("applications.columns.name")}</TableHead>
-                <TableHead className="w-40 text-right">
-                  {t("applications.columns.downloadRate")}
+                <TableHead aria-sort={applicationSortBy === "application" ? applicationSortDirection === "asc" ? "ascending" : "descending" : "none"}>
+                  <Button onClick={() => setApplicationSort("application")} variant="ghost">
+                    {t("applications.columns.name")}
+                    {applicationSortBy === "application"
+                      ? applicationSortDirection === "asc" ? <ArrowUpIcon data-icon="inline-end"/> : <ArrowDownIcon data-icon="inline-end"/>
+                      : null}
+                  </Button>
                 </TableHead>
-                <TableHead className="w-40 text-right">
-                  {t("applications.columns.uploadRate")}
+                <TableHead aria-sort={applicationSortBy === "downloadRate" ? applicationSortDirection === "asc" ? "ascending" : "descending" : "none"} className="w-40 text-right">
+                  <Button onClick={() => setApplicationSort("downloadRate")} variant="ghost">
+                    {t("applications.columns.downloadRate")}
+                    {applicationSortBy === "downloadRate"
+                      ? applicationSortDirection === "asc" ? <ArrowUpIcon data-icon="inline-end"/> : <ArrowDownIcon data-icon="inline-end"/>
+                      : null}
+                  </Button>
                 </TableHead>
-                <TableHead className="w-40 text-right">
-                  {t("applications.columns.sessionDownload")}
+                <TableHead aria-sort={applicationSortBy === "uploadRate" ? applicationSortDirection === "asc" ? "ascending" : "descending" : "none"} className="w-40 text-right">
+                  <Button onClick={() => setApplicationSort("uploadRate")} variant="ghost">
+                    {t("applications.columns.uploadRate")}
+                    {applicationSortBy === "uploadRate"
+                      ? applicationSortDirection === "asc" ? <ArrowUpIcon data-icon="inline-end"/> : <ArrowDownIcon data-icon="inline-end"/>
+                      : null}
+                  </Button>
                 </TableHead>
-                <TableHead className="w-40 text-right">
-                  {t("applications.columns.sessionUpload")}
+                <TableHead aria-sort={applicationSortBy === "download" ? applicationSortDirection === "asc" ? "ascending" : "descending" : "none"} className="w-40 text-right">
+                  <Button onClick={() => setApplicationSort("download")} variant="ghost">
+                    {t("applications.columns.sessionDownload")}
+                    {applicationSortBy === "download"
+                      ? applicationSortDirection === "asc" ? <ArrowUpIcon data-icon="inline-end"/> : <ArrowDownIcon data-icon="inline-end"/>
+                      : null}
+                  </Button>
+                </TableHead>
+                <TableHead aria-sort={applicationSortBy === "upload" ? applicationSortDirection === "asc" ? "ascending" : "descending" : "none"} className="w-40 text-right">
+                  <Button onClick={() => setApplicationSort("upload")} variant="ghost">
+                    {t("applications.columns.sessionUpload")}
+                    {applicationSortBy === "upload"
+                      ? applicationSortDirection === "asc" ? <ArrowUpIcon data-icon="inline-end"/> : <ArrowDownIcon data-icon="inline-end"/>
+                      : null}
+                  </Button>
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -984,15 +863,37 @@ export function NetworkMonitorPage() {
           >
             <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:bg-card">
               <TableRow>
-                <TableHead>{t("history.columns.application")}</TableHead>
-                <TableHead className="w-40 text-right">
-                  {t("history.columns.download")}
+                <TableHead aria-sort={historySortBy === "application" ? historySortDirection === "asc" ? "ascending" : "descending" : "none"}>
+                  <Button onClick={() => setHistorySort("application")} variant="ghost">
+                    {t("history.columns.application")}
+                    {historySortBy === "application"
+                      ? historySortDirection === "asc" ? <ArrowUpIcon data-icon="inline-end"/> : <ArrowDownIcon data-icon="inline-end"/>
+                      : null}
+                  </Button>
                 </TableHead>
-                <TableHead className="w-40 text-right">
-                  {t("history.columns.upload")}
+                <TableHead aria-sort={historySortBy === "download" ? historySortDirection === "asc" ? "ascending" : "descending" : "none"} className="w-40 text-right">
+                  <Button onClick={() => setHistorySort("download")} variant="ghost">
+                    {t("history.columns.download")}
+                    {historySortBy === "download"
+                      ? historySortDirection === "asc" ? <ArrowUpIcon data-icon="inline-end"/> : <ArrowDownIcon data-icon="inline-end"/>
+                      : null}
+                  </Button>
                 </TableHead>
-                <TableHead className="w-40 text-right">
-                  {t("history.columns.total")}
+                <TableHead aria-sort={historySortBy === "upload" ? historySortDirection === "asc" ? "ascending" : "descending" : "none"} className="w-40 text-right">
+                  <Button onClick={() => setHistorySort("upload")} variant="ghost">
+                    {t("history.columns.upload")}
+                    {historySortBy === "upload"
+                      ? historySortDirection === "asc" ? <ArrowUpIcon data-icon="inline-end"/> : <ArrowDownIcon data-icon="inline-end"/>
+                      : null}
+                  </Button>
+                </TableHead>
+                <TableHead aria-sort={historySortBy === "total" ? historySortDirection === "asc" ? "ascending" : "descending" : "none"} className="w-40 text-right">
+                  <Button onClick={() => setHistorySort("total")} variant="ghost">
+                    {t("history.columns.total")}
+                    {historySortBy === "total"
+                      ? historySortDirection === "asc" ? <ArrowUpIcon data-icon="inline-end"/> : <ArrowDownIcon data-icon="inline-end"/>
+                      : null}
+                  </Button>
                 </TableHead>
               </TableRow>
             </TableHeader>

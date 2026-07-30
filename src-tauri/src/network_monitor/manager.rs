@@ -37,6 +37,7 @@ impl Clone for NetworkMonitorManager {
 
 struct ManagerInner {
     enabled: AtomicBool,
+    authorization_ready: AtomicBool,
     shutdown: AtomicBool,
     generation: AtomicU64,
     sequence: AtomicU64,
@@ -63,6 +64,7 @@ impl NetworkMonitorManager {
         Self {
             inner: Arc::new(ManagerInner {
                 enabled: AtomicBool::new(false),
+                authorization_ready: AtomicBool::new(false),
                 shutdown: AtomicBool::new(false),
                 generation: AtomicU64::new(0),
                 sequence: AtomicU64::new(0),
@@ -109,6 +111,7 @@ impl NetworkMonitorManager {
         NetworkMonitorStatus {
             platform_supported: cfg!(windows),
             requires_elevation: cfg!(windows),
+            authorization_ready: self.inner.authorization_ready.load(Ordering::Acquire),
             enabled: self.inner.enabled.load(Ordering::Acquire),
             collector_state: *lock(&self.inner.collector_state),
             helper_state: *lock(&self.inner.helper_state),
@@ -132,8 +135,19 @@ impl NetworkMonitorManager {
             ));
         }
         if enabled {
+            self.prepare()?;
             self.ensure_collector_thread()?;
-            self.inner.enabled.store(true, Ordering::Release);
+            let starting_new_session = !self.inner.enabled.swap(true, Ordering::AcqRel);
+            if starting_new_session {
+                self.inner.generation.fetch_add(1, Ordering::AcqRel);
+                self.inner.sequence.store(0, Ordering::Release);
+                lock(&self.inner.realtime).clear();
+                lock(&self.inner.pending_rows).clear();
+                lock(&self.inner.accumulator).reset();
+                self.inner.lost_events.store(0, Ordering::Release);
+                self.inner.unresolved_events.store(0, Ordering::Release);
+                *lock(&self.inner.last_sampled_at) = None;
+            }
             *lock(&self.inner.collector_state) = CollectorState::Starting;
             *lock(&self.inner.helper_state) = HelperState::Starting;
             *lock(&self.inner.last_error) = None;
@@ -143,6 +157,31 @@ impl NetworkMonitorManager {
             self.flush_pending();
             self.emit_paused();
         }
+        Ok(self.status())
+    }
+
+    pub fn prepare(&self) -> NetworkMonitorResult<NetworkMonitorStatus> {
+        if !cfg!(windows) {
+            return Err(NetworkMonitorError::new(
+                NetworkMonitorErrorCode::UnsupportedPlatform,
+                "application network monitoring is supported on Windows only",
+            ));
+        }
+        if self.inner.authorization_ready.load(Ordering::Acquire) {
+            return Ok(self.status());
+        }
+        #[cfg(windows)]
+        {
+            // This starts the same narrowly-scoped elevated helper used by collection,
+            // validates its pipe handshake, and immediately shuts it down without sampling.
+            // It intentionally does not touch the SQLite worker or enable collection.
+            let mut helper = super::helper::HelperClient::start()?;
+            helper.prepare()?;
+            drop(helper);
+        }
+        self.inner
+            .authorization_ready
+            .store(true, Ordering::Release);
         Ok(self.status())
     }
 
@@ -484,6 +523,8 @@ mod tests {
                 time_zone: "UTC".to_owned(),
                 limit: Some(10),
                 cursor: None,
+                sort_by: Default::default(),
+                sort_direction: Default::default(),
             })
             .unwrap();
         assert!(result.points.is_empty());

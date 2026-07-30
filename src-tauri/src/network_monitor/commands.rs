@@ -22,6 +22,13 @@ pub fn get_network_monitor_status(
 }
 
 #[tauri::command]
+pub fn prepare_network_monitor(
+    manager: State<'_, NetworkMonitorManager>,
+) -> NetworkMonitorResult<NetworkMonitorStatus> {
+    manager.prepare()
+}
+
+#[tauri::command]
 pub fn subscribe_network_realtime(
     channel: Channel<NetworkRealtimeEvent>,
     manager: State<'_, NetworkMonitorManager>,

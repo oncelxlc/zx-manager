@@ -45,6 +45,24 @@ pub enum NetworkPathFilter {
     Direct,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NetworkUsageSortBy {
+    Application,
+    Download,
+    Upload,
+    #[default]
+    Total,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SortDirection {
+    Asc,
+    #[default]
+    Desc,
+}
+
 impl NetworkPathFilter {
     pub fn includes(self, path: NetworkPath) -> bool {
         match self {
@@ -115,6 +133,7 @@ pub struct NetworkMonitorCapabilities {
 pub struct NetworkMonitorStatus {
     pub platform_supported: bool,
     pub requires_elevation: bool,
+    pub authorization_ready: bool,
     pub enabled: bool,
     pub collector_state: CollectorState,
     pub helper_state: HelperState,
@@ -181,6 +200,10 @@ pub struct NetworkUsageQuery {
     pub time_zone: String,
     pub limit: Option<u32>,
     pub cursor: Option<String>,
+    #[serde(default)]
+    pub sort_by: NetworkUsageSortBy,
+    #[serde(default)]
+    pub sort_direction: SortDirection,
 }
 
 #[derive(Debug, Clone, Serialize)]

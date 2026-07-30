@@ -1,6 +1,6 @@
 use super::dto::{
     AttributionQuality, ClearNetworkUsageRequest, ClearScope, NetworkMonitorWarning, NetworkPath,
-    NetworkUsagePoint, NetworkUsageQuery, NetworkUsageResult,
+    NetworkUsagePoint, NetworkUsageQuery, NetworkUsageResult, NetworkUsageSortBy, SortDirection,
 };
 use super::error::{NetworkMonitorError, NetworkMonitorErrorCode, NetworkMonitorResult};
 use chrono::Utc;
@@ -12,7 +12,8 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-const SCHEMA_VERSION: i64 = 2;
+// Version 3 clears ETW-derived rows so no result combines different collection methods.
+const SCHEMA_VERSION: i64 = 3;
 const MAX_QUERY_SPAN_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
 const RETENTION_MS: i64 = MAX_QUERY_SPAN_MS;
 const DEFAULT_LIMIT: u32 = 1_000;
@@ -257,7 +258,7 @@ fn configure_and_migrate(database: &Connection) -> NetworkMonitorResult<()> {
                batch_id TEXT PRIMARY KEY NOT NULL,
                committed_at INTEGER NOT NULL
              );
-             PRAGMA user_version=2;
+             PRAGMA user_version=3;
              COMMIT;",
         )
         .map_err(NetworkMonitorError::storage)
@@ -413,10 +414,17 @@ fn query_usage(
         })
         .collect::<Vec<_>>();
     all_points.sort_by(|left, right| {
-        right
-            .total_bytes
-            .cmp(&left.total_bytes)
-            .then_with(|| left.application_id.cmp(&right.application_id))
+        let comparison = match request.sort_by {
+            NetworkUsageSortBy::Application => left.display_name.cmp(&right.display_name),
+            NetworkUsageSortBy::Download => left.download_bytes.cmp(&right.download_bytes),
+            NetworkUsageSortBy::Upload => left.upload_bytes.cmp(&right.upload_bytes),
+            NetworkUsageSortBy::Total => left.total_bytes.cmp(&right.total_bytes),
+        };
+        let comparison = match request.sort_direction {
+            SortDirection::Asc => comparison,
+            SortDirection::Desc => comparison.reverse(),
+        };
+        comparison.then_with(|| left.application_id.cmp(&right.application_id))
     });
 
     let partial = all_points
@@ -579,7 +587,9 @@ fn to_sql_integer(value: u64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network_monitor::dto::{ClearScope, NetworkPathFilter};
+    use crate::network_monitor::dto::{
+        ClearScope, NetworkPathFilter, NetworkUsageSortBy, SortDirection,
+    };
     use tempfile::tempdir;
 
     fn row(
@@ -608,6 +618,8 @@ mod tests {
             time_zone: "Asia/Shanghai".to_owned(),
             limit: None,
             cursor: None,
+            sort_by: Default::default(),
+            sort_direction: Default::default(),
         }
     }
 
@@ -630,7 +642,7 @@ mod tests {
         let count: i64 = database
             .query_row("SELECT COUNT(*) FROM usage_bucket", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
         assert_eq!(count, 0);
     }
 
@@ -660,6 +672,34 @@ mod tests {
         assert_eq!(proxy.points.len(), 1);
         assert_eq!(proxy.points[0].download_bytes, 200);
         assert!(!proxy.points[0].includes_unknown);
+    }
+
+    #[test]
+    fn query_sorts_the_full_aggregate_before_paging() {
+        let mut database = Connection::open_in_memory().unwrap();
+        configure_and_migrate(&database).unwrap();
+        write_batch(
+            &mut database,
+            UsageBatch {
+                batch_id: "sort".to_owned(),
+                rows: vec![
+                    row("alpha", "alpha.exe", NetworkPath::Direct, 300),
+                    row("bravo", "bravo.exe", NetworkPath::Direct, 100),
+                    row("charlie", "charlie.exe", NetworkPath::Direct, 200),
+                ],
+            },
+        )
+        .unwrap();
+
+        let mut request = query(NetworkPathFilter::All);
+        request.limit = Some(1);
+        request.sort_by = NetworkUsageSortBy::Application;
+        request.sort_direction = SortDirection::Asc;
+        request.cursor = Some("1".to_owned());
+        let result = query_usage(&database, request, 0).unwrap();
+
+        assert_eq!(result.total_count, 3);
+        assert_eq!(result.points[0].application_id, "bravo");
     }
 
     #[test]

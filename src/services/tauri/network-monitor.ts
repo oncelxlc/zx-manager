@@ -37,6 +37,11 @@ export async function getNetworkMonitorStatus(): Promise<NetworkMonitorStatus> {
   return invoke("get_network_monitor_status");
 }
 
+export async function prepareNetworkMonitor(): Promise<NetworkMonitorStatus> {
+  assertTauri();
+  return invoke("prepare_network_monitor");
+}
+
 export async function subscribeNetworkRealtime(
   onMessage: (event: NetworkRealtimeEvent) => void,
 ): Promise<NetworkRealtimeSubscription> {

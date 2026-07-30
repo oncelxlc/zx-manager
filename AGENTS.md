@@ -9,7 +9,7 @@ ZxManager is a React 19 + Tauri 2 desktop console for local infrastructure manag
 - Theme and locale preferences use Tauri Store, with legacy `localStorage` migration and fallback.
 - A static, permissionless splashscreen is shown while the hidden main window loads preferences, theme, localization, and the initial route. The main window performs an explicit permission-scoped handoff after its layout mounts.
 - Application restart uses the Tauri Process plugin.
-- Network monitoring is opt-in and Windows 10/11-only. An elevated same-executable helper owns the ETW session and sends application/path aggregates to the unelevated main process.
+- Network monitoring is opt-in and Windows 10/11-only. Startup performs a non-blocking elevated WFP-engine preflight; an elevated same-executable helper owns the ETW session and sends application/path aggregates to the unelevated main process once monitoring is enabled.
 - Application traffic uses TCP/UDP ETW payload PIDs and byte counts, an in-memory realtime ring, and a local seven-day SQLite history. Non-Windows platforms keep the route but emit no estimate or mock traffic.
 - Dashboard service data and Start/Stop/Restart/Remove operations remain frontend-only mocks in `src/services/tauri/service-manager.ts`.
 
@@ -45,7 +45,7 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 - Diagnostic export must remain an explicit allowlist. Do not add host names, disk mount points, driver details, or future DTO fields to copied diagnostics without a privacy review.
 - Use the existing shadcn/Base UI primitives and `cn()` helper rather than adding duplicate primitive components or another styling system.
 - Keep page-specific header state in the route page and register it with `MainLayout`; do not move feature loading state into the layout merely to render header actions.
-- Keep the network Manager disabled and its SQLite connection unopened until the user has configured monitoring and explicitly enables, queries, or clears it. Current-session state and the start-on-launch preference are independent.
+- Keep the network Manager disabled and its SQLite connection unopened until the user has configured monitoring and explicitly enables, queries, or clears it. The startup WFP authorization preflight must not enable collection or open SQLite.
 - Network sampling uses the persisted 1/3/5/10-second preference, defaults to five seconds, and must not silently change based on realtime subscriber count.
 - Network realtime consumers must discard old generations and out-of-order sequences, explicitly unsubscribe on page teardown, preserve `null` gaps, and keep bounded arrays.
 - Keep realtime and history path filters independent. `all` includes `unknown`; `proxy` and `direct` exclude it. Merge path records for the same application only after applying the active filter.
@@ -70,7 +70,7 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 
 Use pnpm and commit `pnpm-lock.yaml` whenever JavaScript dependencies change. Commit `src-tauri/Cargo.lock` whenever Rust dependencies change.
 
-Network monitoring uses `rusqlite` with bundled SQLite, `chrono-tz`, and `sha2`; Windows additionally uses `windows` and `winreg`. Its eight commands include the control-scoped sampling interval setter; any changes to these dependencies, Windows API features, commands, the three permission sets, helper protocol, or database schema must be called out explicitly. Schema v2 transactionally clears incompatible v1 interface/VPN history instead of inventing application attribution.
+Network monitoring uses `rusqlite` with bundled SQLite, `chrono-tz`, and `sha2`; Windows additionally uses `windows` and `winreg`. Its nine commands include the control-scoped WFP preflight and sampling interval setter; any changes to these dependencies, Windows API features, commands, the three permission sets, helper protocol, or database schema must be called out explicitly. Schema v3 transactionally clears prior ETW history before future collector-source migrations instead of mixing attribution sources.
 
 - `pnpm install` installs JavaScript dependencies and configures Husky hooks.
 - `pnpm dev` starts Vite on port 1420.

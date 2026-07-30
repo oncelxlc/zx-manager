@@ -32,6 +32,7 @@ pub fn run() {
             system_information::get_system_information,
             network_monitor::commands::get_network_monitor_capabilities,
             network_monitor::commands::get_network_monitor_status,
+            network_monitor::commands::prepare_network_monitor,
             network_monitor::commands::subscribe_network_realtime,
             network_monitor::commands::unsubscribe_network_realtime,
             network_monitor::commands::query_network_usage,

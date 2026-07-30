@@ -1,6 +1,8 @@
 export type AttributionQuality = "exact" | "partial";
 export type NetworkPath = "proxy" | "direct" | "unknown";
 export type NetworkPathFilter = "all" | "proxy" | "direct";
+export type NetworkUsageSortBy = "application" | "download" | "upload" | "total";
+export type SortDirection = "asc" | "desc";
 export type SampleState = "sample" | "gap" | "paused";
 export type CollectorState =
   | "disabled"
@@ -42,6 +44,7 @@ export interface NetworkMonitorCapabilities {
 export interface NetworkMonitorStatus {
   platformSupported: boolean;
   requiresElevation: boolean;
+  authorizationReady: boolean;
   enabled: boolean;
   collectorState: CollectorState;
   helperState: HelperState;
@@ -97,6 +100,8 @@ export interface NetworkUsageQuery {
   timeZone: string;
   limit?: number;
   cursor?: string;
+  sortBy?: NetworkUsageSortBy;
+  sortDirection?: SortDirection;
 }
 
 export interface NetworkUsagePoint {

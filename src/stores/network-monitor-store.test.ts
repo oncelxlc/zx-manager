@@ -83,7 +83,8 @@ describe("network monitor store", () => {
     useNetworkMonitorStore.setState({
       status: {
         platformSupported: true,
-        requiresElevation: true,
+      requiresElevation: true,
+      authorizationReady: true,
         enabled: true,
         collectorState: "running",
         helperState: "running",

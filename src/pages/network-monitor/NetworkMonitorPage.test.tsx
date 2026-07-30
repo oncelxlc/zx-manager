@@ -155,6 +155,7 @@ describe("NetworkMonitorPage application traffic", () => {
 
     const tables = screen.getAllByRole("table");
     expect(tables).toHaveLength(2);
+    expect(screen.queryByText("Last 10 minutes")).not.toBeInTheDocument();
     expect(tables[0]).toHaveClass("table-fixed", "min-w-4xl");
     expect(tables[1]).toHaveClass("table-fixed", "min-w-176");
     expect(tables[0]?.closest("[data-slot=table-container]")).toHaveClass(
@@ -222,6 +223,23 @@ describe("NetworkMonitorPage application traffic", () => {
     const proxyButtons = screen.getAllByRole("button", { name: "Proxy" });
     await user.click(proxyButtons[0]!);
     expect(screen.queryByTitle("App 23.exe")).not.toBeInTheDocument();
+  });
+
+  it("sorts application rows locally and sends history sorting before pagination", async () => {
+    const user = userEvent.setup();
+    render(<NetworkMonitorPage />);
+
+    await user.click(screen.getByRole("button", { name: "Download rate" }));
+    expect(screen.getByTitle("App 0.exe")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Download rate" }))
+      .toHaveAttribute("aria-sort", "ascending");
+
+    await user.click(screen.getByRole("button", { name: "Download" }));
+    await waitFor(() => {
+      expect(store.state.queryHistory).toHaveBeenCalledWith(
+        expect.objectContaining({ sortBy: "download", sortDirection: "desc" }),
+      );
+    });
   });
 
   it("persists a successful sample interval change", async () => {

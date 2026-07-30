@@ -1,5 +1,5 @@
 import {
-  setNetworkMonitorEnabled,
+  prepareNetworkMonitor,
   setNetworkMonitorSampleInterval,
 } from "src/services/tauri/network-monitor";
 import type { UserPreferences } from "src/types/preferences";
@@ -8,6 +8,12 @@ export async function restoreNetworkMonitorOnStartup(
   preferences: Partial<UserPreferences>,
 ): Promise<void> {
   try {
+    await prepareNetworkMonitor();
+  } catch {
+    // The shell and manual monitoring controls remain available after a declined UAC prompt.
+  }
+
+  try {
     await setNetworkMonitorSampleInterval(
       preferences.networkMonitorSampleIntervalSeconds ?? 5,
     );
@@ -15,14 +21,4 @@ export async function restoreNetworkMonitorOnStartup(
     // The manager keeps its safe five-second default if preference restore fails.
   }
 
-  if (
-    preferences.networkMonitorConfigured
-    && preferences.networkMonitorStartOnLaunch
-  ) {
-    try {
-      await setNetworkMonitorEnabled(true);
-    } catch {
-      // Monitoring is optional; startup failures must not block the shell.
-    }
-  }
 }

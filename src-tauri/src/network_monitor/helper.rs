@@ -24,6 +24,9 @@ mod windows_helper {
         CloseHandle, GetLastError, LocalFree, ERROR_CANCELLED, ERROR_PIPE_CONNECTED,
         ERROR_PIPE_LISTENING, FILETIME, GENERIC_READ, GENERIC_WRITE, HANDLE, HLOCAL, WAIT_OBJECT_0,
     };
+    use windows::Win32::NetworkManagement::WindowsFilteringPlatform::{
+        FwpmEngineClose0, FwpmEngineOpen0,
+    };
     use windows::Win32::Security::Authorization::{
         ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
         SDDL_REVISION_1,
@@ -52,6 +55,7 @@ mod windows_helper {
         PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES,
         PIPE_WAIT,
     };
+    use windows::Win32::System::Rpc::RPC_C_AUTHN_WINNT;
     use windows::Win32::System::Threading::{
         GetCurrentProcess, GetProcessId, GetProcessTimes, OpenProcess, OpenProcessToken,
         QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject, PROCESS_NAME_WIN32,
@@ -73,6 +77,7 @@ mod windows_helper {
     #[derive(Debug, Serialize, Deserialize)]
     #[serde(tag = "type", rename_all = "camelCase")]
     enum HelperRequest {
+        Prepare,
         Sample,
         Shutdown,
     }
@@ -84,6 +89,7 @@ mod windows_helper {
             protocol_version: u16,
             nonce: String,
         },
+        Prepared,
         Sample {
             applications: Vec<WireApplicationDelta>,
             lost_events: u64,
@@ -281,6 +287,21 @@ mod windows_helper {
                 _ => Err(NetworkMonitorError::new(
                     NetworkMonitorErrorCode::ProtocolMismatch,
                     "network helper returned an unexpected response",
+                )),
+            }
+        }
+
+        pub fn prepare(&mut self) -> NetworkMonitorResult<()> {
+            write_frame(&self.pipe, &HelperRequest::Prepare).map_err(helper_io_error)?;
+            match read_frame::<HelperResponse>(&self.pipe).map_err(helper_io_error)? {
+                HelperResponse::Prepared => Ok(()),
+                HelperResponse::Error { code, message } => Err(NetworkMonitorError::new(
+                    NetworkMonitorErrorCode::CollectorUnavailable,
+                    format!("{code}: {message}"),
+                )),
+                _ => Err(NetworkMonitorError::new(
+                    NetworkMonitorErrorCode::ProtocolMismatch,
+                    "network helper returned an unexpected prepare response",
                 )),
             }
         }
@@ -554,19 +575,6 @@ mod windows_helper {
             })?;
         }
         validate_helper_server_pid(parent_pid, server_pid)?;
-        let runtime = match EtwRuntime::start() {
-            Ok(runtime) => runtime,
-            Err(error) => {
-                let _ = write_frame(
-                    &pipe,
-                    &HelperResponse::Error {
-                        code: network_error_code_name(error.code).to_owned(),
-                        message: error.message.clone(),
-                    },
-                );
-                return Err(error);
-            }
-        };
         write_frame(
             &pipe,
             &HelperResponse::Hello {
@@ -576,10 +584,30 @@ mod windows_helper {
         )
         .map_err(helper_io_error)?;
 
+        let mut runtime: Option<EtwRuntime> = None;
         while let Ok(request) = read_frame::<HelperRequest>(&pipe) {
             match request {
+                HelperRequest::Prepare => match prepare_wfp_engine() {
+                    Ok(()) => {
+                        write_frame(&pipe, &HelperResponse::Prepared).map_err(helper_io_error)?
+                    }
+                    Err(error) => write_frame(
+                        &pipe,
+                        &HelperResponse::Error {
+                            code: network_error_code_name(error.code).to_owned(),
+                            message: error.message,
+                        },
+                    )
+                    .map_err(helper_io_error)?,
+                },
                 HelperRequest::Sample => {
-                    let sample = runtime.snapshot();
+                    if runtime.is_none() {
+                        runtime = Some(EtwRuntime::start()?);
+                    }
+                    let sample = runtime
+                        .as_ref()
+                        .expect("WFP helper runtime initialized")
+                        .snapshot();
                     write_frame(
                         &pipe,
                         &HelperResponse::Sample {
@@ -597,7 +625,30 @@ mod windows_helper {
                 }
             }
         }
-        runtime.stop();
+        if let Some(runtime) = runtime {
+            runtime.stop();
+        }
+        Ok(())
+    }
+
+    fn prepare_wfp_engine() -> NetworkMonitorResult<()> {
+        let mut engine = HANDLE::default();
+        unsafe {
+            let status = FwpmEngineOpen0(None, RPC_C_AUTHN_WINNT, None, None, &mut engine);
+            if status != 0 {
+                return Err(NetworkMonitorError::new(
+                    NetworkMonitorErrorCode::CollectorUnavailable,
+                    format!("failed to open the Windows Filtering Platform engine: {status}"),
+                ));
+            }
+            let status = FwpmEngineClose0(engine);
+            if status != 0 {
+                return Err(NetworkMonitorError::new(
+                    NetworkMonitorErrorCode::CollectorUnavailable,
+                    format!("failed to close the Windows Filtering Platform engine: {status}"),
+                ));
+            }
+        }
         Ok(())
     }
 
