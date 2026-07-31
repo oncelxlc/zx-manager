@@ -6,7 +6,7 @@ const zhCN = {
   },
   navigation: {
     groups: { management: "管理", resources: "资源" },
-    items: { certificates: "证书", configuration: "配置", dashboard: "仪表盘", help: "帮助", logs: "日志", networkMonitor: "网络监控", networkPorts: "网络端口", nginx: "Nginx", search: "搜索", services: "服务", settings: "设置", systemMonitor: "系统监控" },
+    items: { certificates: "证书", configuration: "配置", dashboard: "仪表盘", help: "帮助", logs: "日志", networkMonitor: "网络监控", networkPorts: "网络端口", nginx: "Nginx 管理", nginxLogs: "Nginx 日志", search: "搜索", services: "服务", settings: "设置", systemMonitor: "系统监控" },
     labels: { openMachineActions: "打开本机操作" },
     machine: { name: "本地计算机", platformUnavailable: "正在获取系统摘要", copyDiagnostics: "复制诊断信息", openGuide: "打开指南", refreshSummary: "刷新设备摘要", restartApp: "重启应用", restartConfirmationTitle: "重启 ZxManager？", restartConfirmationDescription: "应用将关闭并立即重新启动。未保存的操作可能会丢失。", restartError: "无法重启应用", systemInfo: "系统信息" },
     toast: { copyDiagnosticsError: "无法复制诊断信息", copyDiagnosticsSuccess: "诊断信息已复制", copyDiagnosticsSuccessDescription: "已将不含主机名、挂载点和驱动详情的白名单 JSON 写入剪贴板。", futureAction: "此操作已为后续 Tauri 命令准备就绪。", moduleMock: "此模块当前以本地仪表盘模拟方式呈现。", selected: "已选择 {{label}}", summaryRefreshError: "无法刷新设备摘要", summaryRefreshSuccess: "设备摘要已更新" },
@@ -156,6 +156,18 @@ const zhCN = {
         unknown: "发生未知错误。",
       },
     },
+  },
+  nginx: {
+    management: { title: "Nginx 管理", description: "管理由 Rust 后端检查并明确授权的本机 Nginx 实例。", instancesTitle: "实例注册表", instancesDescription: "已登记 {{count}} 个真实实例。", openInstances: "管理实例", registryBoundary: "注册表仅保存稳定路径、指纹和授权信息，不保存 PID 等运行态数据。", logsTitle: "日志", logsDescription: "查看已授权实例的日志源。", openLogs: "打开日志", noRealtimeClaim: "当前阶段未声明实时流量或日志数据；Dashboard 的服务卡片仍为 Mock。" },
+    instances: { title: "Nginx 实例", description: "通过原生目录选择器检查 Nginx，再使用短期不透明令牌登记。", add: "登记外部实例", emptyTitle: "尚未登记 Nginx", emptyDescription: "选择 Nginx 安装目录；后端将验证二进制、版本、路径和指纹。", errorTitle: "无法加载 Nginx 实例", retry: "重试", columns: { name: "名称", version: "版本", lifecycle: "生命周期", authorization: "授权", path: "目录", actions: "操作" }, refreshOne: "刷新 {{name}}", unregisterOne: "注销 {{name}}" },
+    registration: { title: "登记 Nginx 实例", description: "以下信息由 Rust 直接执行 nginx -v/-V 后生成，路径不会从前端回传。", name: "实例名称", register: "登记实例", warningsTitle: "检查警告", authorization: { label: "授权级别", readOnly: "只读", full: "完整", readOnlyDescription: "允许读取配置和状态，不允许修改文件。", fullDescription: "允许后续显式执行配置写入、恢复等受保护操作。" } },
+    lifecycle: { available: "可用", changed: "二进制已变更", missing: "文件缺失", uninstalled: "已卸载" },
+    authorization: { readOnly: "只读", full: "完整" },
+    unregister: { title: "注销实例？", description: "将从 ZxManager 注册表移除 {{name}}，不会删除 Nginx 文件。", action: "注销" },
+    logs: { title: "Nginx 日志", description: "分页与实时日志管理使用独立的后端权限边界。", emptyTitle: "日志源尚未启用", emptyDescription: "真实日志源发现、分页游标和 Channel 订阅将在日志阶段接入；此处不会显示模拟日志。" },
+    warnings: { NGINX_CONFIG_NOT_FOUND: "未在授权目录内找到默认配置文件。", NGINX_CONFIG_ROOT_NOT_AUTHORIZED: "配置文件位于所选目录之外，需要再次明确授权。" },
+    toast: { errorTitle: "Nginx 操作失败", registered: "已登记 {{name}}", registeredDescription: "实例已写入受保护的本地注册表。" },
+    errors: { NGINX_BINARY_NOT_FOUND: "所选目录中未找到 Nginx 可执行文件。", NGINX_CONFIG_NOT_FOUND: "未找到 Nginx 配置文件。", NGINX_CONFIG_ROOT_NOT_AUTHORIZED: "配置目录尚未明确授权。", NGINX_DESKTOP_REQUIRED: "Nginx 管理仅可在 ZxManager 桌面应用中使用。", NGINX_INSPECTION_COMMAND_FAILED: "Nginx 版本检查失败。", NGINX_INSTANCE_ALREADY_REGISTERED: "该 Nginx 二进制已登记。", NGINX_INSTANCE_NAME_INVALID: "实例名称必须包含 1–80 个字符。", NGINX_PROCESS_TIMEOUT: "Nginx 检查命令执行超时。", NGINX_REPARSE_POINT_REJECTED: "授权根不能是符号链接或重解析点。", NGINX_SELECTION_NOT_DIRECTORY: "所选路径不是目录。", NGINX_TOKEN_INVALID_OR_EXPIRED: "目录选择或检查凭据无效或已过期，请重新选择。", NGINX_VERSION_UNRECOGNIZED: "无法识别 Nginx 版本输出。", NGINX_UNKNOWN: "发生未知 Nginx 错误，请重试。" },
   },
   services: {
     table: { actionsFor: "打开 {{name}} 的操作", select: "选择 {{name}}", selectAll: "选择所有服务", service: "服务" },

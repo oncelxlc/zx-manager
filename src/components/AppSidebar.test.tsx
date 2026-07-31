@@ -169,6 +169,21 @@ describe("AppSidebar system information navigation", () => {
     );
   });
 
+  it("opens the real Nginx management and log routes without mock toasts", async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await user.click(screen.getByRole("button", { name: "Nginx Management" }));
+    expect(screen.getByLabelText("current path")).toHaveTextContent(
+      "/nginx/manage",
+    );
+    await user.click(screen.getByRole("button", { name: "Nginx Logs" }));
+    expect(screen.getByLabelText("current path")).toHaveTextContent(
+      "/nginx/logs",
+    );
+    expect(toastAdd).not.toHaveBeenCalled();
+  });
+
   it("copies only the allowlisted diagnostic report", async () => {
     const user = userEvent.setup();
     let clipboardText = "";

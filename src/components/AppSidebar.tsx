@@ -45,6 +45,7 @@ const managementItems: NavigationItem[] = [
 const resourceItems: NavigationItem[] = [
   {labelKey: "items.configuration", icon: FileCodeIcon},
   {labelKey: "items.logs", icon: TerminalSquareIcon},
+  {labelKey: "items.nginxLogs", icon: TerminalSquareIcon},
   {labelKey: "items.certificates", icon: FileKeyIcon},
   {labelKey: "items.networkPorts", icon: CableIcon},
   {labelKey: "items.networkMonitor", icon: ActivityIcon},
@@ -78,6 +79,10 @@ export function AppSidebar() {
       ? "items.dashboard"
       : location.pathname === "/system-information"
         ? ""
+        : location.pathname.startsWith("/nginx/manage")
+          ? "items.nginx"
+          : location.pathname === "/nginx/logs"
+            ? "items.nginxLogs"
         : location.pathname === "/network-monitor"
           ? "items.networkMonitor"
         : activeItem;
@@ -98,6 +103,14 @@ export function AppSidebar() {
     }
     if (labelKey === "items.networkMonitor") {
       void navigate("/network-monitor");
+      return;
+    }
+    if (labelKey === "items.nginx") {
+      void navigate("/nginx/manage");
+      return;
+    }
+    if (labelKey === "items.nginxLogs") {
+      void navigate("/nginx/logs");
       return;
     }
     if (labelKey !== "items.dashboard") {

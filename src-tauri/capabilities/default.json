@@ -21,6 +21,8 @@
     "process:allow-restart",
     "allow-network-monitor-read",
     "allow-network-monitor-control",
-    "allow-network-monitor-clear"
+    "allow-network-monitor-clear",
+    "allow-nginx-read",
+    "allow-nginx-instance-register"
   ]
 }

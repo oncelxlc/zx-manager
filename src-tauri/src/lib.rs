@@ -1,4 +1,5 @@
 mod network_monitor;
+mod nginx_manager;
 mod startup;
 mod system_information;
 
@@ -14,6 +15,7 @@ fn greet(name: &str) -> String {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -23,6 +25,9 @@ pub fn run() {
             app.manage(network_monitor::NetworkMonitorManager::new(
                 app_data_dir.join("network-usage.sqlite3"),
             ));
+            app.manage(nginx_manager::NginxManager::new(
+                app_data_dir.join("nginx"),
+            )?);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -38,7 +43,14 @@ pub fn run() {
             network_monitor::commands::query_network_usage,
             network_monitor::commands::set_network_monitor_enabled,
             network_monitor::commands::set_network_monitor_sample_interval,
-            network_monitor::commands::clear_network_usage
+            network_monitor::commands::clear_network_usage,
+            nginx_manager::commands::select_nginx_directory,
+            nginx_manager::commands::inspect_nginx_directory,
+            nginx_manager::commands::register_nginx_instance,
+            nginx_manager::commands::list_nginx_instances,
+            nginx_manager::commands::refresh_nginx_instance,
+            nginx_manager::commands::authorize_nginx_instance_root,
+            nginx_manager::commands::unregister_nginx_instance
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");

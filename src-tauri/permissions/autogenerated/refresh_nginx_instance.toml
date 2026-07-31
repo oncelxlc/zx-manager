@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-refresh-nginx-instance"
+description = "Enables the refresh_nginx_instance command without any pre-configured scope."
+commands.allow = ["refresh_nginx_instance"]
+
+[[permission]]
+identifier = "deny-refresh-nginx-instance"
+description = "Denies the refresh_nginx_instance command without any pre-configured scope."
+commands.deny = ["refresh_nginx_instance"]

@@ -13,6 +13,13 @@ fn main() {
         "set_network_monitor_enabled",
         "set_network_monitor_sample_interval",
         "clear_network_usage",
+        "select_nginx_directory",
+        "inspect_nginx_directory",
+        "register_nginx_instance",
+        "list_nginx_instances",
+        "refresh_nginx_instance",
+        "authorize_nginx_instance_root",
+        "unregister_nginx_instance",
     ]);
     let attributes = tauri_build::Attributes::new().app_manifest(manifest);
 

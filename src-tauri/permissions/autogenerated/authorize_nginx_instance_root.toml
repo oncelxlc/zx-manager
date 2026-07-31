@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-authorize-nginx-instance-root"
+description = "Enables the authorize_nginx_instance_root command without any pre-configured scope."
+commands.allow = ["authorize_nginx_instance_root"]
+
+[[permission]]
+identifier = "deny-authorize-nginx-instance-root"
+description = "Denies the authorize_nginx_instance_root command without any pre-configured scope."
+commands.deny = ["authorize_nginx_instance_root"]

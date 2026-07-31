@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-unregister-nginx-instance"
+description = "Enables the unregister_nginx_instance command without any pre-configured scope."
+commands.allow = ["unregister_nginx_instance"]
+
+[[permission]]
+identifier = "deny-unregister-nginx-instance"
+description = "Denies the unregister_nginx_instance command without any pre-configured scope."
+commands.deny = ["unregister_nginx_instance"]

@@ -1,0 +1,18 @@
+[[set]]
+identifier = "allow-nginx-read"
+description = "Allows the main window to select, inspect, list, and refresh explicitly authorized Nginx instances."
+permissions = [
+  "allow-select-nginx-directory",
+  "allow-inspect-nginx-directory",
+  "allow-list-nginx-instances",
+  "allow-refresh-nginx-instance",
+]
+
+[[set]]
+identifier = "allow-nginx-instance-register"
+description = "Allows the main window to register, extend authorization for, and unregister Nginx instances."
+permissions = [
+  "allow-register-nginx-instance",
+  "allow-authorize-nginx-instance-root",
+  "allow-unregister-nginx-instance",
+]

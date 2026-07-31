@@ -31,6 +31,27 @@ export const router = createBrowserRouter([
             }),
           ),
       },
+      {
+        path: "nginx/manage",
+        lazy: () =>
+          import("../pages/nginx/NginxManagementPage.tsx").then((module) => ({
+            Component: module.NginxManagementPage,
+          })),
+      },
+      {
+        path: "nginx/manage/instances",
+        lazy: () =>
+          import("../pages/nginx/NginxInstancesPage.tsx").then((module) => ({
+            Component: module.NginxInstancesPage,
+          })),
+      },
+      {
+        path: "nginx/logs",
+        lazy: () =>
+          import("../pages/nginx/NginxLogsPage.tsx").then((module) => ({
+            Component: module.NginxLogsPage,
+          })),
+      },
     ],
   },
 ]);
