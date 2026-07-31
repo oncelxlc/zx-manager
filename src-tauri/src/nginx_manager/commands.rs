@@ -1,7 +1,9 @@
 use super::dto::{
-    AuthorizeNginxRootInput, CheckNginxUpdatesInput, DirectorySelection, DirectorySelectionPurpose,
-    NginxConfiguration, NginxInspection, NginxInstance, NginxReleaseChannel, NginxReleaseStatus,
-    RegisterNginxInstanceInput,
+    AuthorizeNginxRootInput, CheckNginxUpdatesInput, ControlNginxInstanceInput, DirectorySelection,
+    DirectorySelectionPurpose, GetNginxOperationHistoryInput, InspectNginxSystemServiceInput,
+    NginxConfiguration, NginxInspection, NginxInstance, NginxOperationRecord, NginxReleaseChannel,
+    NginxReleaseStatus, NginxSystemServiceCandidate, NginxSystemServiceInspection,
+    RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
 };
 use super::error::{NginxError, NginxResult};
 use super::manager::NginxManager;
@@ -91,4 +93,43 @@ pub fn get_nginx_configuration(
     instance_id: String,
 ) -> NginxResult<NginxConfiguration> {
     manager.configuration(&instance_id)
+}
+
+#[tauri::command]
+pub async fn control_nginx_instance(
+    manager: State<'_, NginxManager>,
+    input: ControlNginxInstanceInput,
+) -> NginxResult<NginxOperationRecord> {
+    manager.control(input)
+}
+
+#[tauri::command]
+pub fn get_nginx_operation_history(
+    manager: State<'_, NginxManager>,
+    input: GetNginxOperationHistoryInput,
+) -> Vec<NginxOperationRecord> {
+    manager.operation_history(input)
+}
+
+#[tauri::command]
+pub fn list_nginx_system_services(
+    manager: State<'_, NginxManager>,
+) -> NginxResult<Vec<NginxSystemServiceCandidate>> {
+    manager.list_system_services()
+}
+
+#[tauri::command]
+pub fn inspect_nginx_system_service(
+    manager: State<'_, NginxManager>,
+    input: InspectNginxSystemServiceInput,
+) -> NginxResult<NginxSystemServiceInspection> {
+    manager.inspect_system_service(input)
+}
+
+#[tauri::command]
+pub fn register_nginx_system_service(
+    manager: State<'_, NginxManager>,
+    input: RegisterNginxSystemServiceInput,
+) -> NginxResult<NginxInstance> {
+    manager.register_system_service(input)
 }

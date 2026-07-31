@@ -30,6 +30,7 @@ export function NginxInstancesPage() {
   const registerInspection = useNginxStore((state) => state.registerInspection);
   const refreshInstance = useNginxStore((state) => state.refreshInstance);
   const unregisterInstance = useNginxStore((state) => state.unregisterInstance);
+  const controlInstance = useNginxStore((state) => state.controlInstance);
   const clearInspection = useNginxStore((state) => state.clearInspection);
   const loading = loadStatus === "loading" || operationStatus === "loading";
 
@@ -123,7 +124,8 @@ export function NginxInstancesPage() {
 
       {instances.length > 0 ? (
         <NginxInstanceTable
-          instances={instances}
+            instances={instances}
+            onControl={(instanceId, action) => void controlInstance(instanceId, action)}
           onRefresh={(id) => void refreshInstance(id)}
           onUnregister={(id) => void unregisterInstance(id)}
         />

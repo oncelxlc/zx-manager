@@ -19,3 +19,20 @@ permissions = [
   "allow-authorize-nginx-instance-root",
   "allow-unregister-nginx-instance",
 ]
+
+[[set]]
+identifier = "allow-nginx-control"
+description = "Allows fixed, enumerated control actions for verified Nginx instances and reads their bounded operation history."
+permissions = [
+  "allow-control-nginx-instance",
+  "allow-get-nginx-operation-history",
+]
+
+[[set]]
+identifier = "allow-nginx-system-service"
+description = "Allows discovery and identity-bound registration of Nginx system services."
+permissions = [
+  "allow-list-nginx-system-services",
+  "allow-inspect-nginx-system-service",
+  "allow-register-nginx-system-service",
+]

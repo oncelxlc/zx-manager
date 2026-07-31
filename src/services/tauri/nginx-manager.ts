@@ -3,10 +3,12 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
   NginxCommandError,
   NginxConfiguration,
+  NginxControlAction,
   NginxDirectorySelection,
   NginxInspection,
   NginxInstance,
   NginxReleaseStatus,
+  NginxOperationRecord,
   RegisterNginxInstanceInput,
 } from "src/types/nginx";
 
@@ -85,6 +87,24 @@ export function getNginxConfiguration(
 ): Promise<NginxConfiguration> {
   assertNginxDesktop();
   return invoke("get_nginx_configuration", { instanceId });
+}
+
+export function controlNginxInstance(
+  instanceId: string,
+  action: NginxControlAction,
+): Promise<NginxOperationRecord> {
+  assertNginxDesktop();
+  return invoke("control_nginx_instance", { input: { instanceId, action } });
+}
+
+export function getNginxOperationHistory(
+  instanceId: string | null,
+  limit = 100,
+): Promise<NginxOperationRecord[]> {
+  assertNginxDesktop();
+  return invoke("get_nginx_operation_history", {
+    input: { instanceId, limit },
+  });
 }
 
 export function toNginxCommandError(error: unknown): NginxCommandError {

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const service = vi.hoisted(() => ({
+  controlNginxInstance: vi.fn(),
   inspectNginxDirectory: vi.fn(),
   listNginxInstances: vi.fn(),
   refreshNginxInstance: vi.fn(),
@@ -76,5 +77,16 @@ describe("nginx store", () => {
 
     expect(service.inspectNginxDirectory).not.toHaveBeenCalled();
     expect(useNginxStore.getState().operationStatus).toBe("idle");
+  });
+
+  it("refreshes instance state after a successful fixed control action", async () => {
+    service.controlNginxInstance.mockResolvedValue({ success: true });
+    service.refreshNginxInstance.mockResolvedValue(instance("controlled"));
+
+    const success = await useNginxStore.getState().controlInstance("controlled", "reload");
+
+    expect(success).toBe(true);
+    expect(service.controlNginxInstance).toHaveBeenCalledWith("controlled", "reload");
+    expect(useNginxStore.getState().instances[0]?.id).toBe("controlled");
   });
 });

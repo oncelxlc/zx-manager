@@ -53,7 +53,12 @@ pub fn run() {
             nginx_manager::commands::unregister_nginx_instance,
             nginx_manager::commands::get_nginx_release_status,
             nginx_manager::commands::check_nginx_updates,
-            nginx_manager::commands::get_nginx_configuration
+            nginx_manager::commands::get_nginx_configuration,
+            nginx_manager::commands::control_nginx_instance,
+            nginx_manager::commands::get_nginx_operation_history,
+            nginx_manager::commands::list_nginx_system_services,
+            nginx_manager::commands::inspect_nginx_system_service,
+            nginx_manager::commands::register_nginx_system_service
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application");

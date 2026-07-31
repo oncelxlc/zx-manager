@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { RefreshCwIcon, Trash2Icon } from "lucide-react";
+import { PlayIcon, RefreshCwIcon, RotateCwIcon, SquareIcon, Trash2Icon } from "lucide-react";
 
 import {
   AlertDialog,
@@ -23,11 +23,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { NginxInstance } from "src/types/nginx";
+import type { NginxControlAction } from "src/types/nginx";
 
 interface NginxInstanceTableProps {
   instances: NginxInstance[];
   onRefresh: (instanceId: string) => void;
   onUnregister: (instanceId: string) => void;
+  onControl: (instanceId: string, action: NginxControlAction) => void;
 }
 
 function lifecycleVariant(state: NginxInstance["lifecycleState"]) {
@@ -38,6 +40,7 @@ export function NginxInstanceTable({
   instances,
   onRefresh,
   onUnregister,
+  onControl,
 }: NginxInstanceTableProps) {
   const { t } = useTranslation("nginx");
   const [pendingRemoval, setPendingRemoval] = useState<NginxInstance | null>(null);
@@ -75,6 +78,13 @@ export function NginxInstanceTable({
               </TableCell>
               <TableCell>
                 <div className="flex justify-end gap-1">
+                  {instance.capabilities.canControl ? (
+                    <>
+                      <Button aria-label={t("control.start", { name: instance.name })} onClick={() => onControl(instance.id, "start")} size="icon-sm" variant="ghost"><PlayIcon /></Button>
+                      <Button aria-label={t("control.stop", { name: instance.name })} onClick={() => onControl(instance.id, "stop")} size="icon-sm" variant="ghost"><SquareIcon /></Button>
+                      <Button aria-label={t("control.reload", { name: instance.name })} onClick={() => onControl(instance.id, "reload")} size="icon-sm" variant="ghost"><RotateCwIcon /></Button>
+                    </>
+                  ) : null}
                   <Button
                     aria-label={t("instances.refreshOne", { name: instance.name })}
                     onClick={() => onRefresh(instance.id)}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-inspect-nginx-system-service"
+description = "Enables the inspect_nginx_system_service command without any pre-configured scope."
+commands.allow = ["inspect_nginx_system_service"]
+
+[[permission]]
+identifier = "deny-inspect-nginx-system-service"
+description = "Denies the inspect_nginx_system_service command without any pre-configured scope."
+commands.deny = ["inspect_nginx_system_service"]

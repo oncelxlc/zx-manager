@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke, isTauri }));
 
 import {
   checkNginxUpdates,
+  controlNginxInstance,
   getNginxConfiguration,
   inspectNginxDirectory,
   registerNginxInstance,
@@ -83,6 +84,16 @@ describe("nginx manager Tauri service", () => {
 
     expect(invoke).toHaveBeenCalledWith("get_nginx_configuration", {
       instanceId: "instance-1",
+    });
+  });
+
+  it("sends only an enumerated control action and instance id", async () => {
+    invoke.mockResolvedValue({ success: true });
+
+    await controlNginxInstance("instance-1", "reload");
+
+    expect(invoke).toHaveBeenCalledWith("control_nginx_instance", {
+      input: { instanceId: "instance-1", action: "reload" },
     });
   });
 });

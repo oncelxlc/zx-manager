@@ -259,3 +259,76 @@ pub struct NginxConfiguration {
     pub access_logs: Vec<String>,
     pub error_logs: Vec<String>,
 }
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NginxControlAction {
+    Start,
+    Stop,
+    Reload,
+    Restart,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ControlNginxInstanceInput {
+    pub instance_id: String,
+    pub action: NginxControlAction,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxOperationRecord {
+    pub id: String,
+    pub instance_id: String,
+    pub action: NginxControlAction,
+    pub backend: NginxControlBackend,
+    pub started_at: String,
+    pub completed_at: String,
+    pub success: bool,
+    pub error_code: Option<String>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetNginxOperationHistoryInput {
+    pub instance_id: Option<String>,
+    pub limit: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxSystemServiceCandidate {
+    pub discovery_id: String,
+    pub display_name: String,
+    pub backend: NginxControlBackend,
+    pub domain: String,
+    pub read_only: bool,
+    pub expires_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InspectNginxSystemServiceInput {
+    pub discovery_id: String,
+    pub instance_id: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxSystemServiceInspection {
+    pub inspection_id: String,
+    pub display_name: String,
+    pub backend: NginxControlBackend,
+    pub read_only: bool,
+    pub executable_matches: bool,
+    pub expires_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterNginxSystemServiceInput {
+    pub inspection_id: String,
+}

@@ -23,6 +23,11 @@ fn main() {
         "get_nginx_release_status",
         "check_nginx_updates",
         "get_nginx_configuration",
+        "control_nginx_instance",
+        "get_nginx_operation_history",
+        "list_nginx_system_services",
+        "inspect_nginx_system_service",
+        "register_nginx_system_service",
     ]);
     let attributes = tauri_build::Attributes::new().app_manifest(manifest);
 

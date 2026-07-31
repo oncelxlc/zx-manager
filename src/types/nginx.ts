@@ -156,3 +156,18 @@ export interface NginxConfiguration {
   accessLogs: string[];
   errorLogs: string[];
 }
+
+export type NginxControlAction = "start" | "stop" | "reload" | "restart";
+
+export interface NginxOperationRecord {
+  id: string;
+  instanceId: string;
+  action: NginxControlAction;
+  backend: NginxControlBackend;
+  startedAt: string;
+  completedAt: string;
+  success: boolean;
+  errorCode: string | null;
+  stdout: string;
+  stderr: string;
+}

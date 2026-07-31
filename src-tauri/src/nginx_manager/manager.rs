@@ -1,10 +1,13 @@
 use super::configuration::load_configuration;
+use super::control::{execute as execute_control, OperationHistory};
 use super::dto::{
-    AuthorizeNginxRootInput, CheckNginxUpdatesInput, DirectorySelection, DirectorySelectionPurpose,
+    AuthorizeNginxRootInput, CheckNginxUpdatesInput, ControlNginxInstanceInput, DirectorySelection,
+    DirectorySelectionPurpose, GetNginxOperationHistoryInput, InspectNginxSystemServiceInput,
     NginxAuthorizationLevel, NginxCapabilities, NginxConfiguration, NginxControlBackend,
-    NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState,
+    NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState, NginxOperationRecord,
     NginxProviderIdentity, NginxReleaseChannel, NginxReleaseStatus, NginxRuntimeStatus,
-    RegisterNginxInstanceInput,
+    NginxSystemServiceCandidate, NginxSystemServiceInspection, RegisterNginxInstanceInput,
+    RegisterNginxSystemServiceInput,
 };
 use super::error::{NginxError, NginxResult};
 use super::process::run_nginx;
@@ -16,7 +19,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -36,11 +39,32 @@ struct InspectionToken {
     expires_at: Instant,
 }
 
+#[derive(Clone)]
+struct ServiceDiscoveryToken {
+    display_name: String,
+    external_id: String,
+    binary: PathBuf,
+    backend: NginxControlBackend,
+    domain: String,
+    read_only: bool,
+    expires_at: Instant,
+}
+
+struct ServiceInspectionToken {
+    instance_id: String,
+    discovery: ServiceDiscoveryToken,
+    expires_at: Instant,
+}
+
 pub struct NginxManager {
     registry_path: PathBuf,
     registry: Mutex<NginxRegistry>,
     selections: Mutex<HashMap<String, SelectionToken>>,
     inspections: Mutex<HashMap<String, InspectionToken>>,
+    service_discoveries: Mutex<HashMap<String, ServiceDiscoveryToken>>,
+    service_inspections: Mutex<HashMap<String, ServiceInspectionToken>>,
+    operation_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    operation_history: Mutex<OperationHistory>,
     release_updates: ReleaseUpdateService,
 }
 
@@ -50,11 +74,17 @@ impl NginxManager {
         let registry = NginxRegistry::load(&registry_path)?;
         let release_updates =
             ReleaseUpdateService::new(data_directory.join("release-cache-v1.json"))?;
+        let operation_history =
+            OperationHistory::load(data_directory.join("operation-history-v1.json"))?;
         Ok(Self {
             registry_path,
             registry: Mutex::new(registry),
             selections: Mutex::new(HashMap::new()),
             inspections: Mutex::new(HashMap::new()),
+            service_discoveries: Mutex::new(HashMap::new()),
+            service_inspections: Mutex::new(HashMap::new()),
+            operation_locks: Mutex::new(HashMap::new()),
+            operation_history: Mutex::new(operation_history),
             release_updates,
         })
     }
@@ -279,6 +309,150 @@ impl NginxManager {
         }
     }
 
+    pub fn control(&self, input: ControlNginxInstanceInput) -> NginxResult<NginxOperationRecord> {
+        let record = self
+            .registry
+            .lock()
+            .unwrap()
+            .instances
+            .iter()
+            .find(|instance| instance.id == input.instance_id)
+            .cloned()
+            .ok_or_else(instance_not_found)?;
+        if !refresh_instance(record.clone()).capabilities.can_control {
+            return Err(NginxError::new(
+                "NGINX_CONTROL_NOT_AUTHORIZED",
+                "the instance is not authorized for control",
+            ));
+        }
+        let transaction_lock = self
+            .operation_locks
+            .lock()
+            .unwrap()
+            .entry(record.id.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
+        let _transaction = transaction_lock.lock().unwrap();
+        let started_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+        let result = execute_control(&record, input.action);
+        let operation = self.operation_history.lock().unwrap().record(
+            &record,
+            input.action,
+            started_at,
+            &result,
+        )?;
+        result.map(|_| operation)
+    }
+
+    pub fn operation_history(
+        &self,
+        input: GetNginxOperationHistoryInput,
+    ) -> Vec<NginxOperationRecord> {
+        self.operation_history
+            .lock()
+            .unwrap()
+            .list(input.instance_id.as_deref(), input.limit)
+    }
+
+    pub fn list_system_services(&self) -> NginxResult<Vec<NginxSystemServiceCandidate>> {
+        let discoveries = discover_system_services()?;
+        let expires_at = Utc::now() + ChronoDuration::from_std(TOKEN_TTL).unwrap_or_default();
+        let mut tokens = self.service_discoveries.lock().unwrap();
+        tokens.clear();
+        Ok(discoveries
+            .into_iter()
+            .map(|discovery| {
+                let discovery_id = Uuid::new_v4().to_string();
+                let candidate = NginxSystemServiceCandidate {
+                    discovery_id: discovery_id.clone(),
+                    display_name: discovery.display_name.clone(),
+                    backend: discovery.backend,
+                    domain: discovery.domain.clone(),
+                    read_only: discovery.read_only,
+                    expires_at: expires_at.to_rfc3339_opts(SecondsFormat::Secs, true),
+                };
+                tokens.insert(discovery_id, discovery);
+                candidate
+            })
+            .collect())
+    }
+
+    pub fn inspect_system_service(
+        &self,
+        input: InspectNginxSystemServiceInput,
+    ) -> NginxResult<NginxSystemServiceInspection> {
+        let discovery = self
+            .service_discoveries
+            .lock()
+            .unwrap()
+            .get(&input.discovery_id)
+            .filter(|token| token.expires_at > Instant::now())
+            .cloned()
+            .ok_or_else(expired_token_error)?;
+        let instance = self
+            .registry
+            .lock()
+            .unwrap()
+            .instances
+            .iter()
+            .find(|instance| instance.id == input.instance_id)
+            .cloned()
+            .ok_or_else(instance_not_found)?;
+        let matches = paths_identical(&discovery.binary, Path::new(&instance.binary_path));
+        let inspection_id = Uuid::new_v4().to_string();
+        let expires_at = Utc::now() + ChronoDuration::from_std(TOKEN_TTL).unwrap_or_default();
+        self.service_inspections.lock().unwrap().insert(
+            inspection_id.clone(),
+            ServiceInspectionToken {
+                instance_id: instance.id,
+                discovery: discovery.clone(),
+                expires_at: Instant::now() + TOKEN_TTL,
+            },
+        );
+        Ok(NginxSystemServiceInspection {
+            inspection_id,
+            display_name: discovery.display_name,
+            backend: discovery.backend,
+            read_only: discovery.read_only,
+            executable_matches: matches,
+            expires_at: expires_at.to_rfc3339_opts(SecondsFormat::Secs, true),
+        })
+    }
+
+    pub fn register_system_service(
+        &self,
+        input: RegisterNginxSystemServiceInput,
+    ) -> NginxResult<NginxInstance> {
+        let inspection = self
+            .service_inspections
+            .lock()
+            .unwrap()
+            .remove(&input.inspection_id)
+            .filter(|token| token.expires_at > Instant::now())
+            .ok_or_else(expired_token_error)?;
+        let mut registry = self.registry.lock().unwrap();
+        let record = registry
+            .instances
+            .iter_mut()
+            .find(|instance| instance.id == inspection.instance_id)
+            .ok_or_else(instance_not_found)?;
+        if !paths_identical(&inspection.discovery.binary, Path::new(&record.binary_path)) {
+            return Err(NginxError::new(
+                "NGINX_SERVICE_IDENTITY_MISMATCH",
+                "service executable does not match the authorized nginx binary",
+            ));
+        }
+        record.provider_identity = NginxProviderIdentity {
+            provider: provider_name(inspection.discovery.backend).to_owned(),
+            external_id: Some(inspection.discovery.external_id),
+        };
+        record.control_backend = inspection.discovery.backend;
+        record.updated_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+        let result = record.clone();
+        registry.save(&self.registry_path)?;
+        Ok(refresh_instance(result))
+    }
+
     pub fn release_status(&self, channel: NginxReleaseChannel) -> NginxReleaseStatus {
         self.build_release_status(channel, self.release_updates.cached(channel), "cache")
     }
@@ -449,7 +623,9 @@ fn to_instance(record: NginxInstanceRecord) -> NginxInstance {
         capabilities: NginxCapabilities {
             can_read: available,
             can_edit: available && record.authorization_level == NginxAuthorizationLevel::Full,
-            can_control: false,
+            can_control: available
+                && record.control_backend != NginxControlBackend::None
+                && record.control_backend != NginxControlBackend::LaunchDaemonReadOnly,
             can_unregister: true,
         },
         runtime_status: if available {
@@ -516,6 +692,199 @@ fn executable_identity_status(actual: &Path, expected: &Path) -> NginxRuntimeSta
         (Ok(_), Ok(_)) => NginxRuntimeStatus::Stopped,
         _ => NginxRuntimeStatus::Unknown,
     }
+}
+
+fn paths_identical(actual: &Path, expected: &Path) -> bool {
+    match (actual.canonicalize(), expected.canonicalize()) {
+        (Ok(actual), Ok(expected)) if cfg!(windows) => actual
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&expected.to_string_lossy()),
+        (Ok(actual), Ok(expected)) => actual == expected,
+        _ => false,
+    }
+}
+
+fn provider_name(backend: NginxControlBackend) -> &'static str {
+    match backend {
+        NginxControlBackend::Portable => "portable",
+        NginxControlBackend::WindowsScm => "windows-scm",
+        NginxControlBackend::Systemd => "systemd",
+        NginxControlBackend::LaunchAgent => "launch-agent",
+        NginxControlBackend::LaunchDaemonReadOnly => "launch-daemon",
+        NginxControlBackend::None => "none",
+    }
+}
+
+#[cfg(windows)]
+fn discover_system_services() -> NginxResult<Vec<ServiceDiscoveryToken>> {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+
+    let services = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey("SYSTEM\\CurrentControlSet\\Services")
+        .map_err(|error| NginxError::io("open Windows service registry", error))?;
+    let mut result = Vec::new();
+    for name in services.enum_keys().flatten() {
+        let Ok(service) = services.open_subkey(&name) else {
+            continue;
+        };
+        let Ok(image_path) = service.get_value::<String, _>("ImagePath") else {
+            continue;
+        };
+        let Some(binary) = windows_service_binary(&image_path) else {
+            continue;
+        };
+        if binary
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_none_or(|value| !value.eq_ignore_ascii_case("nginx.exe"))
+        {
+            continue;
+        }
+        let Ok(binary) = binary.canonicalize() else {
+            continue;
+        };
+        result.push(ServiceDiscoveryToken {
+            display_name: name.clone(),
+            external_id: name,
+            binary,
+            backend: NginxControlBackend::WindowsScm,
+            domain: "system".to_owned(),
+            read_only: false,
+            expires_at: Instant::now() + TOKEN_TTL,
+        });
+    }
+    Ok(result)
+}
+
+#[cfg(windows)]
+fn windows_service_binary(command_line: &str) -> Option<PathBuf> {
+    let value = command_line.trim();
+    let executable = if let Some(value) = value.strip_prefix('"') {
+        value.split_once('"')?.0
+    } else {
+        value.split_whitespace().next()?
+    };
+    if executable.contains('%') || executable.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(executable))
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn discover_system_services() -> NginxResult<Vec<ServiceDiscoveryToken>> {
+    let mut result = Vec::new();
+    for (root, domain) in [
+        (PathBuf::from("/etc/systemd/system"), "system"),
+        (PathBuf::from("/usr/lib/systemd/system"), "system"),
+    ] {
+        let Ok(entries) = fs::read_dir(root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("service") {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let Some(executable) = text.lines().find_map(|line| {
+                line.trim()
+                    .strip_prefix("ExecStart=")
+                    .and_then(|value| value.split_whitespace().next())
+            }) else {
+                continue;
+            };
+            let binary = PathBuf::from(executable.trim_start_matches(['-', '+', '!']));
+            if binary.file_name().and_then(|value| value.to_str()) != Some("nginx") {
+                continue;
+            }
+            let Ok(binary) = binary.canonicalize() else {
+                continue;
+            };
+            let name = entry.file_name().to_string_lossy().into_owned();
+            result.push(ServiceDiscoveryToken {
+                display_name: name.clone(),
+                external_id: name,
+                binary,
+                backend: NginxControlBackend::Systemd,
+                domain: domain.to_owned(),
+                read_only: false,
+                expires_at: Instant::now() + TOKEN_TTL,
+            });
+        }
+    }
+    Ok(result)
+}
+
+#[cfg(target_os = "macos")]
+fn discover_system_services() -> NginxResult<Vec<ServiceDiscoveryToken>> {
+    use plist::Value;
+
+    let mut result = Vec::new();
+    let user_agents = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join("Library/LaunchAgents"));
+    let roots = user_agents
+        .into_iter()
+        .map(|path| (path, "user", false, NginxControlBackend::LaunchAgent))
+        .chain(std::iter::once((
+            PathBuf::from("/Library/LaunchDaemons"),
+            "system",
+            true,
+            NginxControlBackend::LaunchDaemonReadOnly,
+        )));
+    for (root, domain, read_only, backend) in roots {
+        let Ok(entries) = fs::read_dir(root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("plist") {
+                continue;
+            }
+            let Ok(Value::Dictionary(dictionary)) = Value::from_file(&path) else {
+                continue;
+            };
+            let label = dictionary.get("Label").and_then(Value::as_string);
+            let binary = dictionary
+                .get("Program")
+                .and_then(Value::as_string)
+                .or_else(|| {
+                    dictionary
+                        .get("ProgramArguments")
+                        .and_then(Value::as_array)
+                        .and_then(|items| items.first())
+                        .and_then(Value::as_string)
+                });
+            let (Some(label), Some(binary)) = (label, binary) else {
+                continue;
+            };
+            let Ok(binary) = PathBuf::from(binary).canonicalize() else {
+                continue;
+            };
+            if binary.file_name().and_then(|value| value.to_str()) != Some("nginx") {
+                continue;
+            }
+            result.push(ServiceDiscoveryToken {
+                display_name: label.to_owned(),
+                external_id: label.to_owned(),
+                binary,
+                backend,
+                domain: domain.to_owned(),
+                read_only,
+                expires_at: Instant::now() + TOKEN_TTL,
+            });
+        }
+    }
+    Ok(result)
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn discover_system_services() -> NginxResult<Vec<ServiceDiscoveryToken>> {
+    Ok(Vec::new())
 }
 
 fn sanitize_process_message(message: &str) -> String {

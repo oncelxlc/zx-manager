@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import {
   inspectNginxDirectory,
+  controlNginxInstance,
   listNginxInstances,
   refreshNginxInstance,
   registerNginxInstance,
@@ -14,6 +15,7 @@ import type {
   NginxCommandError,
   NginxInspection,
   NginxInstance,
+  NginxControlAction,
 } from "src/types/nginx";
 
 type LoadStatus = "idle" | "loading" | "success" | "error";
@@ -32,6 +34,10 @@ interface NginxState {
   ) => Promise<NginxInstance | null>;
   refreshInstance: (instanceId: string) => Promise<NginxInstance | null>;
   unregisterInstance: (instanceId: string) => Promise<boolean>;
+  controlInstance: (
+    instanceId: string,
+    action: NginxControlAction,
+  ) => Promise<boolean>;
   clearInspection: () => void;
 }
 
@@ -150,6 +156,19 @@ export const useNginxStore = create<NginxState>((set, get) => ({
         instances: get().instances.filter((instance) => instance.id !== instanceId),
         operationStatus: "success",
       });
+      return true;
+    } catch (error) {
+      set({ operationStatus: "error", error: toNginxCommandError(error) });
+      return false;
+    }
+  },
+  controlInstance: async (instanceId, action) => {
+    set({ operationStatus: "loading", error: null });
+    try {
+      await controlNginxInstance(instanceId, action);
+      const instance = await refreshNginxInstance(instanceId);
+      applyInstance(instance);
+      set({ operationStatus: "success" });
       return true;
     } catch (error) {
       set({ operationStatus: "error", error: toNginxCommandError(error) });

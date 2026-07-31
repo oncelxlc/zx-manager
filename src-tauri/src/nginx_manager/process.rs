@@ -15,8 +15,18 @@ pub struct ProcessOutput {
 }
 
 pub fn run_nginx(binary: &Path, arguments: &[&str]) -> NginxResult<ProcessOutput> {
+    run_command(binary, arguments, None, 5)
+}
+
+pub fn run_command(
+    binary: &Path,
+    arguments: &[&str],
+    current_dir: Option<&Path>,
+    timeout_seconds: u64,
+) -> NginxResult<ProcessOutput> {
     let mut child = Command::new(binary)
         .args(arguments)
+        .current_dir(current_dir.unwrap_or_else(|| Path::new(".")))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -28,7 +38,7 @@ pub fn run_nginx(binary: &Path, arguments: &[&str]) -> NginxResult<ProcessOutput
     let stdout_reader = thread::spawn(move || read_bounded(stdout));
     let stderr_reader = thread::spawn(move || read_bounded(stderr));
     let status = match child
-        .wait_timeout(Duration::from_secs(5))
+        .wait_timeout(Duration::from_secs(timeout_seconds))
         .map_err(|error| NginxError::io("unable to wait for nginx", error))?
     {
         Some(status) => status,
@@ -46,6 +56,26 @@ pub fn run_nginx(binary: &Path, arguments: &[&str]) -> NginxResult<ProcessOutput
         success: status.success(),
         stdout: stdout_reader.join().unwrap_or_default(),
         stderr: stderr_reader.join().unwrap_or_default(),
+    })
+}
+
+pub fn launch_command(
+    binary: &Path,
+    arguments: &[&str],
+    current_dir: &Path,
+) -> NginxResult<ProcessOutput> {
+    Command::new(binary)
+        .args(arguments)
+        .current_dir(current_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| NginxError::io("unable to launch nginx", error))?;
+    Ok(ProcessOutput {
+        success: true,
+        stdout: "nginx process launched".to_owned(),
+        stderr: String::new(),
     })
 }
 

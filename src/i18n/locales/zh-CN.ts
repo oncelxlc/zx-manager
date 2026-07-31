@@ -164,6 +164,7 @@ const zhCN = {
     lifecycle: { available: "可用", changed: "二进制已变更", missing: "文件缺失", uninstalled: "已卸载" },
     authorization: { readOnly: "只读", full: "完整" },
     unregister: { title: "注销实例？", description: "将从 ZxManager 注册表移除 {{name}}，不会删除 Nginx 文件。", action: "注销" },
+    control: { start: "启动 {{name}}", stop: "停止 {{name}}", reload: "重新加载 {{name}}", restart: "重启 {{name}}" },
     logs: { title: "Nginx 日志", description: "分页与实时日志管理使用独立的后端权限边界。", emptyTitle: "日志源尚未启用", emptyDescription: "真实日志源发现、分页游标和 Channel 订阅将在日志阶段接入；此处不会显示模拟日志。" },
     updates: { title: "官方版本更新", description: "{{channel}}通道 · 仅从 nginx.org 读取并使用本地成功缓存。", channels: { stable: "稳定", mainline: "主线" }, checkNow: "立即检查", latest: "最新版本", checkedAt: "检查时间", neverChecked: "尚未检查", loadingCache: "正在读取本地缓存", unavailable: "不可用", availableBadge: "{{count}} 个实例可更新", refreshSuccess: "更新检查完成", refreshSuccessDescription: "官方通道最新版本为 {{version}}。", refreshError: "更新检查失败" },
     sites: { title: "Nginx 站点", description: "从每个已授权 Include 中解析 server 和 upstream 声明。", emptyTitle: "未发现 server 块", emptyDescription: "已授权配置中没有 http 或 stream server 块。", columns: { serverName: "Server Name", listen: "监听", context: "上下文", target: "Root / 代理目标", source: "来源" }, openSource: "第 {{line}} 行", details: "查看详情", fields: { root: "站点根目录", proxyPass: "代理目标", locations: "Location" } },
