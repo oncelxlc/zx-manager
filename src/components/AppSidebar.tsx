@@ -24,6 +24,7 @@ import { toast } from "@/components/ui/toast";
 import { restartApplication } from "src/services/tauri/application";
 import { writeDiagnosticText } from "src/services/tauri/system-information";
 import { useSystemInformationStore } from "src/stores/system-information-store";
+import { useNginxReleaseStore } from "src/stores/nginx-release-store";
 import {
   formatMachinePlatform,
   getErrorTranslationKey,
@@ -68,6 +69,9 @@ export function AppSidebar() {
   const [restartConfirmationOpen, setRestartConfirmationOpen] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const summary = useSystemInformationStore((state) => state.summary);
+  const nginxUpdateCount = useNginxReleaseStore(
+    (state) => state.status?.updateAvailableCount ?? 0,
+  );
   const information = useSystemInformationStore((state) => state.information);
   const loadSummary = useSystemInformationStore((state) => state.loadSummary);
   const loadInformation = useSystemInformationStore((state) => state.loadInformation);
@@ -223,6 +227,7 @@ export function AppSidebar() {
           items={managementItems}
           activeItem={activeNavigationItem}
           onItemSelect={handleItemSelect}
+          badges={{"items.nginx": nginxUpdateCount}}
         />
         <NavigationGroup
           label={t("navigation:groups.resources")}

@@ -1,13 +1,15 @@
 use super::dto::{
-    AuthorizeNginxRootInput, DirectorySelection, DirectorySelectionPurpose,
+    AuthorizeNginxRootInput, CheckNginxUpdatesInput, DirectorySelection, DirectorySelectionPurpose,
     NginxAuthorizationLevel, NginxCapabilities, NginxControlBackend, NginxInspection,
     NginxInstance, NginxInstanceRecord, NginxLifecycleState, NginxProviderIdentity,
-    NginxRuntimeStatus, RegisterNginxInstanceInput,
+    NginxReleaseChannel, NginxReleaseStatus, NginxRuntimeStatus, RegisterNginxInstanceInput,
 };
 use super::error::{NginxError, NginxResult};
 use super::process::run_nginx;
 use super::registry::NginxRegistry;
+use super::release::{is_stale, CachedRelease, ReleaseUpdateService};
 use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
+use semver::Version;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
@@ -37,17 +39,21 @@ pub struct NginxManager {
     registry: Mutex<NginxRegistry>,
     selections: Mutex<HashMap<String, SelectionToken>>,
     inspections: Mutex<HashMap<String, InspectionToken>>,
+    release_updates: ReleaseUpdateService,
 }
 
 impl NginxManager {
     pub fn new(data_directory: PathBuf) -> NginxResult<Self> {
         let registry_path = data_directory.join("registry-v1.json");
         let registry = NginxRegistry::load(&registry_path)?;
+        let release_updates =
+            ReleaseUpdateService::new(data_directory.join("release-cache-v1.json"))?;
         Ok(Self {
             registry_path,
             registry: Mutex::new(registry),
             selections: Mutex::new(HashMap::new()),
             inspections: Mutex::new(HashMap::new()),
+            release_updates,
         })
     }
 
@@ -249,6 +255,68 @@ impl NginxManager {
         let result = record.clone();
         registry.save(&self.registry_path)?;
         Ok(refresh_instance(result))
+    }
+
+    pub fn release_status(&self, channel: NginxReleaseChannel) -> NginxReleaseStatus {
+        self.build_release_status(channel, self.release_updates.cached(channel), "cache")
+    }
+
+    pub async fn check_updates(
+        &self,
+        input: CheckNginxUpdatesInput,
+    ) -> NginxResult<NginxReleaseStatus> {
+        let (cached, fetched) = self
+            .release_updates
+            .check(input.channel, input.force, input.max_age_hours)
+            .await?;
+        Ok(self.build_release_status(
+            input.channel,
+            Some(cached),
+            if fetched { "network" } else { "cache" },
+        ))
+    }
+
+    fn build_release_status(
+        &self,
+        channel: NginxReleaseChannel,
+        cached: Option<CachedRelease>,
+        source: &str,
+    ) -> NginxReleaseStatus {
+        let latest = cached
+            .as_ref()
+            .and_then(|value| Version::parse(&value.release.version).ok());
+        let outdated_instance_ids = latest
+            .map(|latest| {
+                self.registry
+                    .lock()
+                    .unwrap()
+                    .instances
+                    .iter()
+                    .filter(|instance| {
+                        Version::parse(&instance.version)
+                            .map(|version| version < latest)
+                            .unwrap_or(false)
+                    })
+                    .map(|instance| instance.id.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        NginxReleaseStatus {
+            channel,
+            latest_release: cached.as_ref().map(|value| value.release.clone()),
+            checked_at: cached.as_ref().map(|value| value.checked_at.clone()),
+            stale: cached
+                .as_ref()
+                .map(|value| is_stale(&value.checked_at, 24))
+                .unwrap_or(true),
+            source: if cached.is_some() {
+                source.to_owned()
+            } else {
+                "none".to_owned()
+            },
+            update_available_count: outdated_instance_ids.len(),
+            outdated_instance_ids,
+        }
     }
 
     fn consume_selection(

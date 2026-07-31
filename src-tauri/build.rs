@@ -20,6 +20,8 @@ fn main() {
         "refresh_nginx_instance",
         "authorize_nginx_instance_root",
         "unregister_nginx_instance",
+        "get_nginx_release_status",
+        "check_nginx_updates",
     ]);
     let attributes = tauri_build::Attributes::new().app_manifest(manifest);
 

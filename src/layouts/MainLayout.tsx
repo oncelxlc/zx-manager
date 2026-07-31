@@ -19,6 +19,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { completeStartup } from "src/services/tauri/startup";
+import { restoreStartupBackgroundTasks } from "src/services/tauri/startup-background";
 
 interface MainLayoutHeaderOptions {
   title: string;
@@ -76,9 +77,11 @@ export default function MainLayout() {
     headerConfig?.pathname === location.pathname ? headerConfig : null;
 
   useEffect(() => {
-    void completeStartup().catch(() => {
-      // Keep the static splashscreen visible if the native handoff fails.
-    });
+    void completeStartup()
+      .then(() => restoreStartupBackgroundTasks())
+      .catch(() => {
+        // Keep the static splashscreen visible if the native handoff fails.
+      });
   }, []);
 
   return (

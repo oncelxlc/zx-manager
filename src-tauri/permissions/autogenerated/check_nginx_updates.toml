@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-check-nginx-updates"
+description = "Enables the check_nginx_updates command without any pre-configured scope."
+commands.allow = ["check_nginx_updates"]
+
+[[permission]]
+identifier = "deny-check-nginx-updates"
+description = "Denies the check_nginx_updates command without any pre-configured scope."
+commands.deny = ["check_nginx_updates"]

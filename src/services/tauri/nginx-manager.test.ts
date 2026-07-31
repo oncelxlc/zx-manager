@@ -8,6 +8,7 @@ const { invoke, isTauri } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke, isTauri }));
 
 import {
+  checkNginxUpdates,
   inspectNginxDirectory,
   registerNginxInstance,
   selectNginxDirectory,
@@ -62,5 +63,15 @@ describe("nginx manager Tauri service", () => {
       code: "NGINX_DESKTOP_REQUIRED",
     });
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("checks releases with a bounded policy input", async () => {
+    invoke.mockResolvedValue({ latestRelease: null });
+
+    await checkNginxUpdates("stable", true, 24);
+
+    expect(invoke).toHaveBeenCalledWith("check_nginx_updates", {
+      input: { channel: "stable", force: true, maxAgeHours: 24 },
+    });
   });
 });

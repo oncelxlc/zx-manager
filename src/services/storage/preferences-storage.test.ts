@@ -8,6 +8,14 @@ vi.mock("@tauri-apps/plugin-store", () => ({
   load: loadStore,
 }));
 
+const nginxPreferences = {
+  releaseChannel: "stable",
+  updateCheckIntervalHours: 24,
+  backupRetentionCount: 5,
+  logFollow: true,
+  logBufferLines: 20_000,
+};
+
 function createStore(initialValues: Record<string, unknown> = {}) {
   const values = new Map(Object.entries(initialValues));
   return {
@@ -42,6 +50,7 @@ describe("preferences storage", () => {
       theme: "light",
       networkMonitorStartOnLaunch: true,
       networkMonitorSampleIntervalSeconds: 5,
+      nginx: nginxPreferences,
     });
     expect(loadStore).toHaveBeenCalledWith("preferences.json", { autoSave: false });
   });
@@ -58,6 +67,7 @@ describe("preferences storage", () => {
       theme: undefined,
       networkMonitorStartOnLaunch: true,
       networkMonitorSampleIntervalSeconds: 5,
+      nginx: nginxPreferences,
     });
   });
 
@@ -75,14 +85,16 @@ describe("preferences storage", () => {
       theme: "system",
       networkMonitorStartOnLaunch: true,
       networkMonitorSampleIntervalSeconds: 5,
+      nginx: nginxPreferences,
     });
     expect(store.set).toHaveBeenCalledWith("preferences", {
-      version: 5,
+      version: 6,
       locale: "en-US",
       theme: "system",
       networkMonitorConfigured: false,
       networkMonitorStartOnLaunch: true,
       networkMonitorSampleIntervalSeconds: 5,
+      nginx: nginxPreferences,
     });
     expect(store.save).toHaveBeenCalledOnce();
     expect(window.localStorage.getItem("local-console.preferences")).toBeNull();
@@ -96,12 +108,13 @@ describe("preferences storage", () => {
     await expect(getPreferences()).resolves.toEqual({ theme: "light" });
     await setLocale("en-US");
     expect(JSON.parse(window.localStorage.getItem("local-console.preferences") ?? "{}")).toEqual({
-      version: 5,
+      version: 6,
       locale: "en-US",
       theme: "light",
       networkMonitorConfigured: false,
       networkMonitorStartOnLaunch: true,
       networkMonitorSampleIntervalSeconds: 5,
+      nginx: nginxPreferences,
     });
   });
 
@@ -115,12 +128,13 @@ describe("preferences storage", () => {
     await setTheme("system");
 
     expect(store.set).toHaveBeenCalledWith("preferences", {
-      version: 5,
+      version: 6,
       locale: "zh-CN",
       theme: "system",
       networkMonitorConfigured: false,
       networkMonitorStartOnLaunch: true,
       networkMonitorSampleIntervalSeconds: 5,
+      nginx: nginxPreferences,
     });
     expect(store.save).toHaveBeenCalledOnce();
   });
@@ -147,15 +161,17 @@ describe("preferences storage", () => {
       networkMonitorConfigured: true,
       networkMonitorStartOnLaunch: false,
       networkMonitorSampleIntervalSeconds: 5,
+      nginx: nginxPreferences,
     });
     await setNetworkMonitorSampleInterval(10);
     expect(store.set).toHaveBeenLastCalledWith("preferences", {
-      version: 5,
+      version: 6,
       locale: "zh-CN",
       theme: "dark",
       networkMonitorConfigured: true,
       networkMonitorStartOnLaunch: false,
       networkMonitorSampleIntervalSeconds: 10,
+      nginx: nginxPreferences,
     });
   });
 
@@ -180,12 +196,51 @@ describe("preferences storage", () => {
     });
     await setNetworkMonitorSampleInterval(10);
     expect(store.set).toHaveBeenLastCalledWith("preferences", {
-      version: 5,
+      version: 6,
       locale: "zh-CN",
       theme: "dark",
       networkMonitorConfigured: true,
       networkMonitorStartOnLaunch: true,
       networkMonitorSampleIntervalSeconds: 10,
+      nginx: nginxPreferences,
     });
+  });
+
+  it("validates and persists nested Nginx v6 preferences", async () => {
+    const store = createStore({
+      preferences: {
+        version: 6,
+        nginx: {
+          releaseChannel: "mainline",
+          updateCheckIntervalHours: 12,
+          backupRetentionCount: 10,
+          logFollow: false,
+          logBufferLines: 50_000,
+        },
+      },
+    });
+    loadStore.mockResolvedValue(store);
+    const { getPreferences, setNginxPreferences } = await loadPreferencesStorage();
+
+    await expect(getPreferences()).resolves.toMatchObject({
+      nginx: {
+        releaseChannel: "mainline",
+        updateCheckIntervalHours: 12,
+        backupRetentionCount: 10,
+        logFollow: false,
+        logBufferLines: 50_000,
+      },
+    });
+    await setNginxPreferences({ updateCheckIntervalHours: 48 });
+    expect(store.set).toHaveBeenLastCalledWith(
+      "preferences",
+      expect.objectContaining({
+        version: 6,
+        nginx: expect.objectContaining({
+          releaseChannel: "mainline",
+          updateCheckIntervalHours: 48,
+        }),
+      }),
+    );
   });
 });

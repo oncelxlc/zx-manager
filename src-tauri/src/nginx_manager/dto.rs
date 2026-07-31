@@ -124,3 +124,47 @@ pub struct AuthorizeNginxRootInput {
     pub instance_id: String,
     pub selection_id: String,
 }
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NginxReleaseChannel {
+    Stable,
+    Mainline,
+}
+
+impl NginxReleaseChannel {
+    pub fn as_key(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Mainline => "mainline",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxRelease {
+    pub version: String,
+    pub download_url: String,
+    pub signature_url: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxReleaseStatus {
+    pub channel: NginxReleaseChannel,
+    pub latest_release: Option<NginxRelease>,
+    pub checked_at: Option<String>,
+    pub stale: bool,
+    pub source: String,
+    pub update_available_count: usize,
+    pub outdated_instance_ids: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckNginxUpdatesInput {
+    pub channel: NginxReleaseChannel,
+    pub force: bool,
+    pub max_age_hours: u16,
+}

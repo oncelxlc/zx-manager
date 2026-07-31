@@ -7,6 +7,7 @@ import {
   SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
+  SidebarMenuBadge,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
@@ -20,6 +21,7 @@ interface NavigationGroupProps {
   items: NavigationItem[];
   activeItem: string;
   onItemSelect: (labelKey: string) => void;
+  badges?: Partial<Record<string, number>>;
 }
 
 export function NavigationGroup({
@@ -27,6 +29,7 @@ export function NavigationGroup({
   items,
   activeItem,
   onItemSelect,
+  badges,
 }: NavigationGroupProps) {
   const { t } = useTranslation("navigation");
   return (
@@ -44,6 +47,11 @@ export function NavigationGroup({
                 <item.icon />
                 <span>{t(item.labelKey)}</span>
               </SidebarMenuButton>
+              {(badges?.[item.labelKey] ?? 0) > 0 ? (
+                <SidebarMenuBadge>
+                  {badges?.[item.labelKey]}
+                </SidebarMenuBadge>
+              ) : null}
             </SidebarMenuItem>
           ))}
         </SidebarMenu>

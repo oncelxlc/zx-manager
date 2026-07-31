@@ -6,6 +6,8 @@ permissions = [
   "allow-inspect-nginx-directory",
   "allow-list-nginx-instances",
   "allow-refresh-nginx-instance",
+  "allow-get-nginx-release-status",
+  "allow-check-nginx-updates",
 ]
 
 [[set]]

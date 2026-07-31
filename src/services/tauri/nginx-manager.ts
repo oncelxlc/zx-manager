@@ -5,6 +5,7 @@ import type {
   NginxDirectorySelection,
   NginxInspection,
   NginxInstance,
+  NginxReleaseStatus,
   RegisterNginxInstanceInput,
 } from "src/types/nginx";
 
@@ -57,6 +58,24 @@ export async function authorizeNginxInstanceRoot(
   }
   return invoke("authorize_nginx_instance_root", {
     input: { instanceId, selectionId: selection.selectionId },
+  });
+}
+
+export function getNginxReleaseStatus(
+  channel: "stable" | "mainline",
+): Promise<NginxReleaseStatus> {
+  assertNginxDesktop();
+  return invoke("get_nginx_release_status", { channel });
+}
+
+export function checkNginxUpdates(
+  channel: "stable" | "mainline",
+  force: boolean,
+  maxAgeHours: number,
+): Promise<NginxReleaseStatus> {
+  assertNginxDesktop();
+  return invoke("check_nginx_updates", {
+    input: { channel, force, maxAgeHours },
   });
 }
 

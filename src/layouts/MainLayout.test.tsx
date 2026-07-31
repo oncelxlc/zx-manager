@@ -11,8 +11,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import MainLayout, { useMainLayoutHeader } from "src/layouts/MainLayout";
 
-const { completeStartup } = vi.hoisted(() => ({
+const { completeStartup, restoreStartupBackgroundTasks } = vi.hoisted(() => ({
   completeStartup: vi.fn(() => Promise.resolve()),
+  restoreStartupBackgroundTasks: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("src/components/AppSidebar", () => ({
@@ -21,6 +22,10 @@ vi.mock("src/components/AppSidebar", () => ({
 
 vi.mock("src/services/tauri/startup", () => ({
   completeStartup,
+}));
+
+vi.mock("src/services/tauri/startup-background", () => ({
+  restoreStartupBackgroundTasks,
 }));
 
 function DashboardFixture() {
@@ -77,7 +82,8 @@ function renderLayout() {
 
 describe("MainLayout", () => {
   beforeEach(() => {
-    completeStartup.mockClear();
+    completeStartup.mockReset().mockResolvedValue(undefined);
+    restoreStartupBackgroundTasks.mockReset().mockResolvedValue(undefined);
   });
 
   it("hands off from the splashscreen after the layout mounts", async () => {
@@ -85,6 +91,22 @@ describe("MainLayout", () => {
 
     await waitFor(() => {
       expect(completeStartup).toHaveBeenCalledTimes(1);
+      expect(restoreStartupBackgroundTasks).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("starts background restoration only after the native handoff succeeds", async () => {
+    let resolveHandoff!: () => void;
+    completeStartup.mockReturnValueOnce(
+      new Promise<void>((resolve) => { resolveHandoff = resolve; }),
+    );
+    renderLayout();
+
+    await waitFor(() => expect(completeStartup).toHaveBeenCalledOnce());
+    expect(restoreStartupBackgroundTasks).not.toHaveBeenCalled();
+    resolveHandoff();
+    await waitFor(() => {
+      expect(restoreStartupBackgroundTasks).toHaveBeenCalledOnce();
     });
   });
 

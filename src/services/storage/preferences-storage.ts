@@ -4,6 +4,8 @@ import {
   isNetworkMonitorSampleInterval,
   isSupportedLocale,
   isThemeMode,
+  normalizeNginxPreferences,
+  type NginxPreferences,
   type NetworkMonitorSampleInterval,
   type SupportedLocale,
   type ThemeMode,
@@ -38,6 +40,11 @@ interface StoredPreferencesV5 {
   networkMonitorSampleIntervalSeconds?: NetworkMonitorSampleInterval;
 }
 
+interface StoredPreferencesV6 extends Omit<StoredPreferencesV5, "version"> {
+  version: 6;
+  nginx?: Partial<NginxPreferences>;
+}
+
 interface StoredPreferencesV4 extends Omit<StoredPreferencesV5, "version"> {
   version: 4;
   networkMonitorStartOnLaunch?: never;
@@ -65,13 +72,15 @@ function normalizePreferences(value: unknown): Partial<UserPreferences> {
     | StoredPreferencesV2
     | StoredPreferencesV3
     | StoredPreferencesV4
-    | StoredPreferencesV5;
+    | StoredPreferencesV5
+    | StoredPreferencesV6;
   if (
     preferences.version !== 1
     && preferences.version !== 2
     && preferences.version !== 3
     && preferences.version !== 4
     && preferences.version !== 5
+    && preferences.version !== 6
   ) {
     return {};
   }
@@ -87,19 +96,24 @@ function normalizePreferences(value: unknown): Partial<UserPreferences> {
     networkMonitorStartOnLaunch:
       (preferences.version === 2
         || preferences.version === 3
-        || preferences.version === 5)
+        || preferences.version === 5
+        || preferences.version === 6)
       && typeof preferences.networkMonitorStartOnLaunch === "boolean"
         ? preferences.networkMonitorStartOnLaunch
         : true,
     networkMonitorSampleIntervalSeconds:
       (preferences.version === 3
         || preferences.version === 4
-        || preferences.version === 5)
+        || preferences.version === 5
+        || preferences.version === 6)
       && isNetworkMonitorSampleInterval(
         preferences.networkMonitorSampleIntervalSeconds,
       )
         ? preferences.networkMonitorSampleIntervalSeconds
         : 5,
+    nginx: normalizeNginxPreferences(
+      preferences.version === 6 ? preferences.nginx : undefined,
+    ),
   };
 }
 
@@ -131,8 +145,8 @@ function writeLegacyPreferences(preferences: Partial<UserPreferences>) {
 
   try {
     const current = readLegacyPreferences();
-    const nextValue: StoredPreferencesV5 = {
-      version: 5,
+    const nextValue: StoredPreferencesV6 = {
+      version: 6,
       ...current,
       ...preferences,
       networkMonitorConfigured:
@@ -147,6 +161,7 @@ function writeLegacyPreferences(preferences: Partial<UserPreferences>) {
         preferences.networkMonitorSampleIntervalSeconds
         ?? current.networkMonitorSampleIntervalSeconds
         ?? 5,
+      nginx: normalizeNginxPreferences(preferences.nginx ?? current.nginx),
     };
     window.localStorage.setItem(preferencesStorageKey, JSON.stringify(nextValue));
   } catch {
@@ -172,7 +187,8 @@ function hasPreferences(preferences: Partial<UserPreferences>) {
     || preferences.theme !== undefined
     || preferences.networkMonitorConfigured !== undefined
     || preferences.networkMonitorStartOnLaunch !== undefined
-    || preferences.networkMonitorSampleIntervalSeconds !== undefined;
+    || preferences.networkMonitorSampleIntervalSeconds !== undefined
+    || preferences.nginx !== undefined;
 }
 
 function mergePreferences(
@@ -192,6 +208,7 @@ function mergePreferences(
       primary.networkMonitorSampleIntervalSeconds
       ?? fallback.networkMonitorSampleIntervalSeconds
       ?? 5,
+    nginx: normalizeNginxPreferences(primary.nginx ?? fallback.nginx),
   };
 }
 
@@ -204,7 +221,8 @@ function preferencesMatch(
     && left.networkMonitorConfigured === right.networkMonitorConfigured
     && left.networkMonitorStartOnLaunch === right.networkMonitorStartOnLaunch
     && left.networkMonitorSampleIntervalSeconds
-      === right.networkMonitorSampleIntervalSeconds;
+      === right.networkMonitorSampleIntervalSeconds
+    && JSON.stringify(left.nginx) === JSON.stringify(right.nginx);
 }
 
 async function getStore(): Promise<PreferencesStore | null> {
@@ -228,14 +246,15 @@ async function savePreferences(
   store: PreferencesStore,
   preferences: Partial<UserPreferences>,
 ) {
-  const value: StoredPreferencesV5 = {
-    version: 5,
+  const value: StoredPreferencesV6 = {
+    version: 6,
     ...preferences,
     networkMonitorConfigured: preferences.networkMonitorConfigured ?? false,
     networkMonitorStartOnLaunch:
       preferences.networkMonitorStartOnLaunch ?? true,
     networkMonitorSampleIntervalSeconds:
       preferences.networkMonitorSampleIntervalSeconds ?? 5,
+    nginx: normalizeNginxPreferences(preferences.nginx),
   };
   await store.set(storePreferencesKey, value);
   await store.save();
@@ -288,6 +307,15 @@ export async function setNetworkMonitorSampleInterval(
   interval: NetworkMonitorSampleInterval,
 ): Promise<void> {
   await updatePreferences({ networkMonitorSampleIntervalSeconds: interval });
+}
+
+export async function setNginxPreferences(
+  nginx: Partial<NginxPreferences>,
+): Promise<void> {
+  const current = await getPreferences();
+  await updatePreferences({
+    nginx: normalizeNginxPreferences({ ...current.nginx, ...nginx }),
+  });
 }
 
 async function updatePreferences(preferences: Partial<UserPreferences>) {

@@ -1,6 +1,7 @@
 use super::dto::{
-    AuthorizeNginxRootInput, DirectorySelection, DirectorySelectionPurpose, NginxInspection,
-    NginxInstance, RegisterNginxInstanceInput,
+    AuthorizeNginxRootInput, CheckNginxUpdatesInput, DirectorySelection, DirectorySelectionPurpose,
+    NginxInspection, NginxInstance, NginxReleaseChannel, NginxReleaseStatus,
+    RegisterNginxInstanceInput,
 };
 use super::error::{NginxError, NginxResult};
 use super::manager::NginxManager;
@@ -66,4 +67,20 @@ pub fn unregister_nginx_instance(
     instance_id: String,
 ) -> NginxResult<()> {
     manager.unregister(&instance_id)
+}
+
+#[tauri::command]
+pub fn get_nginx_release_status(
+    manager: State<'_, NginxManager>,
+    channel: NginxReleaseChannel,
+) -> NginxReleaseStatus {
+    manager.release_status(channel)
+}
+
+#[tauri::command]
+pub async fn check_nginx_updates(
+    manager: State<'_, NginxManager>,
+    input: CheckNginxUpdatesInput,
+) -> NginxResult<NginxReleaseStatus> {
+    manager.check_updates(input).await
 }

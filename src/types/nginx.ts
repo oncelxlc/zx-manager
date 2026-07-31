@@ -67,3 +67,19 @@ export interface RegisterNginxInstanceInput {
   name: string;
   authorizationLevel: NginxAuthorizationLevel;
 }
+
+export interface NginxRelease {
+  version: string;
+  downloadUrl: string;
+  signatureUrl: string;
+}
+
+export interface NginxReleaseStatus {
+  channel: "stable" | "mainline";
+  latestRelease: NginxRelease | null;
+  checkedAt: string | null;
+  stale: boolean;
+  source: "none" | "cache" | "network";
+  updateAvailableCount: number;
+  outdatedInstanceIds: string[];
+}

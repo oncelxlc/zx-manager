@@ -46,36 +46,39 @@ impl NginxRegistry {
     }
 
     pub fn save(&self, path: &Path) -> NginxResult<()> {
-        let parent = path.parent().ok_or_else(|| {
-            NginxError::new("NGINX_REGISTRY_PATH_INVALID", "registry path has no parent")
-        })?;
-        fs::create_dir_all(parent)
-            .map_err(|error| NginxError::io("create registry directory", error))?;
-        let temporary_path = parent.join(format!(".registry-{}.tmp", Uuid::new_v4()));
-        let bytes = serde_json::to_vec_pretty(self).map_err(|error| {
-            NginxError::new("NGINX_REGISTRY_SERIALIZE_FAILED", error.to_string())
-        })?;
-        let result = (|| {
-            let mut temporary = OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&temporary_path)
-                .map_err(|error| NginxError::io("create registry temporary file", error))?;
-            temporary
-                .write_all(&bytes)
-                .map_err(|error| NginxError::io("write registry temporary file", error))?;
-            temporary
-                .sync_all()
-                .map_err(|error| NginxError::io("sync registry temporary file", error))?;
-            atomic_replace(&temporary_path, path)?;
-            sync_directory(parent)?;
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&temporary_path);
-        }
-        result
+        write_json_atomically(path, self)
     }
+}
+
+pub(super) fn write_json_atomically<T: Serialize>(path: &Path, value: &T) -> NginxResult<()> {
+    let parent = path.parent().ok_or_else(|| {
+        NginxError::new("NGINX_REGISTRY_PATH_INVALID", "registry path has no parent")
+    })?;
+    fs::create_dir_all(parent)
+        .map_err(|error| NginxError::io("create registry directory", error))?;
+    let temporary_path = parent.join(format!(".registry-{}.tmp", Uuid::new_v4()));
+    let bytes = serde_json::to_vec_pretty(value)
+        .map_err(|error| NginxError::new("NGINX_REGISTRY_SERIALIZE_FAILED", error.to_string()))?;
+    let result = (|| {
+        let mut temporary = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary_path)
+            .map_err(|error| NginxError::io("create registry temporary file", error))?;
+        temporary
+            .write_all(&bytes)
+            .map_err(|error| NginxError::io("write registry temporary file", error))?;
+        temporary
+            .sync_all()
+            .map_err(|error| NginxError::io("sync registry temporary file", error))?;
+        atomic_replace(&temporary_path, path)?;
+        sync_directory(parent)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary_path);
+    }
+    result
 }
 
 fn preserve_corrupt_registry(path: &Path) -> NginxResult<()> {

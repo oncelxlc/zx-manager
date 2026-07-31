@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { useMainLayoutHeader } from "src/layouts/MainLayout";
 import { useNginxStore } from "src/stores/nginx-store";
+import { NginxUpdateCard } from "src/components/nginx/NginxUpdateCard";
 
 export function NginxManagementPage() {
   const { t } = useTranslation("nginx");
@@ -80,6 +81,7 @@ export function NginxManagementPage() {
           </CardContent>
         </Card>
       </div>
+      <NginxUpdateCard />
     </div>
   );
 }
