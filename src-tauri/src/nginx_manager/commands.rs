@@ -1,6 +1,6 @@
 use super::dto::{
     AuthorizeNginxRootInput, CheckNginxUpdatesInput, DirectorySelection, DirectorySelectionPurpose,
-    NginxInspection, NginxInstance, NginxReleaseChannel, NginxReleaseStatus,
+    NginxConfiguration, NginxInspection, NginxInstance, NginxReleaseChannel, NginxReleaseStatus,
     RegisterNginxInstanceInput,
 };
 use super::error::{NginxError, NginxResult};
@@ -83,4 +83,12 @@ pub async fn check_nginx_updates(
     input: CheckNginxUpdatesInput,
 ) -> NginxResult<NginxReleaseStatus> {
     manager.check_updates(input).await
+}
+
+#[tauri::command]
+pub fn get_nginx_configuration(
+    manager: State<'_, NginxManager>,
+    instance_id: String,
+) -> NginxResult<NginxConfiguration> {
+    manager.configuration(&instance_id)
 }

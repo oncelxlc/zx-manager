@@ -1,4 +1,5 @@
 pub mod commands;
+mod configuration;
 mod dto;
 mod error;
 mod manager;

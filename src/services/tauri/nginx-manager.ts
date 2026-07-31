@@ -2,6 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 
 import type {
   NginxCommandError,
+  NginxConfiguration,
   NginxDirectorySelection,
   NginxInspection,
   NginxInstance,
@@ -77,6 +78,13 @@ export function checkNginxUpdates(
   return invoke("check_nginx_updates", {
     input: { channel, force, maxAgeHours },
   });
+}
+
+export function getNginxConfiguration(
+  instanceId: string,
+): Promise<NginxConfiguration> {
+  assertNginxDesktop();
+  return invoke("get_nginx_configuration", { instanceId });
 }
 
 export function toNginxCommandError(error: unknown): NginxCommandError {

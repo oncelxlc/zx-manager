@@ -1,8 +1,10 @@
+use super::configuration::load_configuration;
 use super::dto::{
     AuthorizeNginxRootInput, CheckNginxUpdatesInput, DirectorySelection, DirectorySelectionPurpose,
-    NginxAuthorizationLevel, NginxCapabilities, NginxControlBackend, NginxInspection,
-    NginxInstance, NginxInstanceRecord, NginxLifecycleState, NginxProviderIdentity,
-    NginxReleaseChannel, NginxReleaseStatus, NginxRuntimeStatus, RegisterNginxInstanceInput,
+    NginxAuthorizationLevel, NginxCapabilities, NginxConfiguration, NginxControlBackend,
+    NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState,
+    NginxProviderIdentity, NginxReleaseChannel, NginxReleaseStatus, NginxRuntimeStatus,
+    RegisterNginxInstanceInput,
 };
 use super::error::{NginxError, NginxResult};
 use super::process::run_nginx;
@@ -255,6 +257,26 @@ impl NginxManager {
         let result = record.clone();
         registry.save(&self.registry_path)?;
         Ok(refresh_instance(result))
+    }
+
+    pub fn configuration(&self, instance_id: &str) -> NginxResult<NginxConfiguration> {
+        let record = self
+            .registry
+            .lock()
+            .unwrap()
+            .instances
+            .iter()
+            .find(|instance| instance.id == instance_id)
+            .cloned()
+            .ok_or_else(instance_not_found)?;
+        if refresh_instance(record.clone()).capabilities.can_read {
+            load_configuration(&record)
+        } else {
+            Err(NginxError::new(
+                "NGINX_INSTANCE_NOT_READABLE",
+                "the registered instance is not currently trusted for reads",
+            ))
+        }
     }
 
     pub fn release_status(&self, channel: NginxReleaseChannel) -> NginxReleaseStatus {
@@ -516,7 +538,7 @@ fn instance_not_found() -> NginxError {
     NginxError::new("NGINX_INSTANCE_NOT_FOUND", "nginx instance was not found")
 }
 
-fn reject_reparse_points(path: &Path) -> NginxResult<()> {
+pub(crate) fn reject_reparse_points(path: &Path) -> NginxResult<()> {
     for ancestor in path.ancestors() {
         if !ancestor.exists() {
             continue;

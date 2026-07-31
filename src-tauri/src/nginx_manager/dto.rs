@@ -168,3 +168,94 @@ pub struct CheckNginxUpdatesInput {
     pub force: bool,
     pub max_age_hours: u16,
 }
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxSourceLocation {
+    pub source_id: String,
+    pub line: usize,
+    pub column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxDirective {
+    pub name: String,
+    pub arguments: Vec<String>,
+    pub raw: String,
+    pub location: NginxSourceLocation,
+    pub children: Vec<NginxDirective>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigSource {
+    pub id: String,
+    pub display_path: String,
+    pub text: String,
+    pub directives: Vec<NginxDirective>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigDiagnostic {
+    pub code: String,
+    pub severity: String,
+    pub message: String,
+    pub location: Option<NginxSourceLocation>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxSite {
+    pub id: String,
+    pub context: String,
+    pub listens: Vec<String>,
+    pub server_names: Vec<String>,
+    pub root: Option<String>,
+    pub proxy_pass: Vec<String>,
+    pub locations: Vec<String>,
+    pub source: NginxSourceLocation,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxUpstream {
+    pub name: String,
+    pub servers: Vec<String>,
+    pub source: NginxSourceLocation,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxTopologyNode {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxTopologyEdge {
+    pub from: String,
+    pub to: String,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfiguration {
+    pub instance_id: String,
+    pub entry_source_id: String,
+    pub sources: Vec<NginxConfigSource>,
+    pub diagnostics: Vec<NginxConfigDiagnostic>,
+    pub sites: Vec<NginxSite>,
+    pub upstreams: Vec<NginxUpstream>,
+    pub topology_nodes: Vec<NginxTopologyNode>,
+    pub topology_edges: Vec<NginxTopologyEdge>,
+    pub pid_path: Option<String>,
+    pub access_logs: Vec<String>,
+    pub error_logs: Vec<String>,
+}

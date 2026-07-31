@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke, isTauri }));
 
 import {
   checkNginxUpdates,
+  getNginxConfiguration,
   inspectNginxDirectory,
   registerNginxInstance,
   selectNginxDirectory,
@@ -72,6 +73,16 @@ describe("nginx manager Tauri service", () => {
 
     expect(invoke).toHaveBeenCalledWith("check_nginx_updates", {
       input: { channel: "stable", force: true, maxAgeHours: 24 },
+    });
+  });
+
+  it("reads configuration by opaque registered instance id", async () => {
+    invoke.mockResolvedValue({ instanceId: "instance-1", sources: [] });
+
+    await getNginxConfiguration("instance-1");
+
+    expect(invoke).toHaveBeenCalledWith("get_nginx_configuration", {
+      instanceId: "instance-1",
     });
   });
 });

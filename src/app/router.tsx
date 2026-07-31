@@ -46,6 +46,20 @@ export const router = createBrowserRouter([
           })),
       },
       {
+        path: "nginx/manage/sites",
+        lazy: () =>
+          import("../pages/nginx/NginxSitesPage.tsx").then((module) => ({
+            Component: module.NginxSitesPage,
+          })),
+      },
+      {
+        path: "nginx/manage/configuration",
+        lazy: () =>
+          import("../pages/nginx/NginxConfigurationPage.tsx").then((module) => ({
+            Component: module.NginxConfigurationPage,
+          })),
+      },
+      {
         path: "nginx/logs",
         lazy: () =>
           import("../pages/nginx/NginxLogsPage.tsx").then((module) => ({

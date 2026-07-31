@@ -83,3 +83,76 @@ export interface NginxReleaseStatus {
   updateAvailableCount: number;
   outdatedInstanceIds: string[];
 }
+
+export interface NginxSourceLocation {
+  sourceId: string;
+  line: number;
+  column: number;
+  endLine: number;
+  endColumn: number;
+}
+
+export interface NginxDirective {
+  name: string;
+  arguments: string[];
+  raw: string;
+  location: NginxSourceLocation;
+  children: NginxDirective[];
+}
+
+export interface NginxConfigSource {
+  id: string;
+  displayPath: string;
+  text: string;
+  directives: NginxDirective[];
+}
+
+export interface NginxConfigDiagnostic {
+  code: string;
+  severity: string;
+  message: string;
+  location: NginxSourceLocation | null;
+}
+
+export interface NginxSite {
+  id: string;
+  context: string;
+  listens: string[];
+  serverNames: string[];
+  root: string | null;
+  proxyPass: string[];
+  locations: string[];
+  source: NginxSourceLocation;
+}
+
+export interface NginxUpstream {
+  name: string;
+  servers: string[];
+  source: NginxSourceLocation;
+}
+
+export interface NginxTopologyNode {
+  id: string;
+  kind: string;
+  label: string;
+}
+
+export interface NginxTopologyEdge {
+  from: string;
+  to: string;
+  label: string;
+}
+
+export interface NginxConfiguration {
+  instanceId: string;
+  entrySourceId: string;
+  sources: NginxConfigSource[];
+  diagnostics: NginxConfigDiagnostic[];
+  sites: NginxSite[];
+  upstreams: NginxUpstream[];
+  topologyNodes: NginxTopologyNode[];
+  topologyEdges: NginxTopologyEdge[];
+  pidPath: string | null;
+  accessLogs: string[];
+  errorLogs: string[];
+}
