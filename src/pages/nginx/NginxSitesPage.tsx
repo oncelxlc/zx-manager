@@ -2,7 +2,6 @@ import { useTranslation } from "react-i18next";
 
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
-import { NginxConfigurationPicker } from "src/components/nginx/NginxConfigurationPicker";
 import { NginxDiagnostics } from "src/components/nginx/NginxDiagnostics";
 import { NginxSitesTable } from "src/components/nginx/NginxSitesTable";
 import { NginxTopology } from "src/components/nginx/NginxTopology";
@@ -13,7 +12,7 @@ import { nginxErrorTranslationKey } from "src/utils/nginx-error";
 
 export function NginxSitesPage() {
   const { t } = useTranslation("nginx");
-  const { instances, selectedInstanceId, load } = useNginxConfigurationPage();
+  useNginxConfigurationPage();
   const configuration = useNginxConfigurationStore((state) => state.configuration);
   const loadStatus = useNginxConfigurationStore((state) => state.loadStatus);
   const error = useNginxConfigurationStore((state) => state.error);
@@ -25,11 +24,6 @@ export function NginxSitesPage() {
         <h1 className="text-2xl font-semibold tracking-tight">{t("sites.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("sites.description")}</p>
       </div>
-      <NginxConfigurationPicker
-        instances={instances}
-        onChange={(instanceId) => void load(instanceId)}
-        value={selectedInstanceId}
-      />
       {loadStatus === "loading" ? (
         <div className="flex min-h-48 items-center justify-center"><Spinner /></div>
       ) : null}

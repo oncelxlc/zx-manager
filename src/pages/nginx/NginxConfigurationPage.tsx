@@ -4,7 +4,6 @@ import { useSearchParams } from "react-router";
 
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
-import { NginxConfigurationPicker } from "src/components/nginx/NginxConfigurationPicker";
 import { NginxDiagnostics } from "src/components/nginx/NginxDiagnostics";
 import { NginxSourceViewer } from "src/components/nginx/NginxSourceViewer";
 import { useMainLayoutHeader } from "src/layouts/MainLayout";
@@ -19,7 +18,7 @@ export function NginxConfigurationPage() {
   const requestedSource = params.get("source");
   const requestedLine = Number(params.get("line")) || null;
   const [chosenSource, setChosenSource] = useState<string | null>(null);
-  const { instances, selectedInstanceId, load } = useNginxConfigurationPage(initialInstanceId);
+  useNginxConfigurationPage(initialInstanceId);
   const configuration = useNginxConfigurationStore((state) => state.configuration);
   const loadStatus = useNginxConfigurationStore((state) => state.loadStatus);
   const error = useNginxConfigurationStore((state) => state.error);
@@ -35,14 +34,6 @@ export function NginxConfigurationPage() {
         <h1 className="text-2xl font-semibold tracking-tight">{t("configuration.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("configuration.description")}</p>
       </div>
-      <NginxConfigurationPicker
-        instances={instances}
-        onChange={(instanceId) => {
-          setChosenSource(null);
-          void load(instanceId);
-        }}
-        value={selectedInstanceId}
-      />
       {loadStatus === "loading" ? (
         <div className="flex min-h-48 items-center justify-center"><Spinner /></div>
       ) : null}

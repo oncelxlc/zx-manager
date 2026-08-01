@@ -9,7 +9,8 @@ export async function restoreNginxOnStartup(
   const nginxPreferences = preferences.nginx ?? defaultNginxPreferences;
   useNginxReleaseStore.getState().configure(nginxPreferences);
   await Promise.allSettled([
-    useNginxStore.getState().loadInstances(true),
+    useNginxStore.getState().loadRegistry(true),
+    useNginxStore.getState().ensureStatusSubscription(),
     useNginxReleaseStore.getState().check(false),
   ]);
 }

@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const stores = vi.hoisted(() => ({
   configure: vi.fn(),
-  loadInstances: vi.fn(),
+  loadRegistry: vi.fn(),
+  ensureStatusSubscription: vi.fn(),
   check: vi.fn(),
 }));
 
@@ -13,7 +14,10 @@ vi.mock("src/stores/nginx-release-store", () => ({
 }));
 vi.mock("src/stores/nginx-store", () => ({
   useNginxStore: {
-    getState: () => ({ loadInstances: stores.loadInstances }),
+    getState: () => ({
+      loadRegistry: stores.loadRegistry,
+      ensureStatusSubscription: stores.ensureStatusSubscription,
+    }),
   },
 }));
 
@@ -22,7 +26,8 @@ import { restoreNginxOnStartup } from "./nginx-startup";
 describe("Nginx startup restoration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    stores.loadInstances.mockResolvedValue([]);
+    stores.loadRegistry.mockResolvedValue(null);
+    stores.ensureStatusSubscription.mockResolvedValue(undefined);
     stores.check.mockResolvedValue(null);
   });
 
@@ -38,7 +43,8 @@ describe("Nginx startup restoration", () => {
     await restoreNginxOnStartup({ nginx: preferences });
 
     expect(stores.configure).toHaveBeenCalledWith(preferences);
-    expect(stores.loadInstances).toHaveBeenCalledWith(true);
+    expect(stores.loadRegistry).toHaveBeenCalledWith(true);
+    expect(stores.ensureStatusSubscription).toHaveBeenCalledOnce();
     expect(stores.check).toHaveBeenCalledWith(false);
   });
 });

@@ -33,7 +33,6 @@ describe("nginx manager Tauri service", () => {
     await inspectNginxDirectory(selection!.selectionId);
     await registerNginxInstance({
       inspectionId: "inspection-1",
-      name: "Local Nginx",
       authorizationLevel: "readOnly",
     });
 
@@ -46,7 +45,6 @@ describe("nginx manager Tauri service", () => {
     expect(invoke).toHaveBeenNthCalledWith(3, "register_nginx_instance", {
       input: {
         inspectionId: "inspection-1",
-        name: "Local Nginx",
         authorizationLevel: "readOnly",
       },
     });

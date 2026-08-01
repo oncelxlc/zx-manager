@@ -4,7 +4,7 @@ export type NginxLifecycleState =
   | "changed"
   | "missing"
   | "uninstalled";
-export type NginxRuntimeStatus = "running" | "stopped" | "unknown";
+export type NginxRuntimeStatus = "running" | "stopped" | "conflict" | "unknown";
 export type NginxControlBackend =
   | "portable"
   | "windowsScm"
@@ -64,9 +64,17 @@ export interface NginxInstance {
 
 export interface RegisterNginxInstanceInput {
   inspectionId: string;
-  name: string;
   authorizationLevel: NginxAuthorizationLevel;
 }
+
+export type NginxRegistryState =
+  | { status: "empty"; instance: null; migrationCandidates: [] }
+  | { status: "ready"; instance: NginxInstance; migrationCandidates: [] }
+  | {
+    status: "migrationRequired";
+    instance: null;
+    migrationCandidates: NginxInstance[];
+  };
 
 export interface NginxRelease {
   version: string;
@@ -167,7 +175,51 @@ export interface NginxOperationRecord {
   startedAt: string;
   completedAt: string;
   success: boolean;
+  outcome: "executed" | "noop";
+  resultingStatus: NginxRuntimeStatus;
   errorCode: string | null;
   stdout: string;
   stderr: string;
+}
+
+export type NginxOperationPhase =
+  | "starting"
+  | "stopping"
+  | "reloading"
+  | "restarting"
+  | "downloading"
+  | "verifying"
+  | "backingUp"
+  | "replacing"
+  | "restoringRuntime"
+  | "rollingBack";
+
+export interface NginxStatusEvent {
+  generation: number;
+  sequence: number;
+  observedAt: string;
+  instance: NginxInstance | null;
+  operationPhase: NginxOperationPhase | null;
+}
+
+export interface NginxStatusSubscription {
+  subscriptionId: number;
+  initialEvent: NginxStatusEvent;
+}
+
+export interface NginxUpgradeProgress {
+  phase: NginxOperationPhase;
+  progress: number;
+  messageCode: string;
+}
+
+export interface NginxUpgradeResult {
+  fromVersion: string;
+  targetVersion: string;
+  backupId: string | null;
+  success: boolean;
+  rolledBack: boolean;
+  rollbackSucceeded: boolean | null;
+  errorCode: string | null;
+  resultingStatus: NginxRuntimeStatus;
 }

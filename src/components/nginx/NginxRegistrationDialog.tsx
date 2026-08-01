@@ -13,7 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -33,7 +32,6 @@ interface NginxRegistrationDialogProps {
   loading: boolean;
   onCancel: () => void;
   onRegister: (
-    name: string,
     authorizationLevel: NginxAuthorizationLevel,
   ) => void;
 }
@@ -53,10 +51,8 @@ export function NginxRegistrationDialog({
   onRegister,
 }: NginxRegistrationDialogProps) {
   const { t } = useTranslation("nginx");
-  const [name, setName] = useState("Nginx");
   const [authorizationLevel, setAuthorizationLevel] =
     useState<NginxAuthorizationLevel>("readOnly");
-  const validName = name.trim().length > 0 && name.trim().length <= 80;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
@@ -89,24 +85,10 @@ export function NginxRegistrationDialog({
           id="nginx-registration-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (validName) {
-              onRegister(name.trim(), authorizationLevel);
-            }
+            onRegister(authorizationLevel);
           }}
         >
           <FieldGroup>
-            <Field data-invalid={!validName}>
-              <FieldLabel htmlFor="nginx-instance-name">
-                {t("registration.name")}
-              </FieldLabel>
-              <Input
-                aria-invalid={!validName}
-                id="nginx-instance-name"
-                maxLength={80}
-                onChange={(event) => setName(event.target.value)}
-                value={name}
-              />
-            </Field>
             <Field>
               <FieldLabel>{t("registration.authorization.label")}</FieldLabel>
               <Select
@@ -144,7 +126,7 @@ export function NginxRegistrationDialog({
             {t("common:actions.cancel")}
           </Button>
           <Button
-            disabled={loading || !validName}
+            disabled={loading}
             form="nginx-registration-form"
             type="submit"
           >

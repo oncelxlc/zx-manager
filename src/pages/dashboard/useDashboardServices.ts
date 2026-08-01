@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { toast } from "@/components/ui/toast";
@@ -13,6 +13,7 @@ import type {
   LocalService,
   ServiceOperation,
 } from "src/types/service";
+import { useNginxStore } from "src/stores/nginx-store";
 
 const operationHandlers = {
   start: startService,
@@ -32,10 +33,30 @@ function createServiceId(name: string, sequence: number) {
 
 /** Contains mock-service mutations so DashboardPage only composes feature areas. */
 export function useDashboardServices() {
-  const { t } = useTranslation(["services", "common"]);
-  const [services, setServices] = useState<LocalService[]>(initialServices);
+  const { t } = useTranslation(["services", "common", "nginx"]);
+  const [services, setServices] = useState<LocalService[]>(
+    initialServices.filter((service) => service.type !== "nginx"),
+  );
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const nextServiceSequence = useRef(initialServices.length + 1);
+  const nginx = useNginxStore((state) => state.instance);
+  const nginxOperationStatus = useNginxStore((state) => state.operationStatus);
+  const controlNginx = useNginxStore((state) => state.controlInstance);
+  const unregisterNginx = useNginxStore((state) => state.unregisterInstance);
+  const nginxService = useMemo<LocalService | null>(() => nginx ? ({
+    id: nginx.id,
+    name: nginx.name,
+    descriptionKey: "nginx",
+    type: "nginx",
+    status: nginx.runtimeStatus === "running"
+      ? "running"
+      : nginx.runtimeStatus === "stopped" ? "stopped"
+        : nginx.runtimeStatus === "conflict" ? "error" : "warning",
+    version: nginx.version,
+    port: 80,
+    cpu: 0,
+    memory: "—",
+  }) : null, [nginx]);
 
   async function handleOperation(
     service: LocalService,
@@ -44,7 +65,15 @@ export function useDashboardServices() {
     setPendingIds((current) => new Set(current).add(service.id));
 
     try {
-      await operationHandlers[operation](service.id);
+      if (service.type === "nginx") {
+        const succeeded = await controlNginx(operation);
+        if (!succeeded) {
+          const error = useNginxStore.getState().error;
+          throw new Error(t(`nginx:errors.${error?.code ?? "NGINX_UNKNOWN"}`));
+        }
+      } else {
+        await operationHandlers[operation](service.id);
+      }
       setServices((current) => current.map((item) => {
         if (item.id !== service.id) {
           return item;
@@ -59,7 +88,9 @@ export function useDashboardServices() {
           name: service.name,
           operation: t(`services:toast.operations.${operation}`),
         }),
-        description: t("services:toast.operationSuccessDescription"),
+        description: t(service.type === "nginx"
+          ? "services:toast.operationSuccessRealDescription"
+          : "services:toast.operationSuccessDescription"),
         type: "success",
       });
     } catch (error) {
@@ -111,6 +142,10 @@ export function useDashboardServices() {
   }
 
   function handleRemove(service: LocalService) {
+    if (service.type === "nginx") {
+      void unregisterNginx();
+      return;
+    }
     setServices((current) => current.filter((item) => item.id !== service.id));
     toast.add({
       title: t("services:toast.removed", {name: service.name}),
@@ -132,7 +167,9 @@ export function useDashboardServices() {
     handleLocalAction,
     handleOperation,
     handleRemove,
-    pendingIds,
-    services,
+    pendingIds: nginx && nginxOperationStatus === "loading"
+      ? new Set([...pendingIds, nginx.id])
+      : pendingIds,
+    services: nginxService ? [nginxService, ...services] : services,
   };
 }

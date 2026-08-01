@@ -5,24 +5,27 @@ import { useNginxStore } from "src/stores/nginx-store";
 
 export function useNginxConfigurationPage(initialInstanceId?: string | null) {
   const requestedInstance = useRef(initialInstanceId);
-  const instances = useNginxStore((state) => state.instances);
-  const loadInstances = useNginxStore((state) => state.loadInstances);
+  const instance = useNginxStore((state) => state.instance);
+  const loadRegistry = useNginxStore((state) => state.loadRegistry);
   const selectedInstanceId = useNginxConfigurationStore(
     (state) => state.selectedInstanceId,
   );
   const load = useNginxConfigurationStore((state) => state.load);
 
   useEffect(() => {
-    void loadInstances().then((loaded) => {
-      const target = requestedInstance.current
-        ?? selectedInstanceId
-        ?? loaded?.find((instance) => instance.capabilities.canRead)?.id;
+    void loadRegistry().then((registry) => {
+      if (registry?.status !== "ready" || !registry.instance.capabilities.canRead) return;
+      const current = registry.instance;
+      const requested = requestedInstance.current;
       requestedInstance.current = null;
-      if (target && target !== selectedInstanceId) {
-        void load(target);
+      // Legacy URLs are accepted only when they still identify the singleton.
+      if ((!requested || requested === current.id) && selectedInstanceId !== current.id) {
+        void load(current.id);
+      } else if (requested && requested !== current.id && selectedInstanceId !== current.id) {
+        void load(current.id);
       }
     });
-  }, [load, loadInstances, selectedInstanceId]);
+  }, [load, loadRegistry, selectedInstanceId]);
 
-  return { instances, selectedInstanceId, load };
+  return { instance, selectedInstanceId };
 }

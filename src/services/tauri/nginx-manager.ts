@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
 
 import type {
   NginxCommandError,
@@ -9,6 +9,11 @@ import type {
   NginxInstance,
   NginxReleaseStatus,
   NginxOperationRecord,
+  NginxRegistryState,
+  NginxStatusEvent,
+  NginxStatusSubscription,
+  NginxUpgradeProgress,
+  NginxUpgradeResult,
   RegisterNginxInstanceInput,
 } from "src/types/nginx";
 
@@ -33,9 +38,18 @@ export function registerNginxInstance(
   return invoke("register_nginx_instance", { input });
 }
 
-export function listNginxInstances(): Promise<NginxInstance[]> {
+export function getNginxRegistryState(): Promise<NginxRegistryState> {
   assertNginxDesktop();
-  return invoke("list_nginx_instances");
+  return invoke("get_nginx_registry_state");
+}
+
+export function resolveNginxRegistryMigration(
+  keepInstanceId: string,
+): Promise<NginxRegistryState> {
+  assertNginxDesktop();
+  return invoke("resolve_nginx_registry_migration", {
+    input: { keepInstanceId },
+  });
 }
 
 export function refreshNginxInstance(
@@ -95,6 +109,50 @@ export function controlNginxInstance(
 ): Promise<NginxOperationRecord> {
   assertNginxDesktop();
   return invoke("control_nginx_instance", { input: { instanceId, action } });
+}
+
+export interface NginxStatusChannelSubscription {
+  subscription: NginxStatusSubscription;
+  cleanup: () => Promise<void>;
+}
+
+export async function subscribeNginxStatus(
+  onMessage: (event: NginxStatusEvent) => void,
+): Promise<NginxStatusChannelSubscription> {
+  assertNginxDesktop();
+  const channel = new Channel<NginxStatusEvent>();
+  channel.onmessage = onMessage;
+  const subscription = await invoke<NginxStatusSubscription>(
+    "subscribe_nginx_status",
+    { channel },
+  );
+  let cleanedUp = false;
+  return {
+    subscription,
+    cleanup: async () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      channel.onmessage = () => undefined;
+      await invoke("unsubscribe_nginx_status", {
+        subscriptionId: subscription.subscriptionId,
+      });
+    },
+  };
+}
+
+export function upgradeNginxInstance(
+  input: {
+    instanceId: string;
+    channel: "stable" | "mainline";
+    targetVersion: string;
+    backupRetentionCount: number;
+  },
+  onProgress: (progress: NginxUpgradeProgress) => void,
+): Promise<NginxUpgradeResult> {
+  assertNginxDesktop();
+  const progressChannel = new Channel<NginxUpgradeProgress>();
+  progressChannel.onmessage = onProgress;
+  return invoke("upgrade_nginx_instance", { input, progressChannel });
 }
 
 export function getNginxOperationHistory(

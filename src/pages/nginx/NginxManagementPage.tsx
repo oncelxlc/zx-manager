@@ -4,6 +4,7 @@ import { FileCodeIcon, FileTextIcon, NetworkIcon, ServerIcon } from "lucide-reac
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardAction,
@@ -15,15 +16,19 @@ import {
 import { useMainLayoutHeader } from "src/layouts/MainLayout";
 import { useNginxStore } from "src/stores/nginx-store";
 import { NginxUpdateCard } from "src/components/nginx/NginxUpdateCard";
+import { NginxMigrationAlert } from "src/components/nginx/NginxMigrationAlert";
 
 export function NginxManagementPage() {
   const { t } = useTranslation("nginx");
-  const instances = useNginxStore((state) => state.instances);
-  const loadInstances = useNginxStore((state) => state.loadInstances);
+  const registryState = useNginxStore((state) => state.registryState);
+  const instance = useNginxStore((state) => state.instance);
+  const operationStatus = useNginxStore((state) => state.operationStatus);
+  const loadRegistry = useNginxStore((state) => state.loadRegistry);
+  const resolveMigration = useNginxStore((state) => state.resolveMigration);
 
   useEffect(() => {
-    void loadInstances();
-  }, [loadInstances]);
+    void loadRegistry();
+  }, [loadRegistry]);
 
   useMainLayoutHeader({ title: t("management.title") });
 
@@ -38,13 +43,23 @@ export function NginxManagementPage() {
         </p>
       </div>
 
+      {registryState?.status === "migrationRequired" ? (
+        <NginxMigrationAlert
+          candidates={registryState.migrationCandidates}
+          loading={operationStatus === "loading"}
+          onResolve={(id) => void resolveMigration(id)}
+        />
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
             <ServerIcon className="size-5 text-muted-foreground" />
             <CardTitle>{t("management.instancesTitle")}</CardTitle>
             <CardDescription>
-              {t("management.instancesDescription", { count: instances.length })}
+              {instance
+                ? t("management.instanceReady", { version: instance.version })
+                : t("management.instanceEmpty")}
             </CardDescription>
             <CardAction>
               <Button
@@ -57,7 +72,11 @@ export function NginxManagementPage() {
             </CardAction>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            {t("management.registryBoundary")}
+            {instance ? (
+              <Badge variant={instance.runtimeStatus === "running" ? "success" : "secondary"}>
+                {t(`runtime.${instance.runtimeStatus}`)}
+              </Badge>
+            ) : t("management.registryBoundary")}
           </CardContent>
         </Card>
 
