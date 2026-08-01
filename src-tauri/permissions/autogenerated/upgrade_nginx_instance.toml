@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-upgrade-nginx-instance"
+description = "Enables the upgrade_nginx_instance command without any pre-configured scope."
+commands.allow = ["upgrade_nginx_instance"]
+
+[[permission]]
+identifier = "deny-upgrade-nginx-instance"
+description = "Denies the upgrade_nginx_instance command without any pre-configured scope."
+commands.deny = ["upgrade_nginx_instance"]

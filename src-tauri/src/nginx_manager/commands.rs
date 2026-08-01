@@ -1,13 +1,15 @@
 use super::dto::{
     AuthorizeNginxRootInput, CheckNginxUpdatesInput, ControlNginxInstanceInput, DirectorySelection,
     DirectorySelectionPurpose, GetNginxOperationHistoryInput, InspectNginxSystemServiceInput,
-    NginxConfiguration, NginxInspection, NginxInstance, NginxOperationRecord, NginxReleaseChannel,
-    NginxReleaseStatus, NginxSystemServiceCandidate, NginxSystemServiceInspection,
-    RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
+    NginxConfiguration, NginxInspection, NginxInstance, NginxOperationRecord, NginxRegistryState,
+    NginxReleaseChannel, NginxReleaseStatus, NginxStatusEvent, NginxStatusSubscription,
+    NginxSystemServiceCandidate, NginxSystemServiceInspection, NginxUpgradeProgress,
+    NginxUpgradeResult, RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
+    ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
 };
 use super::error::{NginxError, NginxResult};
 use super::manager::NginxManager;
-use tauri::{AppHandle, State};
+use tauri::{ipc::Channel, AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
@@ -43,8 +45,29 @@ pub async fn register_nginx_instance(
 }
 
 #[tauri::command]
-pub fn list_nginx_instances(manager: State<'_, NginxManager>) -> Vec<NginxInstance> {
-    manager.list()
+pub fn get_nginx_registry_state(manager: State<'_, NginxManager>) -> NginxRegistryState {
+    manager.registry_state()
+}
+
+#[tauri::command]
+pub fn resolve_nginx_registry_migration(
+    manager: State<'_, NginxManager>,
+    input: ResolveNginxRegistryMigrationInput,
+) -> NginxResult<NginxRegistryState> {
+    manager.resolve_registry_migration(input)
+}
+
+#[tauri::command]
+pub fn subscribe_nginx_status(
+    manager: State<'_, NginxManager>,
+    channel: Channel<NginxStatusEvent>,
+) -> NginxStatusSubscription {
+    manager.subscribe_status(channel)
+}
+
+#[tauri::command]
+pub fn unsubscribe_nginx_status(manager: State<'_, NginxManager>, subscription_id: u64) {
+    manager.unsubscribe_status(subscription_id);
 }
 
 #[tauri::command]
@@ -101,6 +124,15 @@ pub async fn control_nginx_instance(
     input: ControlNginxInstanceInput,
 ) -> NginxResult<NginxOperationRecord> {
     manager.control(input)
+}
+
+#[tauri::command]
+pub async fn upgrade_nginx_instance(
+    manager: State<'_, NginxManager>,
+    input: UpgradeNginxInstanceInput,
+    progress_channel: Channel<NginxUpgradeProgress>,
+) -> NginxResult<NginxUpgradeResult> {
+    manager.upgrade(input, progress_channel).await
 }
 
 #[tauri::command]

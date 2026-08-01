@@ -47,7 +47,10 @@ pub fn run() {
             nginx_manager::commands::select_nginx_directory,
             nginx_manager::commands::inspect_nginx_directory,
             nginx_manager::commands::register_nginx_instance,
-            nginx_manager::commands::list_nginx_instances,
+            nginx_manager::commands::get_nginx_registry_state,
+            nginx_manager::commands::resolve_nginx_registry_migration,
+            nginx_manager::commands::subscribe_nginx_status,
+            nginx_manager::commands::unsubscribe_nginx_status,
             nginx_manager::commands::refresh_nginx_instance,
             nginx_manager::commands::authorize_nginx_instance_root,
             nginx_manager::commands::unregister_nginx_instance,
@@ -55,6 +58,7 @@ pub fn run() {
             nginx_manager::commands::check_nginx_updates,
             nginx_manager::commands::get_nginx_configuration,
             nginx_manager::commands::control_nginx_instance,
+            nginx_manager::commands::upgrade_nginx_instance,
             nginx_manager::commands::get_nginx_operation_history,
             nginx_manager::commands::list_nginx_system_services,
             nginx_manager::commands::inspect_nginx_system_service,
@@ -76,9 +80,12 @@ pub fn run() {
                 app_handle.exit(0);
             }
         }
-        tauri::RunEvent::Exit => app_handle
-            .state::<network_monitor::NetworkMonitorManager>()
-            .shutdown(),
+        tauri::RunEvent::Exit => {
+            app_handle
+                .state::<network_monitor::NetworkMonitorManager>()
+                .shutdown();
+            app_handle.state::<nginx_manager::NginxManager>().shutdown();
+        }
         _ => {}
     });
 }

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-unsubscribe-nginx-status"
+description = "Enables the unsubscribe_nginx_status command without any pre-configured scope."
+commands.allow = ["unsubscribe_nginx_status"]
+
+[[permission]]
+identifier = "deny-unsubscribe-nginx-status"
+description = "Denies the unsubscribe_nginx_status command without any pre-configured scope."
+commands.deny = ["unsubscribe_nginx_status"]

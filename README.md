@@ -1,6 +1,6 @@
 # ZxManager
 
-ZxManager 是一个基于 Tauri 2 与 React 19 的本地基础设施管理控制台。项目目前同时包含可用的本机系统信息能力，以及用于验证产品交互的服务管理 Dashboard 原型。
+ZxManager 是一个基于 Tauri 2 与 React 19 的本地基础设施管理控制台。项目目前包含真实的系统信息、网络监控与 Nginx 单实例管理能力，以及用于验证其他服务交互的 Dashboard 原型。
 
 ![ZxManager application icon](public/icon.png)
 
@@ -16,11 +16,14 @@ ZxManager 仍处于早期开发阶段。请注意区分以下两类能力：
 | 应用重启 | 通过 Tauri Process 插件执行真实的应用重启，并在界面中提供确认和失败反馈。 |
 | 网络监控 | 仅支持 Windows 10/11。默认会在应用启动时非阻塞地预检 WFP 引擎并开始监控；可在设置中关闭后续启动时自动开始。采集通过独立辅助进程按应用统计 TCP/UDP 流量，并保存最多 7 天的本地 SQLite 历史。 |
 | 代理归类 | 将应用流量归为静态代理、非代理或未知；PAC、自动代理、透明代理和无法可靠判断的连接只计入“全部”。 |
-| 服务管理 | 服务数据、资源趋势以及添加、启动、停止、重启和移除操作均为前端 Mock，不会控制本机服务。 |
+| Nginx 管理 | 严格登记一个真实 Nginx；每 2 秒监听运行状态，并提供幂等启停、重载、重启和防重复启动。 |
+| Nginx 升级 | Windows 便携版可手动确认升级。Rust 只下载 nginx.org 官方 ZIP/ASC，验签并自动创建关键快照；替换后失败会自动回滚。 |
+| 其他服务管理 | Dashboard 中除 Nginx 外的服务数据、资源趋势以及添加、启动、停止、重启和移除操作仍为前端 Mock。 |
 
 ## 功能概览
 
-- Dashboard：资源指标、趋势图、服务概览、列显示配置和服务操作反馈。
+- Dashboard：Nginx 指标和服务行接入真实状态与控制；其他服务、资源趋势、添加与操作反馈仍为 Mock。
+- Nginx：严格单实例注册表、旧多实例迁移决议、2 秒状态 Channel、冲突检测和 Windows 便携版安全升级。
 - 系统信息：查看操作系统、CPU、内存、Swap、GPU、磁盘、应用运行环境和数据可用性。
 - 网络监控：在 Windows 10/11 按应用查看实时下载/上传速率、会话累计下载/上传量和历史用量；应用表与历史表都支持点击列头排序。采样间隔可选 1/3/5/10 秒并默认持久化为 5 秒。
 - 桌面体验：原生静态启动窗口会在主窗口后台完成主题、语言和初始路由加载后立即交接，此外还提供应用重启、响应式侧栏和局部滚动的数据表格。
@@ -102,6 +105,7 @@ src-tauri/
   capabilities/            主窗口能力与插件权限
   permissions/             应用命令权限
   src/network_monitor/     应用流量 DTO、Windows WFP 预检/ETW 辅助进程、累计器、Manager 与 SQLite 存储
+  src/nginx_manager/       单实例注册表、状态监听、控制、配置读取、官方更新与升级回滚
   src/system_information/  系统信息 DTO、采集器与 GPU 枚举
   src/lib.rs               插件注册与命令入口
 ```
@@ -116,16 +120,20 @@ src-tauri/
 - 前端到桌面能力的调用统一放在 `src/services/tauri/`。新增真实系统操作时，必须同时实现受限的 Rust 命令或官方插件权限。
 - 应用组件优先复用 `@/components/ui/` 中的现有基础组件和 `cn()`，不要引入重复的组件或样式体系。
 
-## 接入真实服务管理
+## Nginx 与其他服务的边界
 
-`src/services/tauri/service-manager.ts` 当前只模拟异步操作。若要接入真实服务管理，需要：
+Nginx 的 Dashboard 行使用 `src/services/tauri/nginx-manager.ts` 调用权限受控的 Rust 命令。注册表为严格单例；多条旧 v1 记录必须先由用户选择唯一保留项，未保留项只取消登记，不删除文件。状态订阅仅在 ZxManager 运行期间存在，不安装系统服务。
+
+Windows 便携版升级使用 `allow-nginx-upgrade` 最小权限。升级目标 URL 只能来自 Rust 缓存的 nginx.org 发布元数据；后端限制跳转、响应和解压大小，验证 PGP 主密钥或签名子密钥完整指纹，并在停止 Nginx 前完成候选版本、配置与关键快照检查。快照只包含 `nginx.exe`、`conf/**` 和存在时的 `modules/**`，不包含 `logs`、`temp`、`cache`、`html` 或站点内容，也不提供手动恢复入口。
+
+`src/services/tauri/service-manager.ts` 继续模拟 Nginx 之外的异步服务操作。若要接入其他真实服务管理，需要：
 
 1. 在 `src-tauri/src/` 实现明确且可审计的 Rust 命令。
 2. 在 `src-tauri/capabilities/` 和必要的权限文件中仅开放所需操作。
 3. 保持 Rust 命令名、前端 `invoke()` 名称和 TypeScript 类型同步。
 4. 替换 Mock 前先补充 Rust 单元测试、前端状态测试和目标平台桌面烟测。
 
-不要从 WebView 直接执行任意 Shell 命令，也不要把当前 Dashboard 操作描述为真实的系统控制。
+不要从 WebView 直接执行任意 Shell 命令，也不要把 Nginx 之外的当前 Dashboard 操作描述为真实系统控制。
 
 ## 网络监控数据与隐私
 

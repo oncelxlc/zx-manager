@@ -4,7 +4,9 @@ description = "Allows the main window to select, inspect, list, and refresh expl
 permissions = [
   "allow-select-nginx-directory",
   "allow-inspect-nginx-directory",
-  "allow-list-nginx-instances",
+  "allow-get-nginx-registry-state",
+  "allow-subscribe-nginx-status",
+  "allow-unsubscribe-nginx-status",
   "allow-refresh-nginx-instance",
   "allow-get-nginx-release-status",
   "allow-check-nginx-updates",
@@ -18,6 +20,7 @@ permissions = [
   "allow-register-nginx-instance",
   "allow-authorize-nginx-instance-root",
   "allow-unregister-nginx-instance",
+  "allow-resolve-nginx-registry-migration",
 ]
 
 [[set]]
@@ -36,3 +39,8 @@ permissions = [
   "allow-inspect-nginx-system-service",
   "allow-register-nginx-system-service",
 ]
+
+[[set]]
+identifier = "allow-nginx-upgrade"
+description = "Allows a confirmed, signature-verified upgrade of the single authorized Windows portable Nginx instance with automatic backup and rollback."
+permissions = ["allow-upgrade-nginx-instance"]

@@ -4,23 +4,33 @@ use super::dto::{
     AuthorizeNginxRootInput, CheckNginxUpdatesInput, ControlNginxInstanceInput, DirectorySelection,
     DirectorySelectionPurpose, GetNginxOperationHistoryInput, InspectNginxSystemServiceInput,
     NginxAuthorizationLevel, NginxCapabilities, NginxConfiguration, NginxControlBackend,
-    NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState, NginxOperationRecord,
-    NginxProviderIdentity, NginxReleaseChannel, NginxReleaseStatus, NginxRuntimeStatus,
-    NginxSystemServiceCandidate, NginxSystemServiceInspection, RegisterNginxInstanceInput,
-    RegisterNginxSystemServiceInput,
+    NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState,
+    NginxOperationOutcome, NginxOperationPhase, NginxOperationRecord, NginxProviderIdentity,
+    NginxRegistryState, NginxRegistryStatus, NginxReleaseChannel, NginxReleaseStatus,
+    NginxRuntimeStatus, NginxStatusEvent, NginxStatusSubscription, NginxSystemServiceCandidate,
+    NginxSystemServiceInspection, NginxUpgradeProgress, NginxUpgradeResult,
+    RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
+    ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
 };
 use super::error::{NginxError, NginxResult};
-use super::process::run_nginx;
+use super::process::{run_command, run_nginx, ProcessOutput};
 use super::registry::NginxRegistry;
 use super::release::{is_stale, CachedRelease, ReleaseUpdateService};
+use super::upgrade::{
+    backup_record, cleanup_backups, create_backup, extract_release, replace_binary, restore_binary,
+    verify_signature,
+};
 use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
 use semver::Version;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use tauri::ipc::Channel;
 use uuid::Uuid;
 
 const TOKEN_TTL: Duration = Duration::from_secs(10 * 60);
@@ -56,29 +66,63 @@ struct ServiceInspectionToken {
     expires_at: Instant,
 }
 
+#[derive(Debug)]
+struct OperationGuard {
+    flag: Arc<AtomicBool>,
+}
+
+impl OperationGuard {
+    fn try_acquire(flag: Arc<AtomicBool>) -> NginxResult<Self> {
+        flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| {
+                NginxError::new(
+                    "NGINX_OPERATION_IN_PROGRESS",
+                    "another nginx operation is already in progress",
+                )
+            })?;
+        Ok(Self { flag })
+    }
+}
+
+impl Drop for OperationGuard {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::Release);
+    }
+}
+
 pub struct NginxManager {
+    data_directory: PathBuf,
     registry_path: PathBuf,
-    registry: Mutex<NginxRegistry>,
+    registry: Arc<Mutex<NginxRegistry>>,
     selections: Mutex<HashMap<String, SelectionToken>>,
     inspections: Mutex<HashMap<String, InspectionToken>>,
     service_discoveries: Mutex<HashMap<String, ServiceDiscoveryToken>>,
     service_inspections: Mutex<HashMap<String, ServiceInspectionToken>>,
-    operation_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    operation_locks: Mutex<HashMap<String, Arc<AtomicBool>>>,
     operation_history: Mutex<OperationHistory>,
     release_updates: ReleaseUpdateService,
+    status_subscribers: Arc<Mutex<HashMap<u64, Channel<NginxStatusEvent>>>>,
+    next_subscription_id: AtomicU64,
+    status_generation: Arc<AtomicU64>,
+    status_sequence: Arc<AtomicU64>,
+    operation_phase: Arc<Mutex<Option<NginxOperationPhase>>>,
+    monitor_shutdown: Arc<AtomicBool>,
+    monitor_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl NginxManager {
     pub fn new(data_directory: PathBuf) -> NginxResult<Self> {
-        let registry_path = data_directory.join("registry-v1.json");
-        let registry = NginxRegistry::load(&registry_path)?;
+        let registry_path = data_directory.join("registry-v2.json");
+        let registry =
+            NginxRegistry::load(&registry_path, &data_directory.join("registry-v1.json"))?;
         let release_updates =
             ReleaseUpdateService::new(data_directory.join("release-cache-v1.json"))?;
         let operation_history =
             OperationHistory::load(data_directory.join("operation-history-v1.json"))?;
         Ok(Self {
+            data_directory,
             registry_path,
-            registry: Mutex::new(registry),
+            registry: Arc::new(Mutex::new(registry)),
             selections: Mutex::new(HashMap::new()),
             inspections: Mutex::new(HashMap::new()),
             service_discoveries: Mutex::new(HashMap::new()),
@@ -86,6 +130,13 @@ impl NginxManager {
             operation_locks: Mutex::new(HashMap::new()),
             operation_history: Mutex::new(operation_history),
             release_updates,
+            status_subscribers: Arc::new(Mutex::new(HashMap::new())),
+            next_subscription_id: AtomicU64::new(1),
+            status_generation: Arc::new(AtomicU64::new(1)),
+            status_sequence: Arc::new(AtomicU64::new(0)),
+            operation_phase: Arc::new(Mutex::new(None)),
+            monitor_shutdown: Arc::new(AtomicBool::new(false)),
+            monitor_handle: Mutex::new(None),
         })
     }
 
@@ -183,17 +234,10 @@ impl NginxManager {
             .remove(&input.inspection_id)
             .filter(|token| token.expires_at > Instant::now())
             .ok_or_else(expired_token_error)?;
-        let name = input.name.trim();
-        if name.is_empty() || name.chars().count() > 80 {
-            return Err(NginxError::new(
-                "NGINX_INSTANCE_NAME_INVALID",
-                "instance name must contain between 1 and 80 characters",
-            ));
-        }
         let now = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
         let record = NginxInstanceRecord {
             id: Uuid::new_v4().to_string(),
-            name: name.to_owned(),
+            name: "Nginx".to_owned(),
             kind: "external".to_owned(),
             root_path: token.root.to_string_lossy().into_owned(),
             binary_path: token.binary.to_string_lossy().into_owned(),
@@ -213,55 +257,66 @@ impl NginxManager {
             updated_at: now,
         };
         let mut registry = self.registry.lock().unwrap();
-        if registry.instances.iter().any(|existing| {
-            existing
-                .binary_path
-                .eq_ignore_ascii_case(&record.binary_path)
-        }) {
-            return Err(NginxError::new(
-                "NGINX_INSTANCE_ALREADY_REGISTERED",
-                "this nginx binary is already registered",
-            ));
-        }
-        registry.instances.push(record.clone());
-        registry.save(&self.registry_path)?;
+        registry.insert(&self.registry_path, record.clone())?;
+        self.bump_status_generation();
         Ok(to_instance(record))
     }
 
-    pub fn list(&self) -> Vec<NginxInstance> {
+    pub fn registry_state(&self) -> NginxRegistryState {
+        let registry = self.registry.lock().unwrap();
+        if registry.migration_required() {
+            return NginxRegistryState {
+                status: NginxRegistryStatus::MigrationRequired,
+                instance: None,
+                migration_candidates: registry
+                    .migration_candidates()
+                    .iter()
+                    .cloned()
+                    .map(refresh_instance)
+                    .collect(),
+            };
+        }
+        let instance = registry.instance.clone().map(refresh_instance);
+        NginxRegistryState {
+            status: if instance.is_some() {
+                NginxRegistryStatus::Ready
+            } else {
+                NginxRegistryStatus::Empty
+            },
+            instance,
+            migration_candidates: Vec::new(),
+        }
+    }
+
+    pub fn resolve_registry_migration(
+        &self,
+        input: ResolveNginxRegistryMigrationInput,
+    ) -> NginxResult<NginxRegistryState> {
         self.registry
             .lock()
             .unwrap()
-            .instances
-            .iter()
-            .cloned()
-            .map(refresh_instance)
-            .collect()
+            .resolve_migration(&self.registry_path, &input.keep_instance_id)?;
+        self.bump_status_generation();
+        Ok(self.registry_state())
     }
 
     pub fn refresh(&self, instance_id: &str) -> NginxResult<NginxInstance> {
-        let record = self
-            .registry
-            .lock()
-            .unwrap()
-            .instances
-            .iter()
-            .find(|instance| instance.id == instance_id)
-            .cloned()
-            .ok_or_else(instance_not_found)?;
+        let record = self.get_record(instance_id)?;
         Ok(refresh_instance(record))
     }
 
     pub fn unregister(&self, instance_id: &str) -> NginxResult<()> {
         let mut registry = self.registry.lock().unwrap();
-        let previous_len = registry.instances.len();
-        registry
-            .instances
-            .retain(|instance| instance.id != instance_id);
-        if registry.instances.len() == previous_len {
+        if registry.migration_required() {
+            return Err(migration_required());
+        }
+        if registry.instance.as_ref().map(|value| value.id.as_str()) != Some(instance_id) {
             return Err(instance_not_found());
         }
-        registry.save(&self.registry_path)
+        registry.instance = None;
+        registry.save(&self.registry_path)?;
+        self.bump_status_generation();
+        Ok(())
     }
 
     pub fn authorize_root(&self, input: AuthorizeNginxRootInput) -> NginxResult<NginxInstance> {
@@ -271,9 +326,9 @@ impl NginxManager {
         )?;
         let mut registry = self.registry.lock().unwrap();
         let record = registry
-            .instances
-            .iter_mut()
-            .find(|instance| instance.id == input.instance_id)
+            .instance
+            .as_mut()
+            .filter(|instance| instance.id == input.instance_id)
             .ok_or_else(instance_not_found)?;
         let display_path = selection.path.to_string_lossy().into_owned();
         if !record
@@ -290,15 +345,7 @@ impl NginxManager {
     }
 
     pub fn configuration(&self, instance_id: &str) -> NginxResult<NginxConfiguration> {
-        let record = self
-            .registry
-            .lock()
-            .unwrap()
-            .instances
-            .iter()
-            .find(|instance| instance.id == instance_id)
-            .cloned()
-            .ok_or_else(instance_not_found)?;
+        let record = self.get_record(instance_id)?;
         if refresh_instance(record.clone()).capabilities.can_read {
             load_configuration(&record)
         } else {
@@ -310,15 +357,7 @@ impl NginxManager {
     }
 
     pub fn control(&self, input: ControlNginxInstanceInput) -> NginxResult<NginxOperationRecord> {
-        let record = self
-            .registry
-            .lock()
-            .unwrap()
-            .instances
-            .iter()
-            .find(|instance| instance.id == input.instance_id)
-            .cloned()
-            .ok_or_else(instance_not_found)?;
+        let record = self.get_record(&input.instance_id)?;
         if !refresh_instance(record.clone()).capabilities.can_control {
             return Err(NginxError::new(
                 "NGINX_CONTROL_NOT_AUTHORIZED",
@@ -330,18 +369,69 @@ impl NginxManager {
             .lock()
             .unwrap()
             .entry(record.id.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
             .clone();
-        let _transaction = transaction_lock.lock().unwrap();
+        let _transaction = OperationGuard::try_acquire(transaction_lock)?;
+        let phase = match input.action {
+            super::dto::NginxControlAction::Start => NginxOperationPhase::Starting,
+            super::dto::NginxControlAction::Stop => NginxOperationPhase::Stopping,
+            super::dto::NginxControlAction::Reload => NginxOperationPhase::Reloading,
+            super::dto::NginxControlAction::Restart => NginxOperationPhase::Restarting,
+        };
         let started_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
-        let result = execute_control(&record, input.action);
+        let before = detect_runtime_status(&record);
+        let outcome = control_outcome(input.action, before)?;
+        if outcome == NginxOperationOutcome::Executed {
+            *self.operation_phase.lock().unwrap() = Some(phase);
+            self.emit_current_status(false);
+        }
+        let mut result = if outcome == NginxOperationOutcome::Executed {
+            execute_control(&record, input.action)
+        } else {
+            Ok(ProcessOutput {
+                success: true,
+                stdout: "nginx already has the requested runtime state".to_owned(),
+                stderr: String::new(),
+            })
+        };
+        let target = match input.action {
+            super::dto::NginxControlAction::Stop => NginxRuntimeStatus::Stopped,
+            _ => NginxRuntimeStatus::Running,
+        };
+        let resulting_status = if outcome == NginxOperationOutcome::Noop {
+            before
+        } else if result.as_ref().is_ok_and(|output| output.success) {
+            wait_for_runtime_status(&record, target, Duration::from_secs(30))
+        } else {
+            detect_runtime_status(&record)
+        };
+        if result.as_ref().is_ok_and(|output| output.success) && resulting_status != target {
+            result = Err(NginxError::new(
+                "NGINX_RUNTIME_TRANSITION_TIMEOUT",
+                "nginx did not reach the requested runtime state",
+            ));
+        }
         let operation = self.operation_history.lock().unwrap().record(
             &record,
             input.action,
             started_at,
+            outcome,
+            resulting_status,
             &result,
-        )?;
-        result.map(|_| operation)
+        );
+        if outcome == NginxOperationOutcome::Executed {
+            *self.operation_phase.lock().unwrap() = None;
+            self.emit_current_status(true);
+        }
+        let operation = operation?;
+        match result {
+            Ok(output) if output.success => Ok(operation),
+            Ok(_) => Err(NginxError::new(
+                "NGINX_CONTROL_FAILED",
+                "nginx rejected the requested control operation",
+            )),
+            Err(error) => Err(error),
+        }
     }
 
     pub fn operation_history(
@@ -352,6 +442,383 @@ impl NginxManager {
             .lock()
             .unwrap()
             .list(input.instance_id.as_deref(), input.limit)
+    }
+
+    pub async fn upgrade(
+        &self,
+        input: UpgradeNginxInstanceInput,
+        progress_channel: Channel<NginxUpgradeProgress>,
+    ) -> NginxResult<NginxUpgradeResult> {
+        if !cfg!(windows) {
+            return Err(NginxError::new(
+                "NGINX_UPGRADE_PLATFORM_UNSUPPORTED",
+                "managed nginx upgrade is only available on Windows",
+            ));
+        }
+        if !(1..=50).contains(&input.backup_retention_count) {
+            return Err(NginxError::new(
+                "NGINX_UPGRADE_RETENTION_INVALID",
+                "backup retention must be between 1 and 50",
+            ));
+        }
+        let record = self.get_record(&input.instance_id)?;
+        let refreshed = refresh_instance(record.clone());
+        if record.control_backend != NginxControlBackend::Portable
+            || record.authorization_level != NginxAuthorizationLevel::Full
+            || refreshed.record.lifecycle_state != NginxLifecycleState::Available
+        {
+            return Err(NginxError::new(
+                "NGINX_UPGRADE_NOT_SUPPORTED",
+                "this nginx instance is not eligible for managed upgrade",
+            ));
+        }
+        let current = Version::parse(&record.version).map_err(|_| {
+            NginxError::new(
+                "NGINX_UPGRADE_VERSION_INVALID",
+                "current nginx version is not compatible with managed upgrade",
+            )
+        })?;
+        let target = Version::parse(&input.target_version).map_err(|_| {
+            NginxError::new(
+                "NGINX_UPGRADE_VERSION_INVALID",
+                "target nginx version is invalid",
+            )
+        })?;
+        if target <= current {
+            return Err(NginxError::new(
+                "NGINX_UPGRADE_VERSION_NOT_NEWER",
+                "target nginx version must be newer than the installed version",
+            ));
+        }
+        let release = self
+            .release_updates
+            .cached(input.channel)
+            .filter(|cached| cached.release.version == input.target_version)
+            .map(|cached| cached.release)
+            .ok_or_else(|| {
+                NginxError::new(
+                    "NGINX_UPGRADE_RELEASE_NOT_CACHED",
+                    "check for official nginx updates before upgrading",
+                )
+            })?;
+        if !release.download_url.ends_with(".zip") || !release.signature_url.ends_with(".zip.asc") {
+            return Err(NginxError::new(
+                "NGINX_UPGRADE_ARTIFACT_UNSUPPORTED",
+                "cached release is not an official Windows ZIP",
+            ));
+        }
+        let transaction_lock = self
+            .operation_locks
+            .lock()
+            .unwrap()
+            .entry(record.id.clone())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone();
+        let _transaction = OperationGuard::try_acquire(transaction_lock)?;
+
+        let from_version = record.version.clone();
+        let backup_parent = self.data_directory.join("backups");
+        let staging_parent = self.data_directory.join("staging");
+        let original_status = detect_runtime_status(&record);
+        if matches!(
+            original_status,
+            NginxRuntimeStatus::Conflict | NginxRuntimeStatus::Unknown
+        ) {
+            return Err(NginxError::new(
+                "NGINX_RUNTIME_STATE_INVALID",
+                "nginx runtime state must be verifiable before upgrade",
+            ));
+        }
+        let was_running = original_status == NginxRuntimeStatus::Running;
+        let mut backup_id: Option<String> = None;
+        let mut staging_directory: Option<PathBuf> = None;
+        let mut replaced = false;
+        let mut stopped_for_upgrade = false;
+
+        let upgrade_result: NginxResult<()> = async {
+            self.set_upgrade_phase(
+                &progress_channel,
+                NginxOperationPhase::Downloading,
+                5,
+                "upgrade.progress.downloading",
+            );
+            let (archive, signature) = self.release_updates.download_release(&release).await?;
+            self.set_upgrade_phase(
+                &progress_channel,
+                NginxOperationPhase::Verifying,
+                25,
+                "upgrade.progress.verifying",
+            );
+            verify_signature(&archive, &signature)?;
+            let prepared = extract_release(&archive, &staging_parent, &input.target_version)?;
+            staging_directory = Some(prepared.staging_directory.clone());
+            let version_output = run_nginx(&prepared.candidate_binary, &["-V"])?;
+            let candidate_version = parse_version(&format!(
+                "{}\n{}",
+                version_output.stdout, version_output.stderr
+            ));
+            if !version_output.success
+                || candidate_version.as_deref() != Some(&input.target_version)
+            {
+                return Err(NginxError::new(
+                    "NGINX_UPGRADE_BINARY_VERSION_MISMATCH",
+                    "candidate nginx.exe did not report the target version",
+                ));
+            }
+            validate_candidate_configuration(&prepared.candidate_binary, &record)?;
+            self.set_upgrade_phase(
+                &progress_channel,
+                NginxOperationPhase::BackingUp,
+                45,
+                "upgrade.progress.backingUp",
+            );
+            backup_id = Some(create_backup(&backup_parent, &record, original_status)?);
+            if was_running {
+                self.set_upgrade_phase(
+                    &progress_channel,
+                    NginxOperationPhase::Stopping,
+                    55,
+                    "upgrade.progress.stopping",
+                );
+                let output = execute_control(&record, super::dto::NginxControlAction::Stop)?;
+                if !output.success
+                    || wait_for_runtime_status(
+                        &record,
+                        NginxRuntimeStatus::Stopped,
+                        Duration::from_secs(30),
+                    ) != NginxRuntimeStatus::Stopped
+                {
+                    return Err(NginxError::new(
+                        "NGINX_UPGRADE_STOP_FAILED",
+                        "nginx could not be stopped before replacement",
+                    ));
+                }
+                stopped_for_upgrade = true;
+            }
+            self.set_upgrade_phase(
+                &progress_channel,
+                NginxOperationPhase::Replacing,
+                70,
+                "upgrade.progress.replacing",
+            );
+            replace_binary(&prepared.candidate_binary, Path::new(&record.binary_path))?;
+            replaced = true;
+            validate_installed_upgrade(&record, &input.target_version)?;
+            let mut updated = record.clone();
+            updated.version = input.target_version.clone();
+            updated.binary_fingerprint = fingerprint(Path::new(&updated.binary_path))?;
+            updated.updated_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+            {
+                let mut registry = self.registry.lock().unwrap();
+                registry.instance = Some(updated.clone());
+                registry.save(&self.registry_path)?;
+            }
+            if was_running {
+                self.set_upgrade_phase(
+                    &progress_channel,
+                    NginxOperationPhase::RestoringRuntime,
+                    90,
+                    "upgrade.progress.starting",
+                );
+                let output = execute_control(&updated, super::dto::NginxControlAction::Start)?;
+                if !output.success
+                    || wait_for_runtime_status(
+                        &updated,
+                        NginxRuntimeStatus::Running,
+                        Duration::from_secs(30),
+                    ) != NginxRuntimeStatus::Running
+                {
+                    return Err(NginxError::new(
+                        "NGINX_UPGRADE_RESTART_FAILED",
+                        "upgraded nginx could not be started",
+                    ));
+                }
+            }
+            Ok(())
+        }
+        .await;
+
+        let mut final_result = match upgrade_result {
+            Ok(()) => {
+                let _ = cleanup_backups(&backup_parent, input.backup_retention_count, None);
+                NginxUpgradeResult {
+                    from_version,
+                    target_version: input.target_version,
+                    backup_id: backup_id.clone(),
+                    success: true,
+                    rolled_back: false,
+                    rollback_succeeded: None,
+                    error_code: None,
+                    resulting_status: self
+                        .get_record(&input.instance_id)
+                        .map(|current| detect_runtime_status(&current))
+                        .unwrap_or(NginxRuntimeStatus::Unknown),
+                }
+            }
+            Err(error) if replaced => {
+                self.set_upgrade_phase(
+                    &progress_channel,
+                    NginxOperationPhase::RollingBack,
+                    95,
+                    "upgrade.progress.rollingBack",
+                );
+                // `replaced` is set only after the mandatory snapshot succeeds.
+                let id = backup_id.as_deref().unwrap_or_default();
+                let rollback = self.rollback_upgrade(&backup_parent, id, was_running);
+                let rollback_succeeded = rollback.is_ok();
+                let error_code = if rollback_succeeded {
+                    error.code
+                } else {
+                    "NGINX_UPGRADE_ROLLBACK_FAILED"
+                };
+                let _ = cleanup_backups(&backup_parent, input.backup_retention_count, Some(id));
+                NginxUpgradeResult {
+                    from_version,
+                    target_version: input.target_version,
+                    backup_id: backup_id.clone(),
+                    success: false,
+                    rolled_back: true,
+                    rollback_succeeded: Some(rollback_succeeded),
+                    error_code: Some(error_code.to_owned()),
+                    resulting_status: self
+                        .get_record(&input.instance_id)
+                        .map(|current| detect_runtime_status(&current))
+                        .unwrap_or(NginxRuntimeStatus::Unknown),
+                }
+            }
+            Err(error) if backup_id.is_some() => {
+                let runtime_restored = if stopped_for_upgrade && was_running {
+                    execute_control(&record, super::dto::NginxControlAction::Start)
+                        .is_ok_and(|output| output.success)
+                        && wait_for_runtime_status(
+                            &record,
+                            NginxRuntimeStatus::Running,
+                            Duration::from_secs(30),
+                        ) == NginxRuntimeStatus::Running
+                } else {
+                    true
+                };
+                NginxUpgradeResult {
+                    from_version,
+                    target_version: input.target_version,
+                    backup_id: backup_id.clone(),
+                    success: false,
+                    rolled_back: false,
+                    rollback_succeeded: None,
+                    error_code: Some(
+                        if runtime_restored {
+                            error.code
+                        } else {
+                            "NGINX_UPGRADE_RUNTIME_RESTORE_FAILED"
+                        }
+                        .to_owned(),
+                    ),
+                    resulting_status: detect_runtime_status(&record),
+                }
+            }
+            Err(error) => {
+                if let Some(path) = staging_directory.as_ref() {
+                    let _ = fs::remove_dir_all(path);
+                }
+                *self.operation_phase.lock().unwrap() = None;
+                self.emit_current_status(true);
+                return Err(error);
+            }
+        };
+        if let Some(path) = staging_directory.as_ref() {
+            let _ = fs::remove_dir_all(path);
+        }
+        *self.operation_phase.lock().unwrap() = None;
+        self.emit_current_status(true);
+        final_result.resulting_status = self
+            .get_record(&input.instance_id)
+            .map(|current| detect_runtime_status(&current))
+            .unwrap_or(NginxRuntimeStatus::Unknown);
+        Ok(final_result)
+    }
+
+    fn set_upgrade_phase(
+        &self,
+        channel: &Channel<NginxUpgradeProgress>,
+        phase: NginxOperationPhase,
+        progress: u8,
+        message_code: &str,
+    ) {
+        *self.operation_phase.lock().unwrap() = Some(phase);
+        let _ = channel.send(NginxUpgradeProgress {
+            phase,
+            progress,
+            message_code: message_code.to_owned(),
+        });
+        self.emit_current_status(false);
+    }
+
+    fn rollback_upgrade(
+        &self,
+        backup_parent: &Path,
+        backup_id: &str,
+        was_running: bool,
+    ) -> NginxResult<()> {
+        let original = backup_record(backup_parent, backup_id)?;
+        let current_status = detect_runtime_status(&original);
+        if current_status == NginxRuntimeStatus::Running {
+            let _ = execute_control(&original, super::dto::NginxControlAction::Stop);
+            let _ = wait_for_runtime_status(
+                &original,
+                NginxRuntimeStatus::Stopped,
+                Duration::from_secs(30),
+            );
+        }
+        restore_binary(backup_parent, backup_id, Path::new(&original.binary_path))?;
+        {
+            let mut registry = self.registry.lock().unwrap();
+            registry.instance = Some(original.clone());
+            registry.save(&self.registry_path)?;
+        }
+        if was_running {
+            let output = execute_control(&original, super::dto::NginxControlAction::Start)?;
+            if !output.success
+                || wait_for_runtime_status(
+                    &original,
+                    NginxRuntimeStatus::Running,
+                    Duration::from_secs(30),
+                ) != NginxRuntimeStatus::Running
+            {
+                return Err(NginxError::new(
+                    "NGINX_UPGRADE_ROLLBACK_FAILED",
+                    "old nginx binary was restored but its runtime state was not recovered",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn subscribe_status(&self, channel: Channel<NginxStatusEvent>) -> NginxStatusSubscription {
+        let subscription_id = self.next_subscription_id.fetch_add(1, Ordering::AcqRel);
+        self.status_subscribers
+            .lock()
+            .unwrap()
+            .insert(subscription_id, channel);
+        self.ensure_monitor_thread();
+        NginxStatusSubscription {
+            subscription_id,
+            initial_event: self.status_event(false),
+        }
+    }
+
+    pub fn unsubscribe_status(&self, subscription_id: u64) {
+        self.status_subscribers
+            .lock()
+            .unwrap()
+            .remove(&subscription_id);
+    }
+
+    pub fn shutdown(&self) {
+        self.monitor_shutdown.store(true, Ordering::Release);
+        if let Some(handle) = self.monitor_handle.lock().unwrap().take() {
+            handle.thread().unpark();
+            let _ = handle.join();
+        }
     }
 
     pub fn list_system_services(&self) -> NginxResult<Vec<NginxSystemServiceCandidate>> {
@@ -389,15 +856,7 @@ impl NginxManager {
             .filter(|token| token.expires_at > Instant::now())
             .cloned()
             .ok_or_else(expired_token_error)?;
-        let instance = self
-            .registry
-            .lock()
-            .unwrap()
-            .instances
-            .iter()
-            .find(|instance| instance.id == input.instance_id)
-            .cloned()
-            .ok_or_else(instance_not_found)?;
+        let instance = self.get_record(&input.instance_id)?;
         let matches = paths_identical(&discovery.binary, Path::new(&instance.binary_path));
         let inspection_id = Uuid::new_v4().to_string();
         let expires_at = Utc::now() + ChronoDuration::from_std(TOKEN_TTL).unwrap_or_default();
@@ -432,9 +891,9 @@ impl NginxManager {
             .ok_or_else(expired_token_error)?;
         let mut registry = self.registry.lock().unwrap();
         let record = registry
-            .instances
-            .iter_mut()
-            .find(|instance| instance.id == inspection.instance_id)
+            .instance
+            .as_mut()
+            .filter(|instance| instance.id == inspection.instance_id)
             .ok_or_else(instance_not_found)?;
         if !paths_identical(&inspection.discovery.binary, Path::new(&record.binary_path)) {
             return Err(NginxError::new(
@@ -486,7 +945,7 @@ impl NginxManager {
                 self.registry
                     .lock()
                     .unwrap()
-                    .instances
+                    .instance
                     .iter()
                     .filter(|instance| {
                         Version::parse(&instance.version)
@@ -515,6 +974,81 @@ impl NginxManager {
         }
     }
 
+    fn get_record(&self, instance_id: &str) -> NginxResult<NginxInstanceRecord> {
+        let registry = self.registry.lock().unwrap();
+        if registry.migration_required() {
+            return Err(migration_required());
+        }
+        registry
+            .instance
+            .as_ref()
+            .filter(|instance| instance.id == instance_id)
+            .cloned()
+            .ok_or_else(instance_not_found)
+    }
+
+    fn bump_status_generation(&self) {
+        self.status_generation.fetch_add(1, Ordering::AcqRel);
+        self.status_sequence.store(0, Ordering::Release);
+        self.emit_current_status(true);
+    }
+
+    fn status_event(&self, full_refresh: bool) -> NginxStatusEvent {
+        build_status_event(
+            &self.registry,
+            &self.status_generation,
+            &self.status_sequence,
+            &self.operation_phase,
+            full_refresh,
+        )
+    }
+
+    fn emit_current_status(&self, full_refresh: bool) {
+        let event = self.status_event(full_refresh);
+        self.status_subscribers
+            .lock()
+            .unwrap()
+            .retain(|_, subscriber| subscriber.send(event.clone()).is_ok());
+    }
+
+    fn ensure_monitor_thread(&self) {
+        let mut handle = self.monitor_handle.lock().unwrap();
+        if handle.is_some() {
+            return;
+        }
+        self.monitor_shutdown.store(false, Ordering::Release);
+        let registry = Arc::clone(&self.registry);
+        let subscribers = Arc::clone(&self.status_subscribers);
+        let generation = Arc::clone(&self.status_generation);
+        let sequence = Arc::clone(&self.status_sequence);
+        let operation_phase = Arc::clone(&self.operation_phase);
+        let shutdown = Arc::clone(&self.monitor_shutdown);
+        *handle = Some(thread::spawn(move || {
+            let mut previous_signature = String::new();
+            let mut cycle = 0_u64;
+            while !shutdown.load(Ordering::Acquire) {
+                let full_refresh = cycle.is_multiple_of(15);
+                let event = build_status_event(
+                    &registry,
+                    &generation,
+                    &sequence,
+                    &operation_phase,
+                    full_refresh,
+                );
+                let signature = status_signature(&event);
+                if signature != previous_signature {
+                    previous_signature = signature;
+                    subscribers
+                        .lock()
+                        .unwrap()
+                        .retain(|_, subscriber| subscriber.send(event.clone()).is_ok());
+                }
+                cycle = cycle.wrapping_add(1);
+                thread::park_timeout(Duration::from_secs(2));
+            }
+        }));
+    }
+
     fn consume_selection(
         &self,
         selection_id: &str,
@@ -535,6 +1069,53 @@ impl NginxManager {
         }
         Ok(token)
     }
+}
+
+fn build_status_event(
+    registry: &Arc<Mutex<NginxRegistry>>,
+    generation: &AtomicU64,
+    sequence: &AtomicU64,
+    operation_phase: &Arc<Mutex<Option<NginxOperationPhase>>>,
+    full_refresh: bool,
+) -> NginxStatusEvent {
+    let instance = {
+        let registry = registry.lock().unwrap();
+        if registry.migration_required() {
+            None
+        } else {
+            registry.instance.clone().map(|record| {
+                if full_refresh {
+                    refresh_instance(record)
+                } else {
+                    to_instance(record)
+                }
+            })
+        }
+    };
+    NginxStatusEvent {
+        generation: generation.load(Ordering::Acquire),
+        sequence: sequence.fetch_add(1, Ordering::AcqRel) + 1,
+        observed_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        instance,
+        operation_phase: *operation_phase.lock().unwrap(),
+    }
+}
+
+fn status_signature(event: &NginxStatusEvent) -> String {
+    let instance = event.instance.as_ref();
+    format!(
+        "{}|{}|{:?}|{:?}|{:?}|{}",
+        event.generation,
+        instance
+            .map(|value| value.record.id.as_str())
+            .unwrap_or_default(),
+        instance.map(|value| value.record.lifecycle_state),
+        instance.map(|value| value.runtime_status),
+        event.operation_phase,
+        instance
+            .map(|value| value.record.version.as_str())
+            .unwrap_or_default(),
+    )
 }
 
 fn locate_binary(root: &Path) -> NginxResult<PathBuf> {
@@ -602,6 +1183,48 @@ fn fingerprint(path: &Path) -> NginxResult<String> {
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
+fn validate_candidate_configuration(
+    candidate_binary: &Path,
+    record: &NginxInstanceRecord,
+) -> NginxResult<()> {
+    let root = Path::new(&record.root_path);
+    let root_argument = record.root_path.clone();
+    let config_argument = record
+        .config_path
+        .clone()
+        .unwrap_or_else(|| "conf/nginx.conf".to_owned());
+    let output = run_command(
+        candidate_binary,
+        &["-t", "-p", &root_argument, "-c", &config_argument],
+        Some(root),
+        15,
+    )?;
+    if output.success {
+        Ok(())
+    } else {
+        Err(NginxError::new(
+            "NGINX_UPGRADE_CONFIG_PRECHECK_FAILED",
+            "candidate nginx.exe rejected the current configuration",
+        ))
+    }
+}
+
+fn validate_installed_upgrade(
+    record: &NginxInstanceRecord,
+    target_version: &str,
+) -> NginxResult<()> {
+    let binary = Path::new(&record.binary_path);
+    let output = run_nginx(binary, &["-V"])?;
+    let version = parse_version(&format!("{}\n{}", output.stdout, output.stderr));
+    if !output.success || version.as_deref() != Some(target_version) {
+        return Err(NginxError::new(
+            "NGINX_UPGRADE_POSTCHECK_FAILED",
+            "installed nginx.exe did not report the target version",
+        ));
+    }
+    validate_candidate_configuration(binary, record)
+}
+
 fn refresh_instance(mut record: NginxInstanceRecord) -> NginxInstance {
     let binary = Path::new(&record.binary_path);
     record.lifecycle_state = if !binary.is_file() {
@@ -640,6 +1263,14 @@ fn to_instance(record: NginxInstanceRecord) -> NginxInstance {
 }
 
 fn detect_runtime_status(record: &NginxInstanceRecord) -> NginxRuntimeStatus {
+    match record.control_backend {
+        NginxControlBackend::WindowsScm => return detect_windows_service_status(record),
+        NginxControlBackend::Systemd => return detect_systemd_status(record),
+        NginxControlBackend::LaunchAgent | NginxControlBackend::LaunchDaemonReadOnly => {
+            return detect_launchd_status(record)
+        }
+        NginxControlBackend::Portable | NginxControlBackend::None => {}
+    }
     use sysinfo::{Pid, ProcessesToUpdate, System};
 
     let pid_path = record
@@ -654,7 +1285,7 @@ fn detect_runtime_status(record: &NginxInstanceRecord) -> NginxRuntimeStatus {
         Path::new(&record.root_path).join(pid_path)
     };
     let Ok(canonical_pid_path) = pid_path.canonicalize() else {
-        return NginxRuntimeStatus::Stopped;
+        return unverified_process_status(record);
     };
     if !record
         .authorized_roots
@@ -678,12 +1309,144 @@ fn detect_runtime_status(record: &NginxInstanceRecord) -> NginxRuntimeStatus {
     let pid = Pid::from(pid);
     let mut system = System::new();
     if system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true) == 0 {
-        return NginxRuntimeStatus::Stopped;
+        return unverified_process_status(record);
     }
     let Some(executable) = system.process(pid).and_then(|process| process.exe()) else {
         return NginxRuntimeStatus::Unknown;
     };
-    executable_identity_status(executable, Path::new(&record.binary_path))
+    match executable_identity_status(executable, Path::new(&record.binary_path)) {
+        NginxRuntimeStatus::Running => NginxRuntimeStatus::Running,
+        _ => unverified_process_status(record),
+    }
+}
+
+#[cfg(windows)]
+fn detect_windows_service_status(record: &NginxInstanceRecord) -> NginxRuntimeStatus {
+    let Some(service) = record.provider_identity.external_id.as_deref() else {
+        return NginxRuntimeStatus::Unknown;
+    };
+    match run_command(Path::new("sc.exe"), &["query", service], None, 10) {
+        Ok(output) if output.success && output.stdout.contains("RUNNING") => {
+            NginxRuntimeStatus::Running
+        }
+        Ok(output) if output.success && output.stdout.contains("STOPPED") => {
+            NginxRuntimeStatus::Stopped
+        }
+        _ => NginxRuntimeStatus::Unknown,
+    }
+}
+
+#[cfg(not(windows))]
+fn detect_windows_service_status(_record: &NginxInstanceRecord) -> NginxRuntimeStatus {
+    NginxRuntimeStatus::Unknown
+}
+
+#[cfg(target_os = "linux")]
+fn detect_systemd_status(record: &NginxInstanceRecord) -> NginxRuntimeStatus {
+    let Some(unit) = record.provider_identity.external_id.as_deref() else {
+        return NginxRuntimeStatus::Unknown;
+    };
+    match run_command(
+        Path::new("/usr/bin/systemctl"),
+        &["is-active", unit],
+        None,
+        10,
+    ) {
+        Ok(output) if output.stdout.trim() == "active" => NginxRuntimeStatus::Running,
+        Ok(output) if matches!(output.stdout.trim(), "inactive" | "failed" | "deactivating") => {
+            NginxRuntimeStatus::Stopped
+        }
+        _ => NginxRuntimeStatus::Unknown,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn detect_systemd_status(_record: &NginxInstanceRecord) -> NginxRuntimeStatus {
+    NginxRuntimeStatus::Unknown
+}
+
+#[cfg(target_os = "macos")]
+fn detect_launchd_status(record: &NginxInstanceRecord) -> NginxRuntimeStatus {
+    let Some(label) = record.provider_identity.external_id.as_deref() else {
+        return NginxRuntimeStatus::Unknown;
+    };
+    let domain = if record.control_backend == NginxControlBackend::LaunchDaemonReadOnly {
+        format!("system/{label}")
+    } else {
+        let Ok(uid) = run_command(Path::new("/usr/bin/id"), &["-u"], None, 5) else {
+            return NginxRuntimeStatus::Unknown;
+        };
+        format!("gui/{}/{label}", uid.stdout.trim())
+    };
+    match run_command(Path::new("/bin/launchctl"), &["print", &domain], None, 10) {
+        Ok(output) if output.success => NginxRuntimeStatus::Running,
+        Ok(_) => NginxRuntimeStatus::Stopped,
+        Err(_) => NginxRuntimeStatus::Unknown,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn detect_launchd_status(_record: &NginxInstanceRecord) -> NginxRuntimeStatus {
+    NginxRuntimeStatus::Unknown
+}
+
+fn unverified_process_status(record: &NginxInstanceRecord) -> NginxRuntimeStatus {
+    use sysinfo::{ProcessesToUpdate, System};
+
+    let expected = Path::new(&record.binary_path);
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    if system
+        .processes()
+        .values()
+        .filter_map(|process| process.exe())
+        .any(|actual| paths_identical(actual, expected))
+    {
+        NginxRuntimeStatus::Conflict
+    } else {
+        NginxRuntimeStatus::Stopped
+    }
+}
+
+fn wait_for_runtime_status(
+    record: &NginxInstanceRecord,
+    target: NginxRuntimeStatus,
+    timeout: Duration,
+) -> NginxRuntimeStatus {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let status = detect_runtime_status(record);
+        if status == target || Instant::now() >= deadline {
+            return status;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn control_outcome(
+    action: super::dto::NginxControlAction,
+    status: NginxRuntimeStatus,
+) -> NginxResult<NginxOperationOutcome> {
+    match (action, status) {
+        (super::dto::NginxControlAction::Start, NginxRuntimeStatus::Running)
+        | (super::dto::NginxControlAction::Stop, NginxRuntimeStatus::Stopped) => {
+            Ok(NginxOperationOutcome::Noop)
+        }
+        (super::dto::NginxControlAction::Start, NginxRuntimeStatus::Stopped)
+        | (super::dto::NginxControlAction::Stop, NginxRuntimeStatus::Running)
+        | (super::dto::NginxControlAction::Reload, NginxRuntimeStatus::Running)
+        | (super::dto::NginxControlAction::Restart, NginxRuntimeStatus::Running) => {
+            Ok(NginxOperationOutcome::Executed)
+        }
+        (_, NginxRuntimeStatus::Conflict) => Err(NginxError::new(
+            "NGINX_RUNTIME_CONFLICT",
+            "nginx processes exist but the registered master process cannot be verified",
+        )),
+        _ => Err(NginxError::new(
+            "NGINX_RUNTIME_STATE_INVALID",
+            "the action is not valid for the current nginx runtime state",
+        )),
+    }
 }
 
 fn executable_identity_status(actual: &Path, expected: &Path) -> NginxRuntimeStatus {
@@ -907,6 +1670,13 @@ fn instance_not_found() -> NginxError {
     NginxError::new("NGINX_INSTANCE_NOT_FOUND", "nginx instance was not found")
 }
 
+fn migration_required() -> NginxError {
+    NginxError::new(
+        "NGINX_REGISTRY_MIGRATION_REQUIRED",
+        "resolve the legacy multi-instance registry first",
+    )
+}
+
 pub(crate) fn reject_reparse_points(path: &Path) -> NginxResult<()> {
     for ancestor in path.ancestors() {
         if !ancestor.exists() {
@@ -961,6 +1731,79 @@ mod tests {
             created_at: "2026-07-31T00:00:00Z".to_owned(),
             updated_at: "2026-07-31T00:00:00Z".to_owned(),
         }
+    }
+
+    #[test]
+    fn control_matrix_is_idempotent_and_rejects_unverified_states() {
+        use super::super::dto::NginxControlAction;
+
+        assert_eq!(
+            control_outcome(NginxControlAction::Start, NginxRuntimeStatus::Running).unwrap(),
+            NginxOperationOutcome::Noop
+        );
+        assert_eq!(
+            control_outcome(NginxControlAction::Stop, NginxRuntimeStatus::Stopped).unwrap(),
+            NginxOperationOutcome::Noop
+        );
+        assert_eq!(
+            control_outcome(NginxControlAction::Restart, NginxRuntimeStatus::Running).unwrap(),
+            NginxOperationOutcome::Executed
+        );
+        assert_eq!(
+            control_outcome(NginxControlAction::Start, NginxRuntimeStatus::Conflict)
+                .unwrap_err()
+                .code,
+            "NGINX_RUNTIME_CONFLICT"
+        );
+        assert_eq!(
+            control_outcome(NginxControlAction::Reload, NginxRuntimeStatus::Unknown)
+                .unwrap_err()
+                .code,
+            "NGINX_RUNTIME_STATE_INVALID"
+        );
+    }
+
+    #[test]
+    fn operation_guard_never_queues_a_second_operation() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let first = OperationGuard::try_acquire(Arc::clone(&flag)).unwrap();
+        assert_eq!(
+            OperationGuard::try_acquire(Arc::clone(&flag))
+                .unwrap_err()
+                .code,
+            "NGINX_OPERATION_IN_PROGRESS"
+        );
+        drop(first);
+        assert!(OperationGuard::try_acquire(flag).is_ok());
+    }
+
+    #[test]
+    fn status_subscription_has_initial_sequence_and_explicit_cleanup() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let manager = NginxManager::new(directory.path().to_path_buf()).expect("manager");
+        let received = Arc::new(AtomicU64::new(0));
+        let received_by_channel = Arc::clone(&received);
+        let subscription = manager.subscribe_status(Channel::new(move |_| {
+            received_by_channel.fetch_add(1, Ordering::AcqRel);
+            Ok(())
+        }));
+        assert!(subscription.initial_event.sequence > 0);
+        assert!(subscription.initial_event.instance.is_none());
+        manager.unsubscribe_status(subscription.subscription_id);
+        let before = received.load(Ordering::Acquire);
+        manager.emit_current_status(false);
+        assert_eq!(received.load(Ordering::Acquire), before);
+        manager.shutdown();
+    }
+
+    #[test]
+    fn status_signature_deduplicates_observation_only_changes() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let manager = NginxManager::new(directory.path().to_path_buf()).expect("manager");
+        let first = manager.status_event(false);
+        let second = manager.status_event(false);
+        assert!(second.sequence > first.sequence);
+        assert_eq!(status_signature(&first), status_signature(&second));
     }
 
     #[test]

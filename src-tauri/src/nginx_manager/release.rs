@@ -15,6 +15,8 @@ use url::Url;
 
 const DOWNLOAD_PAGE: &str = "https://nginx.org/en/download.html";
 const MAX_METADATA_BYTES: usize = 2 * 1024 * 1024;
+const MAX_SIGNATURE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_RELEASE_BYTES: usize = 64 * 1024 * 1024;
 const CACHE_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -58,7 +60,7 @@ impl ReleaseUpdateService {
         let cache = load_cache(&cache_path);
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(120))
             .user_agent("ZxManager/0.1 NginxReleaseProvider")
             .redirect(Policy::custom(|attempt| {
                 let url = attempt.url();
@@ -130,6 +132,40 @@ impl ReleaseUpdateService {
         Ok((cached, true))
     }
 
+    pub async fn download_release(
+        &self,
+        release: &NginxRelease,
+    ) -> NginxResult<(Vec<u8>, Vec<u8>)> {
+        let archive = self
+            .download_bytes(&release.download_url, MAX_RELEASE_BYTES)
+            .await?;
+        let signature = self
+            .download_bytes(&release.signature_url, MAX_SIGNATURE_BYTES)
+            .await?;
+        Ok((archive, signature))
+    }
+
+    async fn download_bytes(&self, value: &str, limit: usize) -> NginxResult<Vec<u8>> {
+        let url = Url::parse(value)
+            .map_err(|error| NginxError::new("NGINX_UPDATE_URL_INVALID", error.to_string()))?;
+        validate_nginx_url(&url)?;
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status)
+            .map_err(|error| NginxError::new("NGINX_UPGRADE_DOWNLOAD_FAILED", error.to_string()))?;
+        validate_nginx_url(response.url())?;
+        if response.content_length().unwrap_or_default() > limit as u64 {
+            return Err(NginxError::new(
+                "NGINX_UPGRADE_DOWNLOAD_TOO_LARGE",
+                "download exceeded the fixed size limit",
+            ));
+        }
+        read_bounded_binary(response, limit).await
+    }
+
     fn store_success(
         &self,
         channel: NginxReleaseChannel,
@@ -195,7 +231,7 @@ fn parse_release_page(html: &str, channel: NginxReleaseChannel) -> NginxResult<N
     let mut candidates = fragment
         .select(&selector)
         .filter_map(|element| element.value().attr("href"))
-        .filter_map(parse_source_release)
+        .filter_map(parse_windows_release)
         .collect::<Vec<_>>();
     candidates.sort_by(|left, right| left.0.cmp(&right.0));
     let (_, version, href) = candidates.pop().ok_or_else(|| {
@@ -216,11 +252,32 @@ fn parse_release_page(html: &str, channel: NginxReleaseChannel) -> NginxResult<N
     })
 }
 
-fn parse_source_release(href: &str) -> Option<(Version, String, String)> {
+fn parse_windows_release(href: &str) -> Option<(Version, String, String)> {
     let file = href.strip_prefix("/download/nginx-")?;
-    let version = file.strip_suffix(".tar.gz")?;
+    let version = file.strip_suffix(".zip")?;
     let parsed = Version::parse(version).ok()?;
     Some((parsed, version.to_owned(), href.to_owned()))
+}
+
+async fn read_bounded_binary(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> NginxResult<Vec<u8>> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| NginxError::new("NGINX_UPGRADE_DOWNLOAD_FAILED", error.to_string()))?
+    {
+        if bytes.len().saturating_add(chunk.len()) > limit {
+            return Err(NginxError::new(
+                "NGINX_UPGRADE_DOWNLOAD_TOO_LARGE",
+                "download exceeded the fixed size limit",
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 fn validate_nginx_url(url: &Url) -> NginxResult<()> {
@@ -247,9 +304,9 @@ mod tests {
     use super::*;
 
     const PAGE: &str = r#"
-      <h4>Mainline version</h4><table><tr><td><a href="/download/nginx-1.29.1.tar.gz">nginx-1.29.1</a></td></tr></table>
-      <h4>Stable version</h4><table><tr><td><a href="/download/nginx-1.28.0.tar.gz">nginx-1.28.0</a></td></tr></table>
-      <h4>Legacy versions</h4><table><tr><td><a href="/download/nginx-1.26.3.tar.gz">nginx-1.26.3</a></td></tr></table>
+      <h4>Mainline version</h4><table><tr><td><a href="/download/nginx-1.29.1.zip">nginx/Windows-1.29.1</a></td></tr></table>
+      <h4>Stable version</h4><table><tr><td><a href="/download/nginx-1.28.0.zip">nginx/Windows-1.28.0</a></td></tr></table>
+      <h4>Legacy versions</h4><table><tr><td><a href="/download/nginx-1.26.3.zip">nginx/Windows-1.26.3</a></td></tr></table>
     "#;
 
     #[test]
@@ -260,11 +317,11 @@ mod tests {
         assert_eq!(mainline.version, "1.29.1");
         assert_eq!(
             stable.download_url,
-            "https://nginx.org/download/nginx-1.28.0.tar.gz"
+            "https://nginx.org/download/nginx-1.28.0.zip"
         );
         assert_eq!(
             stable.signature_url,
-            "https://nginx.org/download/nginx-1.28.0.tar.gz.asc"
+            "https://nginx.org/download/nginx-1.28.0.zip.asc"
         );
     }
 

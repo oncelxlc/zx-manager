@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resolve-nginx-registry-migration"
+description = "Enables the resolve_nginx_registry_migration command without any pre-configured scope."
+commands.allow = ["resolve_nginx_registry_migration"]
+
+[[permission]]
+identifier = "deny-resolve-nginx-registry-migration"
+description = "Denies the resolve_nginx_registry_migration command without any pre-configured scope."
+commands.deny = ["resolve_nginx_registry_migration"]

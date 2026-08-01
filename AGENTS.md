@@ -11,7 +11,8 @@ ZxManager is a React 19 + Tauri 2 desktop console for local infrastructure manag
 - Application restart uses the Tauri Process plugin.
 - Network monitoring is Windows 10/11-only and starts by default at application launch unless the persisted launch preference is disabled. Startup performs a non-blocking elevated WFP-engine preflight, then an elevated same-executable helper owns the ETW session and sends application/path aggregates to the unelevated main process.
 - Application traffic uses TCP/UDP ETW payload PIDs and byte counts, an in-memory realtime ring, and a local seven-day SQLite history. Non-Windows platforms keep the route but emit no estimate or mock traffic.
-- Dashboard service data and Start/Stop/Restart/Remove operations remain frontend-only mocks in `src/services/tauri/service-manager.ts`.
+- Dashboard Nginx status and Start/Stop/Restart operations use the real, permission-scoped Nginx backend. Other service rows and their operations remain frontend-only mocks in `src/services/tauri/service-manager.ts`.
+- Nginx uses a strict singleton registry, an app-lifetime two-second status Channel, and a shared non-queuing operation lock. Windows portable builds additionally support confirmed, signature-verified upgrades with critical snapshots and automatic rollback.
 
 Keep that boundary explicit. Never describe a mocked Dashboard action as real system control. Any new host-level operation requires an auditable Rust command or official Tauri plugin plus the narrowest practical capability permission.
 
@@ -66,7 +67,10 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 - Keep the `splashscreen` window outside every capability. Only `main` may invoke `complete_startup`, which must show the main window before closing the splashscreen and remain safe to call more than once.
 - Run blocking system collection work outside the async UI path. Keep command errors serializable and suitable for localization at the frontend edge.
 - Do not execute arbitrary shell strings from the WebView. Validate identifiers and arguments again in Rust when real service management is introduced.
-- Keep service management mocked until a platform-specific, permission-scoped backend and corresponding tests exist.
+- Keep non-Nginx service management mocked until a platform-specific, permission-scoped backend and corresponding tests exist. Never route Nginx Dashboard actions through the mock service manager.
+- Nginx registry v2 stores at most one instance. A legacy v1 registry with multiple entries must block control, configuration reads, and upgrades until the user selects one record to keep; migration must archive v1 and never delete Nginx files.
+- Nginx status subscriptions follow the network monitor generation/sequence and explicit cleanup pattern. Portable runtime detection must verify PID ownership and executable identity; an unverified process using the same binary is a conflict and must block start.
+- Managed Nginx upgrades are Windows portable-only and user-confirmed. Accept release URLs only from cached nginx.org metadata, verify the detached signature against pinned full fingerprints, reject unsafe ZIP entries, snapshot only `nginx.exe`, `conf/**`, and `modules/**`, and automatically roll back failures after replacement.
 - Network monitor commands are grouped into `allow-network-monitor-read`, `allow-network-monitor-control`, and `allow-network-monitor-clear`. Do not replace these sets with a broad default capability.
 - Keep the main Tauri process unelevated. Only the hidden network helper may request UAC elevation, and it must validate the local pipe ACL, launched PID, nonce, and protocol version before exchanging aggregates.
 - ETW callbacks must use the payload PID and byte count, enqueue bounded raw events, and leave process resolution and proxy classification to the helper aggregation thread.

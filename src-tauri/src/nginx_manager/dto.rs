@@ -36,6 +36,7 @@ pub enum NginxLifecycleState {
 pub enum NginxRuntimeStatus {
     Running,
     Stopped,
+    Conflict,
     Unknown,
 }
 
@@ -110,12 +111,33 @@ pub struct NginxInstance {
     pub capabilities: NginxCapabilities,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NginxRegistryStatus {
+    Empty,
+    Ready,
+    MigrationRequired,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxRegistryState {
+    pub status: NginxRegistryStatus,
+    pub instance: Option<NginxInstance>,
+    pub migration_candidates: Vec<NginxInstance>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterNginxInstanceInput {
     pub inspection_id: String,
-    pub name: String,
     pub authorization_level: NginxAuthorizationLevel,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveNginxRegistryMigrationInput {
+    pub keep_instance_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -269,6 +291,28 @@ pub enum NginxControlAction {
     Restart,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NginxOperationOutcome {
+    Executed,
+    Noop,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NginxOperationPhase {
+    Starting,
+    Stopping,
+    Reloading,
+    Restarting,
+    Downloading,
+    Verifying,
+    BackingUp,
+    Replacing,
+    RestoringRuntime,
+    RollingBack,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ControlNginxInstanceInput {
@@ -286,9 +330,58 @@ pub struct NginxOperationRecord {
     pub started_at: String,
     pub completed_at: String,
     pub success: bool,
+    pub outcome: NginxOperationOutcome,
+    pub resulting_status: NginxRuntimeStatus,
     pub error_code: Option<String>,
     pub stdout: String,
     pub stderr: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxStatusEvent {
+    pub generation: u64,
+    pub sequence: u64,
+    pub observed_at: String,
+    pub instance: Option<NginxInstance>,
+    pub operation_phase: Option<NginxOperationPhase>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxStatusSubscription {
+    pub subscription_id: u64,
+    pub initial_event: NginxStatusEvent,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpgradeNginxInstanceInput {
+    pub instance_id: String,
+    pub channel: NginxReleaseChannel,
+    pub target_version: String,
+    pub backup_retention_count: u8,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxUpgradeProgress {
+    pub phase: NginxOperationPhase,
+    pub progress: u8,
+    pub message_code: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxUpgradeResult {
+    pub from_version: String,
+    pub target_version: String,
+    pub backup_id: Option<String>,
+    pub success: bool,
+    pub rolled_back: bool,
+    pub rollback_succeeded: Option<bool>,
+    pub error_code: Option<String>,
+    pub resulting_status: NginxRuntimeStatus,
 }
 
 #[derive(Clone, Debug, Deserialize)]

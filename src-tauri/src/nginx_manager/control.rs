@@ -1,8 +1,9 @@
 use super::dto::{
-    NginxControlAction, NginxControlBackend, NginxInstanceRecord, NginxOperationRecord,
+    NginxControlAction, NginxControlBackend, NginxInstanceRecord, NginxOperationOutcome,
+    NginxOperationRecord, NginxRuntimeStatus,
 };
 use super::error::{NginxError, NginxResult};
-use super::process::{launch_command, run_command, run_nginx, ProcessOutput};
+use super::process::{launch_command, run_command, ProcessOutput};
 use super::registry::write_json_atomically;
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -44,6 +45,8 @@ impl OperationHistory {
         instance: &NginxInstanceRecord,
         action: NginxControlAction,
         started_at: String,
+        outcome: NginxOperationOutcome,
+        resulting_status: NginxRuntimeStatus,
         result: &NginxResult<ProcessOutput>,
     ) -> NginxResult<NginxOperationRecord> {
         let completed_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
@@ -69,6 +72,8 @@ impl OperationHistory {
             started_at,
             completed_at,
             success,
+            outcome,
+            resulting_status,
             error_code,
             stdout,
             stderr,
@@ -125,16 +130,26 @@ fn execute_portable(
     action: NginxControlAction,
 ) -> NginxResult<ProcessOutput> {
     let binary = Path::new(&instance.binary_path);
+    let root = Path::new(&instance.root_path);
+    if matches!(
+        action,
+        NginxControlAction::Start | NginxControlAction::Reload | NginxControlAction::Restart
+    ) {
+        let validation = run_command(binary, &["-t"], Some(root), 10)?;
+        if !validation.success {
+            return Ok(validation);
+        }
+    }
     match action {
-        NginxControlAction::Start => launch_command(binary, &[], Path::new(&instance.root_path)),
-        NginxControlAction::Stop => run_nginx(binary, &["-s", "quit"]),
-        NginxControlAction::Reload => run_nginx(binary, &["-s", "reload"]),
+        NginxControlAction::Start => launch_command(binary, &[], root),
+        NginxControlAction::Stop => run_command(binary, &["-s", "quit"], Some(root), 10),
+        NginxControlAction::Reload => run_command(binary, &["-s", "reload"], Some(root), 10),
         NginxControlAction::Restart => {
-            let stopped = run_nginx(binary, &["-s", "quit"])?;
+            let stopped = run_command(binary, &["-s", "quit"], Some(root), 10)?;
             if !stopped.success {
                 return Ok(stopped);
             }
-            launch_command(binary, &[], Path::new(&instance.root_path))
+            launch_command(binary, &[], root)
         }
     }
 }
@@ -333,6 +348,8 @@ mod tests {
                 &instance,
                 NginxControlAction::Reload,
                 "2026-07-31T00:00:00Z".to_owned(),
+                NginxOperationOutcome::Executed,
+                NginxRuntimeStatus::Running,
                 &output,
             )
             .expect("record");
