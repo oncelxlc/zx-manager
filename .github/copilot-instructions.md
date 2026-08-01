@@ -21,7 +21,7 @@ When generating a Git commit message, follow these rules:
 - Use the imperative mood.
 - Start the subject with a lowercase letter.
 - Do not end the subject with a period.
-- Keep the first line within 72 characters whenever possible.
+- Keep the first line within 100 characters whenever possible.
 - Describe the primary purpose of the change, not individual file operations.
 - Do not mention filenames unless they are essential.
 - Do not invent issue numbers, requirements, behavior, or motivations that are not visible in the changes.

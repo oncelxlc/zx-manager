@@ -2,48 +2,119 @@
 
 ## Project Overview
 
-ZxManager is a React 19 + Tauri 2 desktop console for local infrastructure management. The present dashboard is a frontend prototype: service data and Start/Stop/Restart operations are mocked in `src/services/tauri/service-manager.ts`. The Rust backend currently exposes only the template `greet` command. Do not represent or implement a UI-only flow as real system control without adding an explicit, permission-scoped Tauri command.
+ZxManager is a React 19 + Tauri 2 desktop console for local infrastructure management. The repository currently combines real, permission-scoped desktop capabilities with a mocked service-management prototype:
+
+- System summary and detailed system information are collected by Rust commands.
+- Diagnostic text is written through the Tauri clipboard plugin.
+- Theme and locale preferences use Tauri Store, with legacy `localStorage` migration and fallback.
+- A static, permissionless splashscreen is shown while the hidden main window loads preferences, theme, localization, and the initial route. The main window performs an explicit permission-scoped handoff after its layout mounts.
+- Application restart uses the Tauri Process plugin.
+- Network monitoring is Windows 10/11-only and starts by default at application launch unless the persisted launch preference is disabled. Startup performs a non-blocking elevated WFP-engine preflight, then an elevated same-executable helper owns the ETW session and sends application/path aggregates to the unelevated main process.
+- Application traffic uses TCP/UDP ETW payload PIDs and byte counts, an in-memory realtime ring, and a local seven-day SQLite history. Non-Windows platforms keep the route but emit no estimate or mock traffic.
+- Dashboard service data and Start/Stop/Restart/Remove operations remain frontend-only mocks in `src/services/tauri/service-manager.ts`.
+
+Keep that boundary explicit. Never describe a mocked Dashboard action as real system control. Any new host-level operation requires an auditable Rust command or official Tauri plugin plus the narrowest practical capability permission.
 
 ## Project Structure & Module Organization
 
-The React 19 and TypeScript frontend lives in `src/`. Put route definitions in `src/app/`, shared layouts in `src/layouts/`, and route-level screens in `src/pages/<feature>/`. Put feature components in `src/components/<feature>/`, domain data in `src/data/`, service boundaries in `src/services/`, types in `src/types/`, and translations in `src/i18n/`. Imported images and styles belong in `src/assets/` and `src/styles/`; files that must be copied unchanged belong in `public/`.
+The React and TypeScript application lives in `src/`:
 
-The shadcn/Base UI foundation lives in the root `@/` directory: primitives are in `@/components/ui/`, theme support is in `@/components/theme-provider.tsx`, and shared helpers are in `@/lib/`. Keep that layer reusable and framework-oriented; put application-specific UI in `src/`. Import it through `@/…`. The separate `src/…` alias is for application code. These aliases are configured in both `tsconfig.json` and `vite.config.ts`; update both files together if the convention changes.
+- `src/app/` contains route definitions.
+- `src/layouts/` contains shared layouts and the route-aware header contract.
+- `src/pages/<feature>/` contains route-level screens.
+- `src/components/<feature>/` contains application and feature components.
+- `src/data/` contains stable mock data.
+- `src/services/tauri/` is the frontend boundary for Tauri and mocked desktop operations.
+- `src/services/storage/` owns preference persistence and migration.
+- `src/stores/` contains Zustand stores.
+- `src/types/`, `src/utils/`, and `src/i18n/` contain domain types, pure helpers, and localization.
+- `src/test/` contains shared test setup and fixtures.
+- Imported assets and global styles belong in `src/assets/` and `src/styles/`; unchanged public files belong in `public/`.
 
-The Tauri 2 backend lives in `src-tauri/`. Rust commands and application startup code are under `src-tauri/src/`, permissions are declared in `src-tauri/capabilities/`, and distributable icons are in `src-tauri/icons/`. Keep frontend-to-Rust command names synchronized with calls to `invoke()`.
+The reusable shadcn/Base UI foundation lives in the root `@/` directory. Primitives are in `@/components/ui/`, theme support is in `@/components/theme-provider.tsx`, hooks are in `@/hooks/`, and shared helpers are in `@/lib/`. Keep application-specific behavior in `src/`. Import the UI layer through `@/…` and application code through `src/…`. Both aliases are configured in `tsconfig.json` and `vite.config.ts`; update both files together if this convention changes.
+
+The Tauri backend lives in `src-tauri/`. Application commands and startup are under `src-tauri/src/`; the system information implementation is split across `src-tauri/src/system_information/`, and network monitoring is split across `src-tauri/src/network_monitor/`. Main-window capabilities are declared in `src-tauri/capabilities/`, and application-command permissions are in `src-tauri/permissions/`. Keep Rust command names, generated permissions, frontend `invoke()` calls, and TypeScript DTOs synchronized.
 
 ## Application Conventions
 
-- The app bootstraps preferences, theme, and i18n before rendering in `src/main.tsx`. Preserve this order to avoid language and theme flash.
-- Use `react-i18next` for all new user-visible product text. Add matching keys to `src/i18n/locales/zh-CN.ts` and `src/i18n/locales/en-US.ts`; keep identifiers stable and translate dynamic labels at the rendering edge.
-- Persist UI preferences through `src/services/storage/preferences-storage.ts`, unless the project intentionally adopts a Tauri storage solution.
-- Keep service-management calls behind `src/services/tauri/`. When real functionality is introduced, implement an allowlisted Rust command and the required capability before replacing the Mock implementation.
-- Use existing shadcn/Base UI primitives and the `cn()` helper rather than introducing duplicate primitive components or new styling systems.
+- Preserve the two-window startup sequence: show `public/splashscreen.html`, keep `main` hidden, render the React fallback, load preferences, apply the theme, initialize i18n, mount the initial route, and then invoke the idempotent startup handoff. Preference or localization failures must not prevent the shell from opening, and network-monitor restoration must remain non-blocking.
+- Use `react-i18next` for all user-visible product text. Add matching keys to `src/i18n/locales/zh-CN.ts` and `src/i18n/locales/en-US.ts`; keep identifiers stable and translate dynamic labels at the rendering edge.
+- Read and write UI preferences only through `src/services/storage/preferences-storage.ts`. Tauri Store is primary; the `localStorage` path is retained for migration and graceful browser/plugin fallback.
+- Keep all frontend-to-desktop calls behind `src/services/tauri/`. Components and stores should not call `invoke()`, plugins, or browser storage directly.
+- Treat system information command results as fallible and partially available. Preserve stable warning/error codes, nullable DTO fields, stale-data-on-refresh behavior, and request-order protection in the Zustand store.
+- Diagnostic export must remain an explicit allowlist. Do not add host names, disk mount points, driver details, or future DTO fields to copied diagnostics without a privacy review.
+- Use the existing shadcn/Base UI primitives and `cn()` helper rather than adding duplicate primitive components or another styling system.
+- Keep route pages as orchestration layers: data ownership, persistence and external side effects belong in a page controller, store, or service; repeated presentation and independent interaction state belong in focused feature components. Split a component when it crosses those boundaries instead of only splitting by file length.
+- Production React components in `src/**/*.tsx` must have no more than 200 effective lines. `pnpm check:component-size` excludes import declarations, blank lines, and pure comment lines; test files and hooks/pure utilities are not component gate targets. Run it with the normal frontend checks (it is also part of `pnpm typecheck`).
+- Split oversized components first at data/control, independent interaction, and presentation-domain boundaries. An unavoidable exception requires an immediately adjacent `// component-size-exception: <specific safety or integration reason>` comment above the component declaration; never use a generic length-based reason.
+- Add short comments for non-obvious lifecycle, asynchronous ordering, virtualization fallback, pagination/sorting, and security boundaries. Do not annotate self-evident JSX or ordinary props.
+- Derive values from props, store state, or local inputs with pure functions and `useMemo` when needed; do not mirror them in `useState`. Use `useEffect` only to synchronize with external systems (Tauri, subscriptions, timers, browser APIs, or async persistence), never to keep derived UI state in sync.
+- Keep route-level lazy loading. Load heavy charts, PDF viewers, and code editors with `React.lazy`/`Suspense` and a layout-stable fallback. Current Dashboard charts follow this rule; PDF and editor modules do not yet exist.
+- Use `@tanstack/react-virtual` for unbounded service, log, or file lists, retaining semantic table/list controls and bounded overscan. The current service table is virtualized; logs and files need an auditable, permission-scoped backend before a UI is added.
+- Use Tauri `Channel` for high-throughput streams such as logs and realtime monitoring. Keep a single-flight subscription boundary, explicit cleanup, ordering/generation checks, and bounded frontend buffers; the network monitor already uses this model.
+- Keep page-specific header state in the route page and register it with `MainLayout`; do not move feature loading state into the layout merely to render header actions.
+- Keep the network Manager and SQLite connection unopened until startup authorization succeeds and the persisted launch preference enables monitoring, or until the user explicitly enables, queries, or clears it. The startup WFP authorization preflight itself must not enable collection or open SQLite; automatic enabling occurs only after a successful preflight.
+- Network sampling uses the persisted 1/3/5/10-second preference, defaults to five seconds, and must not silently change based on realtime subscriber count.
+- Network realtime consumers must discard old generations and out-of-order sequences, explicitly unsubscribe on page teardown, preserve `null` gaps, and keep bounded arrays.
+- Keep realtime and history path filters independent. `all` includes `unknown`; `proxy` and `direct` exclude it. Merge path records for the same application only after applying the active filter.
+- Treat application traffic as process-event aggregation, not physical line-rate totals. Local proxy forwarding may be counted for both the client and proxy application and must retain the UI warning.
+- Non-Windows builds must retain the network route and navigation but render only the unsupported-platform state.
+
+## Security and Tauri Boundaries
+
+- Grant the narrowest Tauri capability required for each command or plugin action. Do not replace specific permissions with broad defaults for convenience.
+- Keep the `splashscreen` window outside every capability. Only `main` may invoke `complete_startup`, which must show the main window before closing the splashscreen and remain safe to call more than once.
+- Run blocking system collection work outside the async UI path. Keep command errors serializable and suitable for localization at the frontend edge.
+- Do not execute arbitrary shell strings from the WebView. Validate identifiers and arguments again in Rust when real service management is introduced.
+- Keep service management mocked until a platform-specific, permission-scoped backend and corresponding tests exist.
+- Network monitor commands are grouped into `allow-network-monitor-read`, `allow-network-monitor-control`, and `allow-network-monitor-clear`. Do not replace these sets with a broad default capability.
+- Keep the main Tauri process unelevated. Only the hidden network helper may request UAC elevation, and it must validate the local pipe ACL, launched PID, nonce, and protocol version before exchanging aggregates.
+- ETW callbacks must use the payload PID and byte count, enqueue bounded raw events, and leave process resolution and proxy classification to the helper aggregation thread.
+- The network database may store normalized executable-path hashes, executable file names, path classes, quality flags, and byte/time buckets only. Do not add full executable paths, PIDs, raw MAC addresses, host names, remote addresses, domains, URLs, ports, packet contents, or command lines.
+- Static proxy endpoints may classify traffic as `proxy`; PAC, auto-detect, transparent proxies, TUN, read failures, and ambiguous flows must remain `unknown`. Never relabel VPN traffic as proxy traffic.
+- Call out every dependency, capability, generated permission, or `tauri.conf.json` change in the final summary and pull request.
 
 ## Build, Test, and Development Commands
 
-Use pnpm; commit changes to `pnpm-lock.yaml` whenever dependencies change.
+Use pnpm and commit `pnpm-lock.yaml` whenever JavaScript dependencies change. Commit `src-tauri/Cargo.lock` whenever Rust dependencies change.
+
+Network monitoring uses `rusqlite` with bundled SQLite, `chrono-tz`, and `sha2`; Windows additionally uses `windows` and `winreg`. Its nine commands include the control-scoped WFP preflight and sampling interval setter; any changes to these dependencies, Windows API features, commands, the three permission sets, helper protocol, or database schema must be called out explicitly. Schema v3 transactionally clears prior ETW history before future collector-source migrations instead of mixing attribution sources.
 
 - `pnpm install` installs JavaScript dependencies and configures Husky hooks.
-- `pnpm dev` starts the Vite frontend on port 1420.
+- `pnpm dev` starts Vite on port 1420.
 - `pnpm tauri:dev` runs the complete desktop application with hot reload.
-- `pnpm build` type-checks the frontend and creates the Vite production bundle.
-- `pnpm tauri build` creates platform-specific desktop packages.
-- `cargo test --manifest-path src-tauri/Cargo.toml` runs Rust tests.
+- `pnpm typecheck` runs TypeScript without emitting files.
+- `pnpm test` runs the Vitest suite once.
+- `pnpm test:watch` runs Vitest in watch mode.
+- `pnpm build` type-checks and builds the frontend.
+- `pnpm tauri:build` creates platform-specific desktop packages.
 - `cargo fmt --manifest-path src-tauri/Cargo.toml --check` verifies Rust formatting.
-
-Run `pnpm build` for every frontend change. For visible UI changes, also smoke-test the relevant flow using `pnpm tauri:dev` at desktop widths; the sidebar changes behavior below 1024px and tables should scroll within their own container rather than the document body.
+- `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings` treats Rust lints as errors.
+- `cargo test --manifest-path src-tauri/Cargo.toml` runs Rust tests.
 
 ## Coding Style & Naming Conventions
 
-Follow the existing TypeScript style: two-space indentation, double quotes, semicolons, and explicit imports. TypeScript strict mode is enabled; do not leave unused locals or parameters. Name React components and component files in PascalCase (`MainLayout.tsx`), page components with a `Page` suffix, and functions or variables in camelCase. Keep Rust code compatible with `rustfmt`; use snake_case for functions and modules.
+Follow the existing TypeScript style: two-space indentation, double quotes, semicolons, and explicit imports. TypeScript strict mode and unused checks are enabled. Name React components and component files in PascalCase (`MainLayout.tsx`), page components with a `Page` suffix, and functions or variables in camelCase. Prefer named exports for feature components, explicit type imports, and `satisfies` where it preserves useful static checking.
 
-No ESLint or Prettier configuration is currently present. Avoid unrelated formatting churn and match the surrounding file. Prefer named exports for feature components, preserve explicit type imports, and use `satisfies` where it strengthens static data or handler maps without widening their types.
+Keep Rust compatible with `rustfmt`; use snake_case for functions and modules. Prefer typed DTOs and structured errors over free-form JSON or strings.
+
+No ESLint or Prettier configuration is present. Avoid unrelated formatting churn and match surrounding files.
 
 ## Testing Guidelines
 
-The frontend currently has no configured test runner or coverage threshold. For every change, run `pnpm build` and manually exercise affected flows through `pnpm tauri:dev`. Add Rust unit tests beside the implementation using `#[cfg(test)]`. If introducing frontend tests, first add a documented test script and use `*.test.ts` or `*.test.tsx`. Run `cargo fmt --manifest-path src-tauri/Cargo.toml --check` with Rust changes, and run `cargo test --manifest-path src-tauri/Cargo.toml` when Rust behavior changes.
+Frontend tests use Vitest, jsdom, React Testing Library, `user-event`, and jest-dom. Shared setup is in `src/test/setup.ts`. Place tests beside their implementation using `*.test.ts` or `*.test.tsx`, and use Tauri mocks rather than invoking the host in jsdom.
+
+- For frontend logic or UI changes, run `pnpm typecheck`, `pnpm test`, and `pnpm build`.
+- For visible UI changes, smoke-test the desktop flow with `pnpm tauri:dev`. When responsive layout changes, also use the Web frontend to check Sidebar behavior below 1024px; tables must scroll inside their own container rather than the document body.
+- For Rust changes, run `cargo fmt`, Clippy with warnings denied, and `cargo test`.
+- For Tauri command, plugin, or capability changes, also run the frontend checks and exercise the affected desktop flow.
+- Add Rust unit tests beside the implementation using `#[cfg(test)]`. Preserve coverage for DTO normalization, GPU deduplication, frontend request ordering, failure fallback, and diagnostic filtering when those areas change.
+- Documentation-only changes do not require application builds, but commands, paths, links, and Markdown formatting must be checked against the current repository.
+
+## Documentation Guidelines
+
+Keep `README.md` user-facing and `AGENTS.md` contributor/agent-facing. Update both whenever project capabilities, mock-versus-real boundaries, scripts, persistence, directory conventions, or Tauri permissions materially change. Do not claim cross-platform validation for platforms that were not actually tested.
 
 ## Commit & Pull Request Guidelines
 
-Commits are enforced by Commitlint and follow Conventional Commits, such as `feat: add settings route` or `fix: handle failed Tauri invoke`. Keep each commit focused. Pull requests should summarize behavior changes, list verification commands, link related issues, and include screenshots or recordings for visible UI changes. Call out changes to Tauri capabilities, configuration, or dependencies explicitly.
+Commits are enforced by Commitlint and follow Conventional Commits, such as `feat: add settings route` or `fix: handle failed Tauri invoke`. Keep each commit focused. Pull requests should summarize behavior changes, list verification commands, link related issues, and include screenshots or recordings for visible UI changes. Explicitly call out changes to Tauri capabilities, configuration, generated permissions, or dependencies.

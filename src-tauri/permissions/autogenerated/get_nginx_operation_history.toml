@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-nginx-operation-history"
+description = "Enables the get_nginx_operation_history command without any pre-configured scope."
+commands.allow = ["get_nginx_operation_history"]
+
+[[permission]]
+identifier = "deny-get-nginx-operation-history"
+description = "Denies the get_nginx_operation_history command without any pre-configured scope."
+commands.deny = ["get_nginx_operation_history"]

@@ -2,11 +2,14 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "opener:default",
     "allow-greet",
+    "allow-complete-startup",
     "allow-get-system-summary",
     "allow-get-system-information",
     "clipboard-manager:allow-write-text",
@@ -15,6 +18,13 @@
     "store:allow-get",
     "store:allow-set",
     "store:allow-save",
-    "process:allow-restart"
+    "process:allow-restart",
+    "allow-network-monitor-read",
+    "allow-network-monitor-control",
+    "allow-network-monitor-clear",
+    "allow-nginx-read",
+    "allow-nginx-instance-register",
+    "allow-nginx-control",
+    "allow-nginx-system-service"
   ]
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentProps } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 import { Columns3Icon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -130,12 +130,10 @@ export function ServiceWorkspace({
     new Set(allColumns),
   );
 
-  useEffect(() => {
+  const activeSelectedIds = useMemo(() => {
     const serviceIds = new Set(services.map((service) => service.id));
-    setSelectedIds(
-      (current) => new Set([...current].filter((id) => serviceIds.has(id))),
-    );
-  }, [services]);
+    return new Set([...selectedIds].filter((id) => serviceIds.has(id)));
+  }, [selectedIds, services]);
 
   function toggleColumn(column: ServiceColumn, checked: boolean) {
     setVisibleColumns((current) => {
@@ -208,7 +206,7 @@ export function ServiceWorkspace({
               onRemove={onRemove}
               onSelectionChange={setSelectedIds}
               pendingIds={pendingIds}
-              selectedIds={selectedIds}
+              selectedIds={activeSelectedIds}
               services={services}
               visibleColumns={visibleColumns}
             />

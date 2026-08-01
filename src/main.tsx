@@ -7,12 +7,13 @@ import { applyTheme } from "@/components/theme-provider";
 import { StartupScreen } from "src/components/startup/StartupScreen";
 import { initializeI18n } from "src/i18n";
 import { getPreferences } from "src/services/storage/preferences-storage";
+import { configureStartupBackgroundTasks } from "src/services/tauri/startup-background";
 import type { UserPreferences } from "src/types/preferences";
 
 const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
 
 flushSync(() => {
-  root.render(<StartupScreen />);
+  root.render(<StartupScreen/>);
 });
 
 async function bootstrap() {
@@ -34,9 +35,10 @@ async function bootstrap() {
     // The bundled fallback locale still allows the application shell to mount.
   }
 
+  configureStartupBackgroundTasks(preferences);
   root.render(
     <React.StrictMode>
-      <App initialTheme={theme} />
+      <App initialTheme={theme}/>
     </React.StrictMode>,
   );
 }

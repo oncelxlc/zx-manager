@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-network-monitor-capabilities"
+description = "Enables the get_network_monitor_capabilities command without any pre-configured scope."
+commands.allow = ["get_network_monitor_capabilities"]
+
+[[permission]]
+identifier = "deny-get-network-monitor-capabilities"
+description = "Denies the get_network_monitor_capabilities command without any pre-configured scope."
+commands.deny = ["get_network_monitor_capabilities"]

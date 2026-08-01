@@ -12,11 +12,30 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "ZxManager",
         "width": 1600,
         "height": 900,
         "minHeight": 720,
-        "minWidth": 1280
+        "minWidth": 1280,
+        "visible": false,
+        "focus": false,
+        "backgroundColor": "#080808"
+      },
+      {
+        "label": "splashscreen",
+        "title": "ZxManager",
+        "url": "/splashscreen.html",
+        "width": 480,
+        "height": 300,
+        "center": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "decorations": false,
+        "skipTaskbar": true,
+        "shadow": false,
+        "backgroundColor": "#080808"
       }
     ],
     "security": {

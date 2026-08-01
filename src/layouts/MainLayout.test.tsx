@@ -7,12 +7,25 @@ import {
   Routes,
   useNavigate,
 } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import MainLayout, { useMainLayoutHeader } from "src/layouts/MainLayout";
 
+const { completeStartup, restoreStartupBackgroundTasks } = vi.hoisted(() => ({
+  completeStartup: vi.fn(() => Promise.resolve()),
+  restoreStartupBackgroundTasks: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock("src/components/AppSidebar", () => ({
   AppSidebar: () => <aside data-slot="app-sidebar" />,
+}));
+
+vi.mock("src/services/tauri/startup", () => ({
+  completeStartup,
+}));
+
+vi.mock("src/services/tauri/startup-background", () => ({
+  restoreStartupBackgroundTasks,
 }));
 
 function DashboardFixture() {
@@ -68,6 +81,35 @@ function renderLayout() {
 }
 
 describe("MainLayout", () => {
+  beforeEach(() => {
+    completeStartup.mockReset().mockResolvedValue(undefined);
+    restoreStartupBackgroundTasks.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("hands off from the splashscreen after the layout mounts", async () => {
+    renderLayout();
+
+    await waitFor(() => {
+      expect(completeStartup).toHaveBeenCalledTimes(1);
+      expect(restoreStartupBackgroundTasks).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("starts background restoration only after the native handoff succeeds", async () => {
+    let resolveHandoff!: () => void;
+    completeStartup.mockReturnValueOnce(
+      new Promise<void>((resolve) => { resolveHandoff = resolve; }),
+    );
+    renderLayout();
+
+    await waitFor(() => expect(completeStartup).toHaveBeenCalledOnce());
+    expect(restoreStartupBackgroundTasks).not.toHaveBeenCalled();
+    resolveHandoff();
+    await waitFor(() => {
+      expect(restoreStartupBackgroundTasks).toHaveBeenCalledOnce();
+    });
+  });
+
   it("merges the header and sidebar layer around an inset content surface", async () => {
     const { container } = renderLayout();
 

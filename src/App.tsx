@@ -5,12 +5,12 @@ import { router } from "./app/router.tsx";
 import { RouterProvider } from "react-router";
 import type { ThemeMode } from "src/types/preferences";
 
-function App({ initialTheme }: { initialTheme: ThemeMode }) {
+function App({initialTheme}: { initialTheme: ThemeMode }) {
   return (
     <ThemeProvider defaultTheme={initialTheme}>
       <Toaster>
         <TooltipProvider>
-          <RouterProvider router={router} />
+          <RouterProvider router={router}/>
         </TooltipProvider>
       </Toaster>
     </ThemeProvider>

@@ -3,30 +3,14 @@ import type {
   SystemInformation,
   SystemSummary,
 } from "src/types/system-information";
-
-const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"] as const;
+import { formatDataSize } from "src/utils/format-data-size";
 
 export function formatBytes(
   value: number | null,
   locale: string,
   unavailable: string,
 ): string {
-  if (value === null || !Number.isFinite(value) || value < 0) {
-    return unavailable;
-  }
-
-  if (value === 0) {
-    return `0 ${BYTE_UNITS[0]}`;
-  }
-
-  const unitIndex = Math.min(
-    Math.floor(Math.log(value) / Math.log(1024)),
-    BYTE_UNITS.length - 1,
-  );
-  const scaled = value / (1024 ** unitIndex);
-  return `${new Intl.NumberFormat(locale, {
-    maximumFractionDigits: scaled >= 100 ? 0 : 1,
-  }).format(scaled)} ${BYTE_UNITS[unitIndex]}`;
+  return formatDataSize(value, locale, unavailable);
 }
 
 export function formatPercent(
