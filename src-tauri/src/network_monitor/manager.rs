@@ -36,6 +36,8 @@ impl Clone for NetworkMonitorManager {
 }
 
 struct ManagerInner {
+    platform_supported: bool,
+    lifecycle: Mutex<()>,
     enabled: AtomicBool,
     authorization_ready: AtomicBool,
     shutdown: AtomicBool,
@@ -55,14 +57,25 @@ struct ManagerInner {
     subscribers: Mutex<HashMap<u64, Channel<NetworkRealtimeEvent>>>,
     accumulator: Mutex<TrafficAccumulator>,
     pending_rows: Mutex<Vec<UsageBucketDelta>>,
+    collector: Mutex<Box<dyn PlatformNetworkCollector>>,
     storage: Mutex<StorageWorker>,
     storage_session_id: String,
 }
 
 impl NetworkMonitorManager {
     pub fn new(database_path: PathBuf) -> Self {
+        Self::new_with_collector(database_path, cfg!(windows), create_platform_collector())
+    }
+
+    fn new_with_collector(
+        database_path: PathBuf,
+        platform_supported: bool,
+        collector: Box<dyn PlatformNetworkCollector>,
+    ) -> Self {
         Self {
             inner: Arc::new(ManagerInner {
+                platform_supported,
+                lifecycle: Mutex::new(()),
                 enabled: AtomicBool::new(false),
                 authorization_ready: AtomicBool::new(false),
                 shutdown: AtomicBool::new(false),
@@ -82,6 +95,7 @@ impl NetworkMonitorManager {
                 subscribers: Mutex::new(HashMap::new()),
                 accumulator: Mutex::new(TrafficAccumulator::default()),
                 pending_rows: Mutex::new(Vec::new()),
+                collector: Mutex::new(collector),
                 storage: Mutex::new(StorageWorker::new(database_path)),
                 storage_session_id: format!(
                     "{}-{}",
@@ -96,10 +110,10 @@ impl NetworkMonitorManager {
     pub fn capabilities(&self) -> NetworkMonitorCapabilities {
         NetworkMonitorCapabilities {
             platform: std::env::consts::OS.to_owned(),
-            platform_supported: cfg!(windows),
-            requires_elevation: cfg!(windows),
-            application_traffic: cfg!(windows),
-            proxy_classification: cfg!(windows),
+            platform_supported: self.inner.platform_supported,
+            requires_elevation: self.inner.platform_supported,
+            application_traffic: self.inner.platform_supported,
+            proxy_classification: self.inner.platform_supported,
             history_storage: true,
             retention_days: 7,
         }
@@ -109,8 +123,8 @@ impl NetworkMonitorManager {
         let lost_events = self.inner.lost_events.load(Ordering::Acquire);
         let unresolved_events = self.inner.unresolved_events.load(Ordering::Acquire);
         NetworkMonitorStatus {
-            platform_supported: cfg!(windows),
-            requires_elevation: cfg!(windows),
+            platform_supported: self.inner.platform_supported,
+            requires_elevation: self.inner.platform_supported,
             authorization_ready: self.inner.authorization_ready.load(Ordering::Acquire),
             enabled: self.inner.enabled.load(Ordering::Acquire),
             collector_state: *lock(&self.inner.collector_state),
@@ -128,7 +142,7 @@ impl NetworkMonitorManager {
     }
 
     pub fn set_enabled(&self, enabled: bool) -> NetworkMonitorResult<NetworkMonitorStatus> {
-        if enabled && !cfg!(windows) {
+        if enabled && !self.inner.platform_supported {
             return Err(NetworkMonitorError::new(
                 NetworkMonitorErrorCode::UnsupportedPlatform,
                 "application network monitoring is supported on Windows only",
@@ -137,6 +151,7 @@ impl NetworkMonitorManager {
         if enabled {
             self.prepare()?;
             self.ensure_collector_thread()?;
+            let _lifecycle = lock(&self.inner.lifecycle);
             let starting_new_session = !self.inner.enabled.swap(true, Ordering::AcqRel);
             if starting_new_session {
                 self.inner.generation.fetch_add(1, Ordering::AcqRel);
@@ -149,39 +164,54 @@ impl NetworkMonitorManager {
                 *lock(&self.inner.last_sampled_at) = None;
             }
             *lock(&self.inner.collector_state) = CollectorState::Starting;
-            *lock(&self.inner.helper_state) = HelperState::Starting;
+            *lock(&self.inner.helper_state) = HelperState::Running;
             *lock(&self.inner.last_error) = None;
         } else {
-            self.inner.enabled.store(false, Ordering::Release);
+            let _lifecycle = lock(&self.inner.lifecycle);
+            let was_enabled = self.inner.enabled.swap(false, Ordering::AcqRel);
             *lock(&self.inner.collector_state) = CollectorState::Disabled;
+            let pause_result = lock(&self.inner.collector).pause();
+            if let Err(error) = pause_result {
+                lock(&self.inner.collector).shutdown();
+                self.inner
+                    .authorization_ready
+                    .store(false, Ordering::Release);
+                *lock(&self.inner.helper_state) = HelperState::Failed;
+                *lock(&self.inner.last_error) = Some(NetworkMonitorWarning {
+                    code: error_code_name(error.code).to_owned(),
+                    message: Some(error.message),
+                });
+            }
             self.flush_pending();
-            self.emit_paused();
+            if was_enabled {
+                self.emit_paused();
+            }
         }
         Ok(self.status())
     }
 
     pub fn prepare(&self) -> NetworkMonitorResult<NetworkMonitorStatus> {
-        if !cfg!(windows) {
+        if !self.inner.platform_supported {
             return Err(NetworkMonitorError::new(
                 NetworkMonitorErrorCode::UnsupportedPlatform,
                 "application network monitoring is supported on Windows only",
             ));
         }
-        if self.inner.authorization_ready.load(Ordering::Acquire) {
-            return Ok(self.status());
+        if !self.inner.authorization_ready.load(Ordering::Acquire) {
+            *lock(&self.inner.helper_state) = HelperState::Starting;
         }
-        #[cfg(windows)]
-        {
-            // This starts the same narrowly-scoped elevated helper used by collection,
-            // validates its pipe handshake, and immediately shuts it down without sampling.
-            // It intentionally does not touch the SQLite worker or enable collection.
-            let mut helper = super::helper::HelperClient::start()?;
-            helper.prepare()?;
-            drop(helper);
+        if let Err(error) = lock(&self.inner.collector).prepare() {
+            self.inner
+                .authorization_ready
+                .store(false, Ordering::Release);
+            *lock(&self.inner.helper_state) = HelperState::Failed;
+            return Err(error);
         }
         self.inner
             .authorization_ready
             .store(true, Ordering::Release);
+        *lock(&self.inner.helper_state) = HelperState::Running;
+        *lock(&self.inner.last_error) = None;
         Ok(self.status())
     }
 
@@ -260,12 +290,19 @@ impl NetworkMonitorManager {
     }
 
     pub fn shutdown(&self) {
-        self.inner.shutdown.store(true, Ordering::Release);
-        self.inner.enabled.store(false, Ordering::Release);
+        {
+            let _lifecycle = lock(&self.inner.lifecycle);
+            self.inner.shutdown.store(true, Ordering::Release);
+            self.inner.enabled.store(false, Ordering::Release);
+        }
         if let Some(handle) = lock(&self.collector_handle).take() {
             let _ = handle.join();
         }
         self.flush_pending();
+        lock(&self.inner.collector).shutdown();
+        self.inner
+            .authorization_ready
+            .store(false, Ordering::Release);
         lock(&self.inner.storage).shutdown(Duration::from_secs(3));
         *lock(&self.inner.collector_state) = CollectorState::Stopped;
         *lock(&self.inner.helper_state) = HelperState::Stopped;
@@ -314,28 +351,25 @@ impl NetworkMonitorManager {
 }
 
 fn collector_loop(inner: Arc<ManagerInner>) {
-    let mut collector: Option<Box<dyn PlatformNetworkCollector>> = None;
     let mut last_flush = Instant::now();
     let mut previous_sample: Option<Instant> = None;
     while !inner.shutdown.load(Ordering::Acquire) {
         if !inner.enabled.load(Ordering::Acquire) {
-            if collector.take().is_some() {
-                *lock(&inner.helper_state) = HelperState::Stopped;
-            }
             thread::sleep(Duration::from_millis(100));
             previous_sample = None;
             continue;
         }
 
-        if collector.is_none() {
-            collector = Some(create_platform_collector());
-            *lock(&inner.helper_state) = HelperState::Starting;
-        }
         let started = Instant::now();
         let sample_interval =
             Duration::from_secs(inner.sample_interval_seconds.load(Ordering::Acquire));
         let sample_interval_revision = inner.sample_interval_revision.load(Ordering::Acquire);
-        let result = collector.as_mut().expect("collector initialized").collect();
+        let result = lock(&inner.collector).collect();
+        let lifecycle = lock(&inner.lifecycle);
+        if !inner.enabled.load(Ordering::Acquire) {
+            previous_sample = None;
+            continue;
+        }
         match result {
             Ok(sample) => {
                 let finished = Instant::now();
@@ -382,17 +416,18 @@ fn collector_loop(inner: Arc<ManagerInner>) {
                     code: error_code_name(error.code).to_owned(),
                     message: Some(error.message),
                 });
-                collector.take();
+                lock(&inner.collector).shutdown();
+                inner.authorization_ready.store(false, Ordering::Release);
                 continue;
             }
         }
+        drop(lifecycle);
         sleep_interruptibly(
             &inner,
             sample_interval.saturating_sub(started.elapsed()),
             sample_interval_revision,
         );
     }
-    drop(collector);
 }
 
 fn error_code_name(code: NetworkMonitorErrorCode) -> &'static str {
@@ -482,9 +517,97 @@ fn sleep_interruptibly(inner: &ManagerInner, duration: Duration, sample_interval
 
 #[cfg(test)]
 mod tests {
-    use super::NetworkMonitorManager;
-    use crate::network_monitor::dto::{NetworkPathFilter, NetworkUsageQuery};
+    use super::{NetworkMonitorManager, PlatformNetworkCollector};
+    use crate::network_monitor::dto::{
+        HelperState, NetworkPathFilter, NetworkUsageQuery, RawApplicationSample,
+    };
+    use crate::network_monitor::error::{
+        NetworkMonitorError, NetworkMonitorErrorCode, NetworkMonitorResult,
+    };
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::{Duration, Instant};
     use tempfile::tempdir;
+
+    #[derive(Default)]
+    struct FakeCollectorState {
+        prepare_count: AtomicUsize,
+        launch_count: AtomicUsize,
+        collect_count: AtomicUsize,
+        pause_count: AtomicUsize,
+        shutdown_count: AtomicUsize,
+        fail_pause: AtomicBool,
+        disconnect_on_prepare: AtomicBool,
+    }
+
+    struct FakeCollector {
+        state: Arc<FakeCollectorState>,
+        prepared: bool,
+    }
+
+    impl PlatformNetworkCollector for FakeCollector {
+        fn prepare(&mut self) -> NetworkMonitorResult<()> {
+            self.state.prepare_count.fetch_add(1, Ordering::AcqRel);
+            if self.prepared
+                && self
+                    .state
+                    .disconnect_on_prepare
+                    .swap(false, Ordering::AcqRel)
+            {
+                self.prepared = false;
+            }
+            if !self.prepared {
+                self.state.launch_count.fetch_add(1, Ordering::AcqRel);
+                self.prepared = true;
+            }
+            Ok(())
+        }
+
+        fn collect(&mut self) -> NetworkMonitorResult<RawApplicationSample> {
+            self.state.collect_count.fetch_add(1, Ordering::AcqRel);
+            Ok(RawApplicationSample::default())
+        }
+
+        fn pause(&mut self) -> NetworkMonitorResult<()> {
+            self.state.pause_count.fetch_add(1, Ordering::AcqRel);
+            if self.state.fail_pause.load(Ordering::Acquire) {
+                return Err(NetworkMonitorError::new(
+                    NetworkMonitorErrorCode::HelperDisconnected,
+                    "fake helper disconnected",
+                ));
+            }
+            Ok(())
+        }
+
+        fn shutdown(&mut self) {
+            self.prepared = false;
+            self.state.shutdown_count.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
+    fn fake_manager(
+        database_path: PathBuf,
+        state: Arc<FakeCollectorState>,
+    ) -> NetworkMonitorManager {
+        NetworkMonitorManager::new_with_collector(
+            database_path,
+            true,
+            Box::new(FakeCollector {
+                state,
+                prepared: false,
+            }),
+        )
+    }
+
+    fn wait_for_collection(state: &FakeCollectorState) {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while state.collect_count.load(Ordering::Acquire) == 0 && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(state.collect_count.load(Ordering::Acquire) > 0);
+    }
 
     #[test]
     fn construction_is_lazy_and_exposes_windows_only_capability() {
@@ -529,6 +652,113 @@ mod tests {
             .unwrap();
         assert!(result.points.is_empty());
         assert!(database_path.exists());
+        manager.shutdown();
+    }
+
+    #[test]
+    fn helper_authorization_is_reused_across_pause_and_resume() {
+        let directory = tempdir().unwrap();
+        let state = Arc::new(FakeCollectorState::default());
+        let manager = fake_manager(
+            directory.path().join("network-usage.sqlite3"),
+            Arc::clone(&state),
+        );
+
+        let started = manager.set_enabled(true).unwrap();
+        assert!(started.authorization_ready);
+        assert!(started.enabled);
+        assert_eq!(started.generation, 1);
+        wait_for_collection(&state);
+
+        let stopped = manager.set_enabled(false).unwrap();
+        assert!(stopped.authorization_ready);
+        assert!(!stopped.enabled);
+        assert_eq!(stopped.helper_state, HelperState::Running);
+        let collection_count = state.collect_count.load(Ordering::Acquire);
+        thread::sleep(Duration::from_millis(150));
+        assert_eq!(
+            state.collect_count.load(Ordering::Acquire),
+            collection_count
+        );
+
+        let restarted = manager.set_enabled(true).unwrap();
+        assert!(restarted.authorization_ready);
+        assert!(restarted.enabled);
+        assert_eq!(restarted.generation, 2);
+        assert_eq!(state.prepare_count.load(Ordering::Acquire), 2);
+        assert_eq!(state.launch_count.load(Ordering::Acquire), 1);
+        assert_eq!(state.pause_count.load(Ordering::Acquire), 1);
+
+        manager.shutdown();
+        assert_eq!(state.shutdown_count.load(Ordering::Acquire), 1);
+    }
+
+    #[test]
+    fn pause_failure_clears_authorization_and_next_start_prepares_again() {
+        let directory = tempdir().unwrap();
+        let state = Arc::new(FakeCollectorState::default());
+        let manager = fake_manager(
+            directory.path().join("network-usage.sqlite3"),
+            Arc::clone(&state),
+        );
+
+        manager.set_enabled(true).unwrap();
+        wait_for_collection(&state);
+        state.fail_pause.store(true, Ordering::Release);
+
+        let stopped = manager.set_enabled(false).unwrap();
+        assert!(!stopped.authorization_ready);
+        assert!(!stopped.enabled);
+        assert_eq!(stopped.helper_state, HelperState::Failed);
+        assert_eq!(
+            stopped
+                .last_error
+                .as_ref()
+                .map(|warning| warning.code.as_str()),
+            Some("helperDisconnected")
+        );
+
+        state.fail_pause.store(false, Ordering::Release);
+        let restarted = manager.set_enabled(true).unwrap();
+        assert!(restarted.authorization_ready);
+        assert_eq!(state.launch_count.load(Ordering::Acquire), 2);
+
+        manager.shutdown();
+        assert_eq!(state.shutdown_count.load(Ordering::Acquire), 2);
+    }
+
+    #[test]
+    fn idle_helper_disconnect_is_reauthorized_by_the_next_start() {
+        let directory = tempdir().unwrap();
+        let state = Arc::new(FakeCollectorState::default());
+        let manager = fake_manager(
+            directory.path().join("network-usage.sqlite3"),
+            Arc::clone(&state),
+        );
+
+        manager.set_enabled(true).unwrap();
+        wait_for_collection(&state);
+        manager.set_enabled(false).unwrap();
+        state.disconnect_on_prepare.store(true, Ordering::Release);
+
+        let restarted = manager.set_enabled(true).unwrap();
+        assert!(restarted.enabled);
+        assert!(restarted.authorization_ready);
+        assert_eq!(state.launch_count.load(Ordering::Acquire), 2);
+
+        manager.shutdown();
+    }
+
+    #[test]
+    fn preparing_a_helper_does_not_open_history_storage() {
+        let directory = tempdir().unwrap();
+        let database_path = directory.path().join("network-usage.sqlite3");
+        let state = Arc::new(FakeCollectorState::default());
+        let manager = fake_manager(database_path.clone(), state);
+
+        assert!(manager.prepare().unwrap().authorization_ready);
+        assert!(!database_path.exists());
+
         manager.shutdown();
     }
 }

@@ -65,7 +65,7 @@ mod windows_helper {
     use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
     use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 
-    const PROTOCOL_VERSION: u16 = 1;
+    const PROTOCOL_VERSION: u16 = 2;
     const MAX_FRAME_SIZE: usize = 4 * 1024 * 1024;
     const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
     const FLOW_QUEUE_CAPACITY: usize = 32_768;
@@ -79,6 +79,7 @@ mod windows_helper {
     enum HelperRequest {
         Prepare,
         Sample,
+        Pause,
         Shutdown,
     }
 
@@ -90,6 +91,7 @@ mod windows_helper {
             nonce: String,
         },
         Prepared,
+        Paused,
         Sample {
             applications: Vec<WireApplicationDelta>,
             lost_events: u64,
@@ -302,6 +304,21 @@ mod windows_helper {
                 _ => Err(NetworkMonitorError::new(
                     NetworkMonitorErrorCode::ProtocolMismatch,
                     "network helper returned an unexpected prepare response",
+                )),
+            }
+        }
+
+        pub fn pause(&mut self) -> NetworkMonitorResult<()> {
+            write_frame(&self.pipe, &HelperRequest::Pause).map_err(helper_io_error)?;
+            match read_frame::<HelperResponse>(&self.pipe).map_err(helper_io_error)? {
+                HelperResponse::Paused => Ok(()),
+                HelperResponse::Error { code, message } => Err(NetworkMonitorError::new(
+                    parse_network_error_code(&code),
+                    message,
+                )),
+                _ => Err(NetworkMonitorError::new(
+                    NetworkMonitorErrorCode::ProtocolMismatch,
+                    "network helper returned an unexpected pause response",
                 )),
             }
         }
@@ -601,13 +618,7 @@ mod windows_helper {
                     .map_err(helper_io_error)?,
                 },
                 HelperRequest::Sample => {
-                    if runtime.is_none() {
-                        runtime = Some(EtwRuntime::start()?);
-                    }
-                    let sample = runtime
-                        .as_ref()
-                        .expect("WFP helper runtime initialized")
-                        .snapshot();
+                    let sample = get_or_start_runtime(&mut runtime, EtwRuntime::start)?.snapshot();
                     write_frame(
                         &pipe,
                         &HelperResponse::Sample {
@@ -619,16 +630,34 @@ mod windows_helper {
                     )
                     .map_err(helper_io_error)?;
                 }
+                HelperRequest::Pause => {
+                    stop_runtime(&mut runtime, EtwRuntime::stop);
+                    write_frame(&pipe, &HelperResponse::Paused).map_err(helper_io_error)?;
+                }
                 HelperRequest::Shutdown => {
                     let _ = write_frame(&pipe, &HelperResponse::Shutdown);
                     break;
                 }
             }
         }
-        if let Some(runtime) = runtime {
-            runtime.stop();
-        }
+        stop_runtime(&mut runtime, EtwRuntime::stop);
         Ok(())
+    }
+
+    fn get_or_start_runtime<T, E>(
+        runtime: &mut Option<T>,
+        start: impl FnOnce() -> Result<T, E>,
+    ) -> Result<&mut T, E> {
+        if runtime.is_none() {
+            *runtime = Some(start()?);
+        }
+        Ok(runtime.as_mut().expect("helper runtime initialized"))
+    }
+
+    fn stop_runtime<T>(runtime: &mut Option<T>, stop: impl FnOnce(T)) {
+        if let Some(runtime) = runtime.take() {
+            stop(runtime);
+        }
     }
 
     fn prepare_wfp_engine() -> NetworkMonitorResult<()> {
@@ -1574,6 +1603,44 @@ mod windows_helper {
                 .code,
                 NetworkMonitorErrorCode::ProtocolMismatch
             );
+        }
+
+        #[test]
+        fn pause_messages_use_the_version_two_protocol() {
+            assert_eq!(PROTOCOL_VERSION, 2);
+            assert_eq!(
+                serde_json::to_value(HelperRequest::Pause).unwrap()["type"],
+                "pause"
+            );
+            assert_eq!(
+                serde_json::to_value(HelperResponse::Paused).unwrap()["type"],
+                "paused"
+            );
+        }
+
+        #[test]
+        fn pause_is_idempotent_and_sampling_restarts_the_runtime() {
+            let mut runtime = None;
+            let mut starts = 0;
+            let mut stops = 0;
+
+            let first = get_or_start_runtime(&mut runtime, || {
+                starts += 1;
+                Ok::<_, ()>(starts)
+            })
+            .unwrap();
+            assert_eq!(*first, 1);
+
+            stop_runtime(&mut runtime, |_| stops += 1);
+            stop_runtime(&mut runtime, |_| stops += 1);
+            assert_eq!(stops, 1);
+
+            let second = get_or_start_runtime(&mut runtime, || {
+                starts += 1;
+                Ok::<_, ()>(starts)
+            })
+            .unwrap();
+            assert_eq!(*second, 2);
         }
 
         #[test]

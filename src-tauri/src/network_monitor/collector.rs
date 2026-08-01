@@ -4,7 +4,10 @@ use super::error::NetworkMonitorResult;
 use super::error::{NetworkMonitorError, NetworkMonitorErrorCode};
 
 pub trait PlatformNetworkCollector: Send {
+    fn prepare(&mut self) -> NetworkMonitorResult<()>;
     fn collect(&mut self) -> NetworkMonitorResult<RawApplicationSample>;
+    fn pause(&mut self) -> NetworkMonitorResult<()>;
+    fn shutdown(&mut self);
 }
 
 pub fn create_platform_collector() -> Box<dyn PlatformNetworkCollector> {
@@ -19,14 +22,49 @@ struct HostPlatformCollector {
 
 #[cfg(windows)]
 impl PlatformNetworkCollector for HostPlatformCollector {
-    fn collect(&mut self) -> NetworkMonitorResult<RawApplicationSample> {
-        if self.helper.is_none() {
-            self.helper = Some(super::helper::HelperClient::start()?);
+    fn prepare(&mut self) -> NetworkMonitorResult<()> {
+        if let Some(helper) = self.helper.as_mut() {
+            if helper.prepare().is_ok() {
+                return Ok(());
+            }
+            self.helper.take();
         }
-        self.helper
+        let mut helper = super::helper::HelperClient::start()?;
+        helper.prepare()?;
+        self.helper = Some(helper);
+        Ok(())
+    }
+
+    fn collect(&mut self) -> NetworkMonitorResult<RawApplicationSample> {
+        let result = self
+            .helper
             .as_mut()
-            .expect("network helper initialized")
-            .sample()
+            .ok_or_else(|| {
+                super::error::NetworkMonitorError::new(
+                    super::error::NetworkMonitorErrorCode::HelperDisconnected,
+                    "network helper is not prepared",
+                )
+            })?
+            .sample();
+        if result.is_err() {
+            self.helper.take();
+        }
+        result
+    }
+
+    fn pause(&mut self) -> NetworkMonitorResult<()> {
+        let Some(helper) = self.helper.as_mut() else {
+            return Ok(());
+        };
+        let result = helper.pause();
+        if result.is_err() {
+            self.helper.take();
+        }
+        result
+    }
+
+    fn shutdown(&mut self) {
+        self.helper.take();
     }
 }
 
@@ -36,10 +74,23 @@ struct HostPlatformCollector;
 
 #[cfg(not(windows))]
 impl PlatformNetworkCollector for HostPlatformCollector {
+    fn prepare(&mut self) -> NetworkMonitorResult<()> {
+        Err(NetworkMonitorError::new(
+            NetworkMonitorErrorCode::UnsupportedPlatform,
+            "application network monitoring is supported on Windows only",
+        ))
+    }
+
     fn collect(&mut self) -> NetworkMonitorResult<RawApplicationSample> {
         Err(NetworkMonitorError::new(
             NetworkMonitorErrorCode::UnsupportedPlatform,
             "application network monitoring is supported on Windows only",
         ))
     }
+
+    fn pause(&mut self) -> NetworkMonitorResult<()> {
+        Ok(())
+    }
+
+    fn shutdown(&mut self) {}
 }

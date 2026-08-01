@@ -68,7 +68,7 @@ const zhCN = {
       title: "开始 Windows 应用流量监控？",
       description: "ZxManager 默认不会采集网络用量，也不会创建网络历史数据库。",
       storageTitle: "管理员授权、本地存储与隐私",
-      storageDescription: "Windows 会请求管理员授权以预先初始化独立 WFP 辅助进程。仅保存最多 7 天的应用名、路径哈希和流量桶；不会保存完整路径、PID、远程地址、域名、URL、端口、数据包内容或命令行。",
+      storageDescription: "Windows 会在首次开始监控时请求管理员授权；停止监控会关闭 ETW 采集，但已授权的辅助进程会空闲保留到应用退出，因此本次运行内再次开启无需重复授权。仅保存最多 7 天的应用名、路径哈希和流量桶；不会保存完整路径、PID、远程地址、域名、URL、端口、数据包内容或命令行。",
       start: "开始监控",
       notNow: "暂不开始",
     },

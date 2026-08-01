@@ -15,7 +15,7 @@ describe("network monitor startup restore", () => {
     vi.clearAllMocks();
   });
 
-  it("starts monitoring by default after authorization and interval restoration", async () => {
+  it("starts monitoring by default after interval restoration and one authorization", async () => {
     service.prepareNetworkMonitor.mockResolvedValue({});
     service.setNetworkMonitorSampleInterval.mockResolvedValue({});
     service.setNetworkMonitorEnabled.mockResolvedValue({});
@@ -28,19 +28,20 @@ describe("network monitor startup restore", () => {
     expect(service.prepareNetworkMonitor).toHaveBeenCalledOnce();
     expect(service.setNetworkMonitorEnabled).toHaveBeenCalledWith(true);
     expect(
-      service.setNetworkMonitorSampleInterval.mock.invocationCallOrder[0],
-    ).toBeGreaterThan(service.prepareNetworkMonitor.mock.invocationCallOrder[0]!);
+      service.prepareNetworkMonitor.mock.invocationCallOrder[0],
+    ).toBeGreaterThan(service.setNetworkMonitorSampleInterval.mock.invocationCallOrder[0]!);
     expect(
       service.setNetworkMonitorEnabled.mock.invocationCallOrder[0],
-    ).toBeGreaterThan(service.setNetworkMonitorSampleInterval.mock.invocationCallOrder[0]!);
+    ).toBeGreaterThan(service.prepareNetworkMonitor.mock.invocationCallOrder[0]!);
   });
 
-  it("does not start monitoring when launch preference is disabled", async () => {
-    service.prepareNetworkMonitor.mockResolvedValue({});
+  it("does not request authorization when launch preference is disabled", async () => {
     service.setNetworkMonitorSampleInterval.mockResolvedValue({});
 
     await restoreNetworkMonitorOnStartup({ networkMonitorStartOnLaunch: false });
 
+    expect(service.setNetworkMonitorSampleInterval).toHaveBeenCalledWith(5);
+    expect(service.prepareNetworkMonitor).not.toHaveBeenCalled();
     expect(service.setNetworkMonitorEnabled).not.toHaveBeenCalled();
   });
 
@@ -54,6 +55,16 @@ describe("network monitor startup restore", () => {
       restoreNetworkMonitorOnStartup({
       }),
     ).resolves.toBeUndefined();
+    expect(service.prepareNetworkMonitor).toHaveBeenCalledOnce();
+    expect(service.setNetworkMonitorEnabled).not.toHaveBeenCalled();
+  });
+
+  it("does not enable monitoring when authorization is declined", async () => {
+    service.setNetworkMonitorSampleInterval.mockResolvedValue({});
+    service.prepareNetworkMonitor.mockRejectedValue(new Error("consent cancelled"));
+
+    await expect(restoreNetworkMonitorOnStartup({})).resolves.toBeUndefined();
+
     expect(service.prepareNetworkMonitor).toHaveBeenCalledOnce();
     expect(service.setNetworkMonitorEnabled).not.toHaveBeenCalled();
   });

@@ -68,7 +68,7 @@ const enUS = {
       title: "Start Windows application traffic monitoring?",
       description: "ZxManager does not collect network usage or create the history database by default.",
       storageTitle: "Administrator consent, local storage, and privacy",
-      storageDescription: "Windows requests administrator consent to prepare an isolated WFP helper. Only seven days of application names, path hashes, and traffic buckets are stored. Full paths, PIDs, remote addresses, domains, URLs, ports, packet contents, and command lines are never stored.",
+      storageDescription: "Windows requests administrator consent the first time monitoring starts. Stopping monitoring closes ETW collection but keeps the authorized helper idle until the app exits, so starting again during the same app session does not request consent again. Only seven days of application names, path hashes, and traffic buckets are stored. Full paths, PIDs, remote addresses, domains, URLs, ports, packet contents, and command lines are never stored.",
       start: "Start monitoring",
       notNow: "Not now",
     },
