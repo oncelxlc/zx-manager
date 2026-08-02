@@ -22,6 +22,50 @@ export const router = createBrowserRouter([
             }),
           ),
       },
+      {
+        path: "network-monitor",
+        lazy: () =>
+          import("../pages/network-monitor/NetworkMonitorPage.tsx").then(
+            (module) => ({
+              Component: module.NetworkMonitorPage,
+            }),
+          ),
+      },
+      {
+        path: "nginx/manage",
+        lazy: () =>
+          import("../pages/nginx/NginxManagementPage.tsx").then((module) => ({
+            Component: module.NginxManagementPage,
+          })),
+      },
+      {
+        path: "nginx/manage/instances",
+        lazy: () =>
+          import("../pages/nginx/NginxInstancesPage.tsx").then((module) => ({
+            Component: module.NginxInstancesPage,
+          })),
+      },
+      {
+        path: "nginx/manage/sites",
+        lazy: () =>
+          import("../pages/nginx/NginxSitesPage.tsx").then((module) => ({
+            Component: module.NginxSitesPage,
+          })),
+      },
+      {
+        path: "nginx/manage/configuration",
+        lazy: () =>
+          import("../pages/nginx/NginxConfigurationPage.tsx").then((module) => ({
+            Component: module.NginxConfigurationPage,
+          })),
+      },
+      {
+        path: "nginx/logs",
+        lazy: () =>
+          import("../pages/nginx/NginxLogsPage.tsx").then((module) => ({
+            Component: module.NginxLogsPage,
+          })),
+      },
     ],
   },
 ]);

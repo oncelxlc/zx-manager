@@ -1,0 +1,46 @@
+[[set]]
+identifier = "allow-nginx-read"
+description = "Allows the main window to select, inspect, list, and refresh explicitly authorized Nginx instances."
+permissions = [
+  "allow-select-nginx-directory",
+  "allow-inspect-nginx-directory",
+  "allow-get-nginx-registry-state",
+  "allow-subscribe-nginx-status",
+  "allow-unsubscribe-nginx-status",
+  "allow-refresh-nginx-instance",
+  "allow-get-nginx-release-status",
+  "allow-check-nginx-updates",
+  "allow-get-nginx-configuration",
+]
+
+[[set]]
+identifier = "allow-nginx-instance-register"
+description = "Allows the main window to register, extend authorization for, and unregister Nginx instances."
+permissions = [
+  "allow-register-nginx-instance",
+  "allow-authorize-nginx-instance-root",
+  "allow-unregister-nginx-instance",
+  "allow-resolve-nginx-registry-migration",
+]
+
+[[set]]
+identifier = "allow-nginx-control"
+description = "Allows fixed, enumerated control actions for verified Nginx instances and reads their bounded operation history."
+permissions = [
+  "allow-control-nginx-instance",
+  "allow-get-nginx-operation-history",
+]
+
+[[set]]
+identifier = "allow-nginx-system-service"
+description = "Allows discovery and identity-bound registration of Nginx system services."
+permissions = [
+  "allow-list-nginx-system-services",
+  "allow-inspect-nginx-system-service",
+  "allow-register-nginx-system-service",
+]
+
+[[set]]
+identifier = "allow-nginx-upgrade"
+description = "Allows a confirmed, signature-verified upgrade of the single authorized Windows portable Nginx instance with automatic backup and rollback."
+permissions = ["allow-upgrade-nginx-instance"]

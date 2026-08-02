@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-subscribe-nginx-status"
+description = "Enables the subscribe_nginx_status command without any pre-configured scope."
+commands.allow = ["subscribe_nginx_status"]
+
+[[permission]]
+identifier = "deny-subscribe-nginx-status"
+description = "Denies the subscribe_nginx_status command without any pre-configured scope."
+commands.deny = ["subscribe_nginx_status"]

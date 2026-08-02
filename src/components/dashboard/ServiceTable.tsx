@@ -1,4 +1,5 @@
-import type { ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { GripVerticalIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -65,6 +66,27 @@ export function ServiceTable({
   onLocalAction,
 }: ServiceTableProps) {
   const { t } = useTranslation(["services", "dashboard"]);
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: services.length,
+    estimateSize: () => 56,
+    getItemKey: (index) => services[index]?.id ?? index,
+    getScrollElement: () => scrollElement,
+    initialRect: { height: 560, width: 980 },
+    overscan: 5,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const renderedRows = virtualRows.length > 0
+    ? virtualRows
+    : services.slice(0, 15).map((_, index) => ({
+      end: (index + 1) * 56,
+      index,
+      size: 56,
+      start: index * 56,
+    }));
+  const firstVirtualRow = renderedRows[0];
+  const lastVirtualRow = renderedRows[renderedRows.length - 1];
+  const columnCount = 2 + [...visibleColumns].length;
   const allSelected =
     services.length > 0 && services.every((service) => selectedIds.has(service.id));
   const someSelected = services.some((service) => selectedIds.has(service.id));
@@ -87,8 +109,8 @@ export function ServiceTable({
 
   return (
     <div className="overflow-hidden rounded-xl border">
-      <div className="overflow-x-auto">
-        <Table className="min-w-[980px]">
+      <div className="max-h-[52.5rem] overflow-auto" ref={setScrollElement}>
+        <Table className="min-w-[980px]" containerClassName="overflow-visible">
           <TableHeader className="bg-muted/40">
             <TableRow>
               <TableHead className="w-11">
@@ -120,12 +142,22 @@ export function ServiceTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {services.map((service) => {
+            {firstVirtualRow?.start ? (
+              <TableRow aria-hidden="true" style={{ height: firstVirtualRow.start }}>
+                <TableCell colSpan={columnCount} className="p-0" />
+              </TableRow>
+            ) : null}
+            {renderedRows.map((virtualRow) => {
+              const service = services[virtualRow.index];
+              if (!service) {
+                return null;
+              }
               const status = statusConfig[service.status];
               return (
                 <TableRow
                   data-state={selectedIds.has(service.id) ? "selected" : undefined}
                   key={service.id}
+                  style={{ height: virtualRow.size }}
                 >
                   <TableCell>
                     <Checkbox
@@ -201,6 +233,20 @@ export function ServiceTable({
                 </TableRow>
               );
             })}
+            {lastVirtualRow ? (
+              <TableRow
+                aria-hidden="true"
+                style={{
+                  height: Math.max(
+                    0,
+                    (rowVirtualizer.getTotalSize() || services.length * 56)
+                    - lastVirtualRow.end,
+                  ),
+                }}
+              >
+                <TableCell colSpan={columnCount} className="p-0" />
+              </TableRow>
+            ) : null}
           </TableBody>
         </Table>
       </div>

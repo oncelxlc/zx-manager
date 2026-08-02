@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clear-network-usage"
+description = "Enables the clear_network_usage command without any pre-configured scope."
+commands.allow = ["clear_network_usage"]
+
+[[permission]]
+identifier = "deny-clear-network-usage"
+description = "Denies the clear_network_usage command without any pre-configured scope."
+commands.deny = ["clear_network_usage"]

@@ -1,14 +1,15 @@
 import { useTranslation } from "react-i18next";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { LanguageSwitcher } from "./LanguageSwitcher";
+import { NetworkMonitorLaunchSwitcher } from "./NetworkMonitorLaunchSwitcher";
 import { ThemeSwitcher } from "./ThemeSwitcher";
+import { NginxPreferencesSettings } from "./NginxPreferencesSettings";
 
 export function PreferencesDialog({ onOpenChange, open }: { onOpenChange: (open: boolean) => void; open: boolean }) {
   const { t } = useTranslation("settings");
-
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t("title")}</DialogTitle>
           <DialogDescription>{t("storageDescription")}</DialogDescription>
@@ -21,6 +22,14 @@ export function PreferencesDialog({ onOpenChange, open }: { onOpenChange: (open:
           <section className="grid gap-2">
             <h2 className="text-sm font-medium">{t("language.title")}</h2>
             <LanguageSwitcher />
+          </section>
+          <section className="grid gap-2">
+            <h2 className="text-sm font-medium">{t("networkMonitor.title")}</h2>
+            <NetworkMonitorLaunchSwitcher />
+          </section>
+          <section className="grid gap-2">
+            <h2 className="text-sm font-medium">{t("nginx.title")}</h2>
+            <NginxPreferencesSettings />
           </section>
         </div>
       </DialogContent>

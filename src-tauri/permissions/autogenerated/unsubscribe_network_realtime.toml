@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-unsubscribe-network-realtime"
+description = "Enables the unsubscribe_network_realtime command without any pre-configured scope."
+commands.allow = ["unsubscribe_network_realtime"]
+
+[[permission]]
+identifier = "deny-unsubscribe-network-realtime"
+description = "Denies the unsubscribe_network_realtime command without any pre-configured scope."
+commands.deny = ["unsubscribe_network_realtime"]

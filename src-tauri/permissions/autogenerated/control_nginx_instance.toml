@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-control-nginx-instance"
+description = "Enables the control_nginx_instance command without any pre-configured scope."
+commands.allow = ["control_nginx_instance"]
+
+[[permission]]
+identifier = "deny-control-nginx-instance"
+description = "Denies the control_nginx_instance command without any pre-configured scope."
+commands.deny = ["control_nginx_instance"]

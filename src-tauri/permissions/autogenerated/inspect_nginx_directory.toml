@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-inspect-nginx-directory"
+description = "Enables the inspect_nginx_directory command without any pre-configured scope."
+commands.allow = ["inspect_nginx_directory"]
+
+[[permission]]
+identifier = "deny-inspect-nginx-directory"
+description = "Denies the inspect_nginx_directory command without any pre-configured scope."
+commands.deny = ["inspect_nginx_directory"]

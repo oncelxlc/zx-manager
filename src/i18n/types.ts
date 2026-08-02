@@ -4,5 +4,6 @@ export type TranslationNamespace =
   | "dashboard"
   | "systemInformation"
   | "services"
+  | "nginx"
   | "settings"
   | "validation";

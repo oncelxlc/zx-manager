@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { PlusIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -89,26 +89,25 @@ export function AddServiceDialog({
   const { i18n, t } = useTranslation(["services", "validation", "common"]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<AddServiceForm>(emptyForm);
-  const [errors, setErrors] = useState<FormErrors>({});
+  const [touched, setTouched] = useState<Set<keyof AddServiceForm>>(new Set());
+  const errors = useMemo(() => validateForm(form, t), [form, i18n.language, t]);
 
-  useEffect(() => {
-    setErrors((current) =>
-      Object.keys(current).length > 0 ? validateForm(form, t) : current,
-    );
-  }, [form, i18n.language, t]);
+  function errorFor(key: keyof AddServiceForm) {
+    return touched.has(key) ? errors[key] : undefined;
+  }
 
   function updateField<Key extends keyof AddServiceForm>(
     key: Key,
     value: AddServiceForm[Key],
   ) {
     setForm((current) => ({ ...current, [key]: value }));
-    setErrors((current) => ({ ...current, [key]: undefined }));
+    setTouched((current) => new Set(current).add(key));
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextErrors = validateForm(form, t);
-    setErrors(nextErrors);
+    setTouched(new Set(Object.keys(emptyForm) as Array<keyof AddServiceForm>));
 
     if (Object.keys(nextErrors).length > 0 || !form.type || !form.startupMode) {
       return;
@@ -123,14 +122,14 @@ export function AddServiceDialog({
       port: form.port.trim() ? Number(form.port) : undefined,
     });
     setForm(emptyForm);
-    setErrors({});
+    setTouched(new Set());
     setOpen(false);
   }
 
   function handleOpenChange(nextOpen: boolean) {
     setOpen(nextOpen);
     if (!nextOpen) {
-      setErrors({});
+      setTouched(new Set());
     }
   }
 
@@ -149,19 +148,19 @@ export function AddServiceDialog({
 
           <FieldGroup>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field data-invalid={Boolean(errors.name) || undefined}>
+              <Field data-invalid={Boolean(errorFor("name")) || undefined}>
                 <FieldLabel htmlFor="service-name">{t("dialog.serviceName")}</FieldLabel>
                 <Input
-                  aria-invalid={Boolean(errors.name)}
+                  aria-invalid={Boolean(errorFor("name"))}
                   id="service-name"
                   onChange={(event) => updateField("name", event.target.value)}
                   placeholder={t("dialog.serviceName")}
                   value={form.name}
                 />
-                <FieldError>{errors.name}</FieldError>
+                <FieldError>{errorFor("name")}</FieldError>
               </Field>
 
-              <Field data-invalid={Boolean(errors.type) || undefined}>
+              <Field data-invalid={Boolean(errorFor("type")) || undefined}>
                 <FieldLabel htmlFor="service-type">{t("dialog.serviceType")}</FieldLabel>
                 <Select
                   items={(["nginx", "database", "cache", "node", "application", "system"] as ServiceType[]).map((value) => ({
@@ -172,7 +171,7 @@ export function AddServiceDialog({
                   value={form.type}
                 >
                   <SelectTrigger
-                    aria-invalid={Boolean(errors.type)}
+                    aria-invalid={Boolean(errorFor("type"))}
                     className="w-full"
                     id="service-type"
                   >
@@ -189,16 +188,16 @@ export function AddServiceDialog({
                     </SelectGroup>
                   </SelectContent>
                 </Select>
-                <FieldError>{errors.type}</FieldError>
+                <FieldError>{errorFor("type")}</FieldError>
               </Field>
             </div>
 
-            <Field data-invalid={Boolean(errors.executablePath) || undefined}>
+            <Field data-invalid={Boolean(errorFor("executablePath")) || undefined}>
               <FieldLabel htmlFor="executable-path">
                 {t("dialog.executablePath")}
               </FieldLabel>
               <Input
-                aria-invalid={Boolean(errors.executablePath)}
+                aria-invalid={Boolean(errorFor("executablePath"))}
                 id="executable-path"
                 onChange={(event) =>
                   updateField("executablePath", event.target.value)
@@ -206,15 +205,15 @@ export function AddServiceDialog({
                 placeholder="C:\tools\service\server.exe"
                 value={form.executablePath}
               />
-              <FieldError>{errors.executablePath}</FieldError>
+              <FieldError>{errorFor("executablePath")}</FieldError>
             </Field>
 
-            <Field data-invalid={Boolean(errors.workingDirectory) || undefined}>
+            <Field data-invalid={Boolean(errorFor("workingDirectory")) || undefined}>
               <FieldLabel htmlFor="working-directory">
                 {t("dialog.workingDirectory")}
               </FieldLabel>
               <Input
-                aria-invalid={Boolean(errors.workingDirectory)}
+                aria-invalid={Boolean(errorFor("workingDirectory"))}
                 id="working-directory"
                 onChange={(event) =>
                   updateField("workingDirectory", event.target.value)
@@ -222,11 +221,11 @@ export function AddServiceDialog({
                 placeholder="C:\tools\service"
                 value={form.workingDirectory}
               />
-              <FieldError>{errors.workingDirectory}</FieldError>
+              <FieldError>{errorFor("workingDirectory")}</FieldError>
             </Field>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field data-invalid={Boolean(errors.startupMode) || undefined}>
+              <Field data-invalid={Boolean(errorFor("startupMode")) || undefined}>
                 <FieldLabel htmlFor="startup-mode">{t("dialog.startupMode")}</FieldLabel>
                 <Select
                   items={(["automatic", "manual", "disabled"] as StartupMode[]).map((value) => ({
@@ -239,7 +238,7 @@ export function AddServiceDialog({
                   value={form.startupMode}
                 >
                   <SelectTrigger
-                    aria-invalid={Boolean(errors.startupMode)}
+                    aria-invalid={Boolean(errorFor("startupMode"))}
                     className="w-full"
                     id="startup-mode"
                   >
@@ -256,13 +255,13 @@ export function AddServiceDialog({
                     </SelectGroup>
                   </SelectContent>
                 </Select>
-                <FieldError>{errors.startupMode}</FieldError>
+                <FieldError>{errorFor("startupMode")}</FieldError>
               </Field>
 
-              <Field data-invalid={Boolean(errors.port) || undefined}>
+              <Field data-invalid={Boolean(errorFor("port")) || undefined}>
                 <FieldLabel htmlFor="service-port">{t("dialog.port")}</FieldLabel>
                 <Input
-                  aria-invalid={Boolean(errors.port)}
+                  aria-invalid={Boolean(errorFor("port"))}
                   id="service-port"
                   inputMode="numeric"
                   max="65535"
@@ -272,7 +271,7 @@ export function AddServiceDialog({
                   type="number"
                   value={form.port}
                 />
-                <FieldError>{errors.port}</FieldError>
+                <FieldError>{errorFor("port")}</FieldError>
               </Field>
             </div>
           </FieldGroup>

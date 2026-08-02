@@ -97,7 +97,9 @@ export function ServiceActions({
         <DropdownMenuContent align="end" className="w-48">
           <DropdownMenuGroup>
             <DropdownMenuItem
-              disabled={pending || service.status === "running"}
+              disabled={pending || (service.type === "nginx"
+                ? service.status !== "stopped"
+                : service.status === "running")}
               onClick={() => void onOperation(service, "start")}
             >
               <PlayIcon />
