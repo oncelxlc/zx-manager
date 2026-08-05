@@ -1,13 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const services = vi.hoisted(() => ({
-  restoreNetworkMonitorOnStartup: vi.fn(),
   restoreNginxOnStartup: vi.fn(),
 }));
 
-vi.mock("src/services/tauri/network-monitor-startup", () => ({
-  restoreNetworkMonitorOnStartup: services.restoreNetworkMonitorOnStartup,
-}));
 vi.mock("src/services/tauri/nginx-startup", () => ({
   restoreNginxOnStartup: services.restoreNginxOnStartup,
 }));
@@ -22,11 +18,10 @@ describe("startup background tasks", () => {
   beforeEach(() => {
     resetStartupBackgroundTasks();
     vi.clearAllMocks();
-    services.restoreNetworkMonitorOnStartup.mockResolvedValue(undefined);
     services.restoreNginxOnStartup.mockResolvedValue(undefined);
   });
 
-  it("restores network and Nginx in parallel with one shared flight", async () => {
+  it("restores Nginx with one shared flight", async () => {
     const preferences = { locale: "en-US" as const };
     configureStartupBackgroundTasks(preferences);
 
@@ -35,8 +30,6 @@ describe("startup background tasks", () => {
       restoreStartupBackgroundTasks(),
     ]);
 
-    expect(services.restoreNetworkMonitorOnStartup).toHaveBeenCalledOnce();
-    expect(services.restoreNetworkMonitorOnStartup).toHaveBeenCalledWith(preferences);
     expect(services.restoreNginxOnStartup).toHaveBeenCalledOnce();
     expect(services.restoreNginxOnStartup).toHaveBeenCalledWith(preferences);
   });

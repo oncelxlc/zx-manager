@@ -9,8 +9,6 @@ ZxManager is a React 19 + Tauri 2 desktop console for local infrastructure manag
 - Theme and locale preferences use Tauri Store, with legacy `localStorage` migration and fallback.
 - A static, permissionless splashscreen is shown while the hidden main window loads preferences, theme, localization, and the initial route. The main window performs an explicit permission-scoped handoff after its layout mounts.
 - Application restart uses the Tauri Process plugin.
-- Network monitoring is Windows 10/11-only and starts by default at application launch unless the persisted launch preference is disabled. Disabled launch restoration must not request elevation. The first automatic or manual start performs a non-blocking elevated WFP-engine preflight, then retains the validated same-executable helper until app exit while ETW collection is active only when monitoring is enabled.
-- Application traffic uses TCP/UDP ETW payload PIDs and byte counts, an in-memory realtime ring, and a local seven-day SQLite history. Non-Windows platforms keep the route but emit no estimate or mock traffic.
 - Dashboard Nginx status and Start/Stop/Restart operations use the real, permission-scoped Nginx backend. Other service rows and their operations remain frontend-only mocks in `src/services/tauri/service-manager.ts`.
 - Nginx uses a strict singleton registry, an app-lifetime two-second status Channel, and a shared non-queuing operation lock. Windows portable builds additionally support confirmed, signature-verified upgrades with critical snapshots and automatic rollback.
 
@@ -34,11 +32,11 @@ The React and TypeScript application lives in `src/`:
 
 The reusable shadcn/Base UI foundation lives in the root `@/` directory. Primitives are in `@/components/ui/`, theme support is in `@/components/theme-provider.tsx`, hooks are in `@/hooks/`, and shared helpers are in `@/lib/`. Keep application-specific behavior in `src/`. Import the UI layer through `@/…` and application code through `src/…`. Both aliases are configured in `tsconfig.json` and `vite.config.ts`; update both files together if this convention changes.
 
-The Tauri backend lives in `src-tauri/`. Application commands and startup are under `src-tauri/src/`; the system information implementation is split across `src-tauri/src/system_information/`, and network monitoring is split across `src-tauri/src/network_monitor/`. Main-window capabilities are declared in `src-tauri/capabilities/`, and application-command permissions are in `src-tauri/permissions/`. Keep Rust command names, generated permissions, frontend `invoke()` calls, and TypeScript DTOs synchronized.
+The Tauri backend lives in `src-tauri/`. Application commands and startup are under `src-tauri/src/`; the system information implementation is split across `src-tauri/src/system_information/`. Main-window capabilities are declared in `src-tauri/capabilities/`, and application-command permissions are in `src-tauri/permissions/`. Keep Rust command names, generated permissions, frontend `invoke()` calls, and TypeScript DTOs synchronized.
 
 ## Application Conventions
 
-- Preserve the two-window startup sequence: show `public/splashscreen.html`, keep `main` hidden, render the React fallback, load preferences, apply the theme, initialize i18n, mount the initial route, and then invoke the idempotent startup handoff. Preference or localization failures must not prevent the shell from opening, and network-monitor restoration must remain non-blocking.
+- Preserve the two-window startup sequence: show `public/splashscreen.html`, keep `main` hidden, render the React fallback, load preferences, apply the theme, initialize i18n, mount the initial route, and then invoke the idempotent startup handoff. Preference or localization failures must not prevent the shell from opening.
 - Use `react-i18next` for all user-visible product text. Add matching keys to `src/i18n/locales/zh-CN.ts` and `src/i18n/locales/en-US.ts`; keep identifiers stable and translate dynamic labels at the rendering edge.
 - Read and write UI preferences only through `src/services/storage/preferences-storage.ts`. Tauri Store is primary; the `localStorage` path is retained for migration and graceful browser/plugin fallback.
 - Keep all frontend-to-desktop calls behind `src/services/tauri/`. Components and stores should not call `invoke()`, plugins, or browser storage directly.
@@ -52,14 +50,8 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 - Derive values from props, store state, or local inputs with pure functions and `useMemo` when needed; do not mirror them in `useState`. Use `useEffect` only to synchronize with external systems (Tauri, subscriptions, timers, browser APIs, or async persistence), never to keep derived UI state in sync.
 - Keep route-level lazy loading. Load heavy charts, PDF viewers, and code editors with `React.lazy`/`Suspense` and a layout-stable fallback. Current Dashboard charts follow this rule; PDF and editor modules do not yet exist.
 - Use `@tanstack/react-virtual` for unbounded service, log, or file lists, retaining semantic table/list controls and bounded overscan. The current service table is virtualized; logs and files need an auditable, permission-scoped backend before a UI is added.
-- Use Tauri `Channel` for high-throughput streams such as logs and realtime monitoring. Keep a single-flight subscription boundary, explicit cleanup, ordering/generation checks, and bounded frontend buffers; the network monitor already uses this model.
+- Use Tauri `Channel` for high-throughput streams such as logs and Nginx status. Keep a single-flight subscription boundary, explicit cleanup, ordering/generation checks, and bounded frontend buffers.
 - Keep page-specific header state in the route page and register it with `MainLayout`; do not move feature loading state into the layout merely to render header actions.
-- Keep the network helper unopened when the persisted launch preference disables monitoring until the user explicitly enables it. Keep SQLite unopened until monitoring is enabled, queried, or cleared. A WFP authorization preflight must not enable collection or open SQLite; automatic enabling occurs only after a successful preflight.
-- Network sampling uses the persisted 1/3/5/10-second preference, defaults to five seconds, and must not silently change based on realtime subscriber count.
-- Network realtime consumers must discard old generations and out-of-order sequences, explicitly unsubscribe on page teardown, preserve `null` gaps, and keep bounded arrays.
-- Keep realtime and history path filters independent. `all` includes `unknown`; `proxy` and `direct` exclude it. Merge path records for the same application only after applying the active filter.
-- Treat application traffic as process-event aggregation, not physical line-rate totals. Local proxy forwarding may be counted for both the client and proxy application and must retain the UI warning.
-- Non-Windows builds must retain the network route and navigation but render only the unsupported-platform state.
 
 ## Security and Tauri Boundaries
 
@@ -69,21 +61,13 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 - Do not execute arbitrary shell strings from the WebView. Validate identifiers and arguments again in Rust when real service management is introduced.
 - Keep non-Nginx service management mocked until a platform-specific, permission-scoped backend and corresponding tests exist. Never route Nginx Dashboard actions through the mock service manager.
 - Nginx registry v2 stores at most one instance. A legacy v1 registry with multiple entries must block control, configuration reads, and upgrades until the user selects one record to keep; migration must archive v1 and never delete Nginx files.
-- Nginx status subscriptions follow the network monitor generation/sequence and explicit cleanup pattern. Portable runtime detection must verify PID ownership and executable identity; an unverified process using the same binary is a conflict and must block start.
+- Nginx status subscriptions use generation/sequence ordering and explicit cleanup. Portable runtime detection must verify PID ownership and executable identity; an unverified process using the same binary is a conflict and must block start.
 - Managed Nginx upgrades are Windows portable-only and user-confirmed. Accept release URLs only from cached nginx.org metadata, verify the detached signature against pinned full fingerprints, reject unsafe ZIP entries, snapshot only `nginx.exe`, `conf/**`, and `modules/**`, and automatically roll back failures after replacement.
-- Network monitor commands are grouped into `allow-network-monitor-read`, `allow-network-monitor-control`, and `allow-network-monitor-clear`. Do not replace these sets with a broad default capability.
-- Keep the main Tauri process unelevated. Only the hidden network helper may request UAC elevation, and it must validate the local pipe ACL, launched PID, nonce, and protocol version before exchanging aggregates.
-- Retain a successfully authorized network helper only for the current app lifetime. Disabling monitoring must synchronously stop and discard its ETW runtime while keeping the authenticated helper idle; helper or pause failure must clear authorization and require a new explicit elevation on the next start.
-- ETW callbacks must use the payload PID and byte count, enqueue bounded raw events, and leave process resolution and proxy classification to the helper aggregation thread.
-- The network database may store normalized executable-path hashes, executable file names, path classes, quality flags, and byte/time buckets only. Do not add full executable paths, PIDs, raw MAC addresses, host names, remote addresses, domains, URLs, ports, packet contents, or command lines.
-- Static proxy endpoints may classify traffic as `proxy`; PAC, auto-detect, transparent proxies, TUN, read failures, and ambiguous flows must remain `unknown`. Never relabel VPN traffic as proxy traffic.
 - Call out every dependency, capability, generated permission, or `tauri.conf.json` change in the final summary and pull request.
 
 ## Build, Test, and Development Commands
 
 Use pnpm and commit `pnpm-lock.yaml` whenever JavaScript dependencies change. Commit `src-tauri/Cargo.lock` whenever Rust dependencies change.
-
-Network monitoring uses `rusqlite` with bundled SQLite, `chrono-tz`, and `sha2`; Windows additionally uses `windows` and `winreg`. Its nine commands include the control-scoped WFP preflight and sampling interval setter; any changes to these dependencies, Windows API features, commands, the three permission sets, helper protocol, or database schema must be called out explicitly. Schema v3 transactionally clears prior ETW history before future collector-source migrations instead of mixing attribution sources.
 
 - `pnpm install` installs JavaScript dependencies and configures Husky hooks.
 - `pnpm dev` starts Vite on port 1420.

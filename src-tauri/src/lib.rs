@@ -1,4 +1,4 @@
-mod network_monitor;
+mod legacy_cleanup;
 mod nginx_manager;
 mod startup;
 mod system_information;
@@ -22,9 +22,7 @@ pub fn run() {
         .manage(system_information::SystemInformationCollector::default())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
-            app.manage(network_monitor::NetworkMonitorManager::new(
-                app_data_dir.join("network-usage.sqlite3"),
-            ));
+            legacy_cleanup::cleanup_retired_data(&app_data_dir);
             app.manage(nginx_manager::NginxManager::new(
                 app_data_dir.join("nginx"),
             )?);
@@ -35,15 +33,6 @@ pub fn run() {
             startup::complete_startup,
             system_information::get_system_summary,
             system_information::get_system_information,
-            network_monitor::commands::get_network_monitor_capabilities,
-            network_monitor::commands::get_network_monitor_status,
-            network_monitor::commands::prepare_network_monitor,
-            network_monitor::commands::subscribe_network_realtime,
-            network_monitor::commands::unsubscribe_network_realtime,
-            network_monitor::commands::query_network_usage,
-            network_monitor::commands::set_network_monitor_enabled,
-            network_monitor::commands::set_network_monitor_sample_interval,
-            network_monitor::commands::clear_network_usage,
             nginx_manager::commands::select_nginx_directory,
             nginx_manager::commands::inspect_nginx_directory,
             nginx_manager::commands::register_nginx_instance,
@@ -80,16 +69,7 @@ pub fn run() {
                 app_handle.exit(0);
             }
         }
-        tauri::RunEvent::Exit => {
-            app_handle
-                .state::<network_monitor::NetworkMonitorManager>()
-                .shutdown();
-            app_handle.state::<nginx_manager::NginxManager>().shutdown();
-        }
+        tauri::RunEvent::Exit => app_handle.state::<nginx_manager::NginxManager>().shutdown(),
         _ => {}
     });
-}
-
-pub fn try_run_network_monitor_helper() -> bool {
-    network_monitor::try_run_helper_from_args()
 }

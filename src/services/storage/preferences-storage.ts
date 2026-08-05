@@ -1,12 +1,10 @@
 import { load, type Store } from "@tauri-apps/plugin-store";
 
 import {
-  isNetworkMonitorSampleInterval,
   isSupportedLocale,
   isThemeMode,
   normalizeNginxPreferences,
   type NginxPreferences,
-  type NetworkMonitorSampleInterval,
   type SupportedLocale,
   type ThemeMode,
   type UserPreferences,
@@ -17,41 +15,15 @@ const legacyThemeStorageKey = "vite-ui-theme";
 const storeFileName = "preferences.json";
 const storePreferencesKey = "preferences";
 
-interface StoredPreferencesV1 {
-  version: 1;
+interface StoredPreferences {
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   locale?: SupportedLocale;
   theme?: ThemeMode;
-}
-
-interface StoredPreferencesV2 {
-  version: 2;
-  locale?: SupportedLocale;
-  theme?: ThemeMode;
-  networkMonitorConfigured?: boolean;
-  networkMonitorStartOnLaunch?: boolean;
-}
-
-interface StoredPreferencesV5 {
-  version: 5;
-  locale?: SupportedLocale;
-  theme?: ThemeMode;
-  networkMonitorConfigured?: boolean;
-  networkMonitorStartOnLaunch?: boolean;
-  networkMonitorSampleIntervalSeconds?: NetworkMonitorSampleInterval;
-}
-
-interface StoredPreferencesV6 extends Omit<StoredPreferencesV5, "version"> {
-  version: 6;
   nginx?: Partial<NginxPreferences>;
 }
 
-interface StoredPreferencesV4 extends Omit<StoredPreferencesV5, "version"> {
-  version: 4;
-  networkMonitorStartOnLaunch?: never;
-}
-
-interface StoredPreferencesV3 extends Omit<StoredPreferencesV5, "version"> {
-  version: 3;
+interface StoredPreferencesV7 extends Omit<StoredPreferences, "version"> {
+  version: 7;
 }
 
 type PreferencesStore = Pick<Store, "get" | "save" | "set">;
@@ -62,57 +34,29 @@ function canUseStorage() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
+function getStoredVersion(value: unknown): StoredPreferences["version"] | undefined {
+  if (typeof value !== "object" || value === null || !("version" in value)) {
+    return undefined;
+  }
+
+  const version = value.version;
+  return typeof version === "number" && version >= 1 && version <= 7
+    ? version as StoredPreferences["version"]
+    : undefined;
+}
+
 function normalizePreferences(value: unknown): Partial<UserPreferences> {
-  if (typeof value !== "object" || value === null) {
+  const version = getStoredVersion(value);
+  if (!version) {
     return {};
   }
 
-  const preferences = value as
-    | StoredPreferencesV1
-    | StoredPreferencesV2
-    | StoredPreferencesV3
-    | StoredPreferencesV4
-    | StoredPreferencesV5
-    | StoredPreferencesV6;
-  if (
-    preferences.version !== 1
-    && preferences.version !== 2
-    && preferences.version !== 3
-    && preferences.version !== 4
-    && preferences.version !== 5
-    && preferences.version !== 6
-  ) {
-    return {};
-  }
-
+  const preferences = value as StoredPreferences;
   return {
     locale: isSupportedLocale(preferences.locale) ? preferences.locale : undefined,
     theme: isThemeMode(preferences.theme) ? preferences.theme : undefined,
-    networkMonitorConfigured:
-      preferences.version !== 1
-      && typeof preferences.networkMonitorConfigured === "boolean"
-        ? preferences.networkMonitorConfigured
-        : undefined,
-    networkMonitorStartOnLaunch:
-      (preferences.version === 2
-        || preferences.version === 3
-        || preferences.version === 5
-        || preferences.version === 6)
-      && typeof preferences.networkMonitorStartOnLaunch === "boolean"
-        ? preferences.networkMonitorStartOnLaunch
-        : true,
-    networkMonitorSampleIntervalSeconds:
-      (preferences.version === 3
-        || preferences.version === 4
-        || preferences.version === 5
-        || preferences.version === 6)
-      && isNetworkMonitorSampleInterval(
-        preferences.networkMonitorSampleIntervalSeconds,
-      )
-        ? preferences.networkMonitorSampleIntervalSeconds
-        : 5,
     nginx: normalizeNginxPreferences(
-      preferences.version === 6 ? preferences.nginx : undefined,
+      version >= 6 ? preferences.nginx : undefined,
     ),
   };
 }
@@ -145,22 +89,10 @@ function writeLegacyPreferences(preferences: Partial<UserPreferences>) {
 
   try {
     const current = readLegacyPreferences();
-    const nextValue: StoredPreferencesV6 = {
-      version: 6,
+    const nextValue: StoredPreferencesV7 = {
+      version: 7,
       ...current,
       ...preferences,
-      networkMonitorConfigured:
-        preferences.networkMonitorConfigured
-        ?? current.networkMonitorConfigured
-        ?? false,
-      networkMonitorStartOnLaunch:
-        preferences.networkMonitorStartOnLaunch
-        ?? current.networkMonitorStartOnLaunch
-        ?? true,
-      networkMonitorSampleIntervalSeconds:
-        preferences.networkMonitorSampleIntervalSeconds
-        ?? current.networkMonitorSampleIntervalSeconds
-        ?? 5,
       nginx: normalizeNginxPreferences(preferences.nginx ?? current.nginx),
     };
     window.localStorage.setItem(preferencesStorageKey, JSON.stringify(nextValue));
@@ -185,9 +117,6 @@ function clearLegacyPreferences() {
 function hasPreferences(preferences: Partial<UserPreferences>) {
   return preferences.locale !== undefined
     || preferences.theme !== undefined
-    || preferences.networkMonitorConfigured !== undefined
-    || preferences.networkMonitorStartOnLaunch !== undefined
-    || preferences.networkMonitorSampleIntervalSeconds !== undefined
     || preferences.nginx !== undefined;
 }
 
@@ -198,16 +127,6 @@ function mergePreferences(
   return {
     locale: primary.locale ?? fallback.locale,
     theme: primary.theme ?? fallback.theme,
-    networkMonitorConfigured:
-      primary.networkMonitorConfigured ?? fallback.networkMonitorConfigured,
-    networkMonitorStartOnLaunch:
-      primary.networkMonitorStartOnLaunch
-      ?? fallback.networkMonitorStartOnLaunch
-      ?? true,
-    networkMonitorSampleIntervalSeconds:
-      primary.networkMonitorSampleIntervalSeconds
-      ?? fallback.networkMonitorSampleIntervalSeconds
-      ?? 5,
     nginx: normalizeNginxPreferences(primary.nginx ?? fallback.nginx),
   };
 }
@@ -218,10 +137,6 @@ function preferencesMatch(
 ) {
   return left.locale === right.locale
     && left.theme === right.theme
-    && left.networkMonitorConfigured === right.networkMonitorConfigured
-    && left.networkMonitorStartOnLaunch === right.networkMonitorStartOnLaunch
-    && left.networkMonitorSampleIntervalSeconds
-      === right.networkMonitorSampleIntervalSeconds
     && JSON.stringify(left.nginx) === JSON.stringify(right.nginx);
 }
 
@@ -246,14 +161,9 @@ async function savePreferences(
   store: PreferencesStore,
   preferences: Partial<UserPreferences>,
 ) {
-  const value: StoredPreferencesV6 = {
-    version: 6,
+  const value: StoredPreferencesV7 = {
+    version: 7,
     ...preferences,
-    networkMonitorConfigured: preferences.networkMonitorConfigured ?? false,
-    networkMonitorStartOnLaunch:
-      preferences.networkMonitorStartOnLaunch ?? true,
-    networkMonitorSampleIntervalSeconds:
-      preferences.networkMonitorSampleIntervalSeconds ?? 5,
     nginx: normalizeNginxPreferences(preferences.nginx),
   };
   await store.set(storePreferencesKey, value);
@@ -269,12 +179,17 @@ export async function getPreferences(): Promise<Partial<UserPreferences>> {
   }
 
   try {
-    const storedPreferences = normalizePreferences(
-      await store.get<unknown>(storePreferencesKey),
-    );
+    const rawPreferences = await store.get<unknown>(storePreferencesKey);
+    const storedPreferences = normalizePreferences(rawPreferences);
     const preferences = mergePreferences(storedPreferences, legacyPreferences);
+    const storedVersion = getStoredVersion(rawPreferences);
+    const needsStoreMigration = storedVersion !== undefined && storedVersion !== 7;
 
-    if (hasPreferences(legacyPreferences) && !preferencesMatch(preferences, storedPreferences)) {
+    if (
+      needsStoreMigration
+      || (hasPreferences(legacyPreferences)
+        && !preferencesMatch(preferences, storedPreferences))
+    ) {
       await savePreferences(store, preferences);
       clearLegacyPreferences();
     }
@@ -291,22 +206,6 @@ export async function setLocale(locale: SupportedLocale): Promise<void> {
 
 export async function setTheme(theme: ThemeMode): Promise<void> {
   await updatePreferences({ theme });
-}
-
-export async function setNetworkMonitorConfigured(configured: boolean): Promise<void> {
-  await updatePreferences({ networkMonitorConfigured: configured });
-}
-
-export async function setNetworkMonitorStartOnLaunch(
-  startOnLaunch: boolean,
-): Promise<void> {
-  await updatePreferences({ networkMonitorStartOnLaunch: startOnLaunch });
-}
-
-export async function setNetworkMonitorSampleInterval(
-  interval: NetworkMonitorSampleInterval,
-): Promise<void> {
-  await updatePreferences({ networkMonitorSampleIntervalSeconds: interval });
 }
 
 export async function setNginxPreferences(

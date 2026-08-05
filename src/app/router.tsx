@@ -23,15 +23,6 @@ export const router = createBrowserRouter([
           ),
       },
       {
-        path: "network-monitor",
-        lazy: () =>
-          import("../pages/network-monitor/NetworkMonitorPage.tsx").then(
-            (module) => ({
-              Component: module.NetworkMonitorPage,
-            }),
-          ),
-      },
-      {
         path: "nginx/manage",
         lazy: () =>
           import("../pages/nginx/NginxManagementPage.tsx").then((module) => ({

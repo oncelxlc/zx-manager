@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import {
-  ActivityIcon,
   BoxIcon,
   CableIcon,
   CircleHelpIcon,
@@ -49,7 +48,6 @@ const resourceItems: NavigationItem[] = [
   {labelKey: "items.nginxLogs", icon: TerminalSquareIcon},
   {labelKey: "items.certificates", icon: FileKeyIcon},
   {labelKey: "items.networkPorts", icon: CableIcon},
-  {labelKey: "items.networkMonitor", icon: ActivityIcon},
 ];
 
 function showMockAction(label: string, description: string) {
@@ -87,9 +85,7 @@ export function AppSidebar() {
           ? "items.nginx"
           : location.pathname === "/nginx/logs"
             ? "items.nginxLogs"
-        : location.pathname === "/network-monitor"
-          ? "items.networkMonitor"
-        : activeItem;
+            : activeItem;
 
   useEffect(() => {
     void loadSummary();
@@ -103,10 +99,6 @@ export function AppSidebar() {
     }
     if (labelKey === "items.dashboard") {
       void navigate("/");
-      return;
-    }
-    if (labelKey === "items.networkMonitor") {
-      void navigate("/network-monitor");
       return;
     }
     if (labelKey === "items.nginx") {
