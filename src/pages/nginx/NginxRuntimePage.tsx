@@ -9,6 +9,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { useMainLayoutHeader } from "src/layouts/MainLayout";
+import { NginxInstanceGate } from "src/components/nginx/instance/NginxInstanceGate";
 
 export function NginxRuntimePage() {
   const { t } = useTranslation("nginx");
@@ -24,13 +25,15 @@ export function NginxRuntimePage() {
           {t("runtimePage.description")}
         </p>
       </div>
-      <Empty className="min-h-80 border">
-        <EmptyHeader>
-          <EmptyMedia variant="icon"><ActivityIcon /></EmptyMedia>
-          <EmptyTitle>{t("runtimePage.emptyTitle")}</EmptyTitle>
-          <EmptyDescription>{t("runtimePage.emptyDescription")}</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <NginxInstanceGate>
+        <Empty className="min-h-80 border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><ActivityIcon /></EmptyMedia>
+            <EmptyTitle>{t("runtimePage.emptyTitle")}</EmptyTitle>
+            <EmptyDescription>{t("runtimePage.emptyDescription")}</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </NginxInstanceGate>
     </div>
   );
 }

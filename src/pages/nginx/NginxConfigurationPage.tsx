@@ -10,8 +10,9 @@ import { useMainLayoutHeader } from "src/layouts/MainLayout";
 import { useNginxConfigurationStore } from "src/stores/nginx-configuration-store";
 import { useNginxConfigurationPage } from "./useNginxConfigurationPage";
 import { nginxErrorTranslationKey } from "src/utils/nginx-error";
+import { NginxInstanceGate } from "src/components/nginx/instance/NginxInstanceGate";
 
-export function NginxConfigurationPage() {
+function NginxConfigurationContent() {
   const { t } = useTranslation("nginx");
   const [params] = useSearchParams();
   const initialInstanceId = params.get("instance");
@@ -26,14 +27,8 @@ export function NginxConfigurationPage() {
     ?? requestedSource
     ?? configuration?.entrySourceId
     ?? "";
-  useMainLayoutHeader({ title: t("configuration.title") });
-
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{t("configuration.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("configuration.description")}</p>
-      </div>
+    <>
       {loadStatus === "loading" ? (
         <div className="flex min-h-48 items-center justify-center"><Spinner /></div>
       ) : null}
@@ -56,6 +51,23 @@ export function NginxConfigurationPage() {
           />
         </>
       ) : null}
+    </>
+  );
+}
+
+export function NginxConfigurationPage() {
+  const { t } = useTranslation("nginx");
+  useMainLayoutHeader({ title: t("configuration.title") });
+
+  return (
+    <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("configuration.title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("configuration.description")}</p>
+      </div>
+      <NginxInstanceGate>
+        <NginxConfigurationContent />
+      </NginxInstanceGate>
     </div>
   );
 }

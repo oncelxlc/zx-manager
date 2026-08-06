@@ -9,6 +9,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { useMainLayoutHeader } from "src/layouts/MainLayout";
+import { NginxInstanceGate } from "src/components/nginx/instance/NginxInstanceGate";
 
 export function NginxLogsPage() {
   const { t } = useTranslation("nginx");
@@ -20,13 +21,15 @@ export function NginxLogsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">{t("logs.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("logs.description")}</p>
       </div>
-      <Empty className="min-h-80 border">
-        <EmptyHeader>
-          <EmptyMedia variant="icon"><ScrollTextIcon /></EmptyMedia>
-          <EmptyTitle>{t("logs.emptyTitle")}</EmptyTitle>
-          <EmptyDescription>{t("logs.emptyDescription")}</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <NginxInstanceGate>
+        <Empty className="min-h-80 border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><ScrollTextIcon /></EmptyMedia>
+            <EmptyTitle>{t("logs.emptyTitle")}</EmptyTitle>
+            <EmptyDescription>{t("logs.emptyDescription")}</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </NginxInstanceGate>
     </div>
   );
 }
