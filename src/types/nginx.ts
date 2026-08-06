@@ -292,6 +292,19 @@ export interface NginxLogSubscription {
   initialEvent: NginxLogEvent;
 }
 
+export interface NginxLogRotationPolicy {
+  retentionMonths: number;
+  maxArchives: number;
+  automaticScheduling: false;
+}
+
+export interface NginxLogRotationResult {
+  sourceId: string;
+  rotated: boolean;
+  archiveName: string | null;
+  errorCode: string | null;
+}
+
 export type NginxControlAction = "start" | "stop" | "reload" | "restart";
 
 export interface NginxOperationRecord {

@@ -421,6 +421,37 @@ pub struct NginxLogSubscription {
     pub initial_event: NginxLogEvent,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogRotationPolicy {
+    pub retention_months: u16,
+    pub max_archives: u16,
+    pub automatic_scheduling: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateNginxLogRotationPolicyInput {
+    pub instance_id: String,
+    pub policy: NginxLogRotationPolicy,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RotateNginxLogsInput {
+    pub instance_id: String,
+    pub source_id: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogRotationResult {
+    pub source_id: String,
+    pub rotated: bool,
+    pub archive_name: Option<String>,
+    pub error_code: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NginxConfigGraphSource {

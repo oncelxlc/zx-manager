@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-nginx-log-rotation-policy"
+description = "Enables get_nginx_log_rotation_policy."
+commands.allow = ["get_nginx_log_rotation_policy"]

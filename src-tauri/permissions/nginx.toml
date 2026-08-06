@@ -43,6 +43,15 @@ permissions = [
 ]
 
 [[set]]
+identifier = "allow-nginx-log-rotate"
+description = "Allows manual rotation and bounded retention policy updates for explicitly managed log sources."
+permissions = [
+  "allow-get-nginx-log-rotation-policy",
+  "allow-update-nginx-log-rotation-policy",
+  "allow-rotate-nginx-logs",
+]
+
+[[set]]
 identifier = "allow-nginx-instance-register"
 description = "Allows the main window to register, extend authorization for, and unregister Nginx instances."
 permissions = [

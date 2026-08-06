@@ -28,6 +28,7 @@ function NginxLogsContent() {
   const loadSources = useNginxLogStore((state) => state.loadSources);
   const selectSource = useNginxLogStore((state) => state.selectSource);
   const loadMore = useNginxLogStore((state) => state.loadMore);
+  const rotate = useNginxLogStore((state) => state.rotate);
   const clear = useNginxLogStore((state) => state.clear);
   useEffect(() => {
     if (instance) void loadSources(instance.id);
@@ -35,6 +36,7 @@ function NginxLogsContent() {
   }, [clear, instance, loadSources]);
   if (!instance) return null;
   const items = sources.map((source) => ({ value: source.id, label: source.label }));
+  const selectedSource = sources.find((source) => source.id === selectedSourceId);
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -56,6 +58,10 @@ function NginxLogsContent() {
         <Button disabled={!nextCursor} onClick={() => void loadMore()} variant="outline">
           {t("logs.loadMore")}
         </Button>
+        <Button disabled={!selectedSource?.managed} onClick={() => void rotate()} variant="outline">
+          {t("logs.rotateNow")}
+        </Button>
+        <span className="text-xs text-muted-foreground">{t("logs.manualOnly")}</span>
       </div>
       <NginxLogViewer lines={lines} />
     </div>

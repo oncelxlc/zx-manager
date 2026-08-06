@@ -9,18 +9,22 @@ use super::dto::{
     NginxConfiguration, NginxControlBackend, NginxGlobalConfigApplyMode,
     NginxGlobalConfigApplyResult, NginxGlobalConfigPatchValidation, NginxGlobalConfiguration,
     NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState, NginxLogEvent,
-    NginxLogPage, NginxLogSource, NginxLogSubscription, NginxOperationOutcome, NginxOperationPhase,
-    NginxOperationRecord, NginxProcessRole, NginxProviderIdentity, NginxRegistryState,
-    NginxRegistryStatus, NginxReleaseChannel, NginxReleaseStatus, NginxRuntimeDetails,
-    NginxRuntimeMetricAvailability, NginxRuntimeProcess, NginxRuntimeStatus, NginxStatusEvent,
-    NginxStatusSubscription, NginxSystemServiceCandidate, NginxSystemServiceInspection,
-    NginxUpgradeProgress, NginxUpgradeResult, RegisterNginxInstanceInput,
-    RegisterNginxSystemServiceInput, ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
+    NginxLogPage, NginxLogRotationPolicy, NginxLogRotationResult, NginxLogSource,
+    NginxLogSubscription, NginxOperationOutcome, NginxOperationPhase, NginxOperationRecord,
+    NginxProcessRole, NginxProviderIdentity, NginxRegistryState, NginxRegistryStatus,
+    NginxReleaseChannel, NginxReleaseStatus, NginxRuntimeDetails, NginxRuntimeMetricAvailability,
+    NginxRuntimeProcess, NginxRuntimeStatus, NginxStatusEvent, NginxStatusSubscription,
+    NginxSystemServiceCandidate, NginxSystemServiceInspection, NginxUpgradeProgress,
+    NginxUpgradeResult, RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
+    ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
     ValidateNginxGlobalConfigurationPatchInput,
 };
 use super::error::{NginxError, NginxResult};
 use super::global_config::{apply_global_patch, read_global_configuration, validate_global_patch};
-use super::logs::{file_identity, list_sources, read_page, ResolvedLogSource};
+use super::logs::{
+    file_identity, list_sources, load_rotation_policy, read_page, rotate_managed_source,
+    save_rotation_policy, ResolvedLogSource,
+};
 use super::process::{run_command, run_nginx, ProcessOutput};
 use super::registry::NginxRegistry;
 use super::release::{is_stale, CachedRelease, ReleaseUpdateService};
@@ -648,6 +652,39 @@ impl NginxManager {
                     "the derived log source is unavailable",
                 )
             })
+    }
+
+    pub fn log_rotation_policy(&self, instance_id: &str) -> NginxResult<NginxLogRotationPolicy> {
+        self.get_record(instance_id)?;
+        Ok(load_rotation_policy(&self.data_directory))
+    }
+
+    pub fn update_log_rotation_policy(
+        &self,
+        instance_id: &str,
+        policy: &NginxLogRotationPolicy,
+    ) -> NginxResult<NginxLogRotationPolicy> {
+        self.get_record(instance_id)?;
+        save_rotation_policy(&self.data_directory, policy)?;
+        Ok(policy.clone())
+    }
+
+    pub fn rotate_logs(
+        &self,
+        instance_id: &str,
+        source_id: &str,
+    ) -> NginxResult<NginxLogRotationResult> {
+        let record = self.get_record(instance_id)?;
+        let transaction_lock = self
+            .operation_locks
+            .lock()
+            .unwrap()
+            .entry(record.id.clone())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone();
+        let _transaction = OperationGuard::try_acquire(transaction_lock)?;
+        let source = self.resolve_log_source(instance_id, source_id)?;
+        rotate_managed_source(&source, &load_rotation_policy(&self.data_directory))
     }
 
     pub fn control(&self, input: ControlNginxInstanceInput) -> NginxResult<NginxOperationRecord> {

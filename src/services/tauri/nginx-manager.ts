@@ -14,6 +14,8 @@ import type {
   NginxLogPage,
   NginxLogSource,
   NginxLogSubscription,
+  NginxLogRotationPolicy,
+  NginxLogRotationResult,
   NginxConfiguration,
   NginxControlAction,
   NginxDirectorySelection,
@@ -205,6 +207,27 @@ export async function subscribeNginxLog(
       await invoke("unsubscribe_nginx_log", { subscriptionId: subscription.subscriptionId });
     },
   };
+}
+
+export function getNginxLogRotationPolicy(instanceId: string): Promise<NginxLogRotationPolicy> {
+  assertNginxDesktop();
+  return invoke("get_nginx_log_rotation_policy", { instanceId });
+}
+
+export function updateNginxLogRotationPolicy(
+  instanceId: string,
+  policy: NginxLogRotationPolicy,
+): Promise<NginxLogRotationPolicy> {
+  assertNginxDesktop();
+  return invoke("update_nginx_log_rotation_policy", { input: { instanceId, policy } });
+}
+
+export function rotateNginxLogs(
+  instanceId: string,
+  sourceId: string,
+): Promise<NginxLogRotationResult> {
+  assertNginxDesktop();
+  return invoke("rotate_nginx_logs", { input: { instanceId, sourceId } });
 }
 
 export function getNginxRuntimeDetails(

@@ -4,13 +4,14 @@ use super::dto::{
     GetNginxOperationHistoryInput, InspectNginxSystemServiceInput, NginxConfigGraph,
     NginxConfigNodeDetail, NginxConfigValidationResult, NginxConfiguration,
     NginxGlobalConfigApplyResult, NginxGlobalConfigPatchValidation, NginxGlobalConfiguration,
-    NginxInspection, NginxInstance, NginxLogEvent, NginxLogPage, NginxLogSource,
-    NginxLogSubscription, NginxOperationRecord, NginxRegistryState, NginxReleaseChannel,
-    NginxReleaseStatus, NginxRuntimeDetails, NginxStatusEvent, NginxStatusSubscription,
-    NginxSystemServiceCandidate, NginxSystemServiceInspection, NginxUpgradeProgress,
-    NginxUpgradeResult, ReadNginxLogPageInput, RegisterNginxInstanceInput,
-    RegisterNginxSystemServiceInput, ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
-    ValidateNginxGlobalConfigurationPatchInput,
+    NginxInspection, NginxInstance, NginxLogEvent, NginxLogPage, NginxLogRotationPolicy,
+    NginxLogRotationResult, NginxLogSource, NginxLogSubscription, NginxOperationRecord,
+    NginxRegistryState, NginxReleaseChannel, NginxReleaseStatus, NginxRuntimeDetails,
+    NginxStatusEvent, NginxStatusSubscription, NginxSystemServiceCandidate,
+    NginxSystemServiceInspection, NginxUpgradeProgress, NginxUpgradeResult, ReadNginxLogPageInput,
+    RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
+    ResolveNginxRegistryMigrationInput, RotateNginxLogsInput, UpdateNginxLogRotationPolicyInput,
+    UpgradeNginxInstanceInput, ValidateNginxGlobalConfigurationPatchInput,
 };
 use super::error::{NginxError, NginxResult};
 use super::manager::NginxManager;
@@ -205,6 +206,30 @@ pub fn subscribe_nginx_log(
 #[tauri::command]
 pub fn unsubscribe_nginx_log(manager: State<'_, NginxManager>, subscription_id: u64) {
     manager.unsubscribe_log(subscription_id);
+}
+
+#[tauri::command]
+pub fn get_nginx_log_rotation_policy(
+    manager: State<'_, NginxManager>,
+    instance_id: String,
+) -> NginxResult<NginxLogRotationPolicy> {
+    manager.log_rotation_policy(&instance_id)
+}
+
+#[tauri::command]
+pub fn update_nginx_log_rotation_policy(
+    manager: State<'_, NginxManager>,
+    input: UpdateNginxLogRotationPolicyInput,
+) -> NginxResult<NginxLogRotationPolicy> {
+    manager.update_log_rotation_policy(&input.instance_id, &input.policy)
+}
+
+#[tauri::command]
+pub fn rotate_nginx_logs(
+    manager: State<'_, NginxManager>,
+    input: RotateNginxLogsInput,
+) -> NginxResult<NginxLogRotationResult> {
+    manager.rotate_logs(&input.instance_id, &input.source_id)
 }
 
 #[tauri::command]

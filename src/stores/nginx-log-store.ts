@@ -4,6 +4,7 @@ import { getPreferences } from "src/services/storage/preferences-storage";
 import {
   listNginxLogSources,
   readNginxLogPage,
+  rotateNginxLogs,
   subscribeNginxLog,
   toNginxCommandError,
 } from "src/services/tauri/nginx-manager";
@@ -23,6 +24,7 @@ interface State {
   selectSource: (sourceId: string) => Promise<void>;
   loadMore: () => Promise<void>;
   stop: () => Promise<void>;
+  rotate: () => Promise<boolean>;
   clear: () => Promise<void>;
 }
 
@@ -96,6 +98,18 @@ export const useNginxLogStore = create<State>((set, get) => ({
     cleanupTail = null;
     if (cleanup) await cleanup();
     set({ following: false });
+  },
+  rotate: async () => {
+    const { instanceId, selectedSourceId } = get();
+    if (!instanceId || !selectedSourceId) return false;
+    try {
+      await rotateNginxLogs(instanceId, selectedSourceId);
+      await get().selectSource(selectedSourceId);
+      return true;
+    } catch (error) {
+      set({ error: toNginxCommandError(error) });
+      return false;
+    }
   },
   clear: async () => {
     await get().stop();

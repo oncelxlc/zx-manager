@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-rotate-nginx-logs"
+description = "Enables rotate_nginx_logs."
+commands.allow = ["rotate_nginx_logs"]
