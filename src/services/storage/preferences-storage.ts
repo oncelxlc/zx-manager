@@ -16,14 +16,14 @@ const storeFileName = "preferences.json";
 const storePreferencesKey = "preferences";
 
 interface StoredPreferences {
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   locale?: SupportedLocale;
   theme?: ThemeMode;
   nginx?: Partial<NginxPreferences>;
 }
 
-interface StoredPreferencesV7 extends Omit<StoredPreferences, "version"> {
-  version: 7;
+interface StoredPreferencesV8 extends Omit<StoredPreferences, "version"> {
+  version: 8;
 }
 
 type PreferencesStore = Pick<Store, "get" | "save" | "set">;
@@ -40,7 +40,7 @@ function getStoredVersion(value: unknown): StoredPreferences["version"] | undefi
   }
 
   const version = value.version;
-  return typeof version === "number" && version >= 1 && version <= 7
+  return typeof version === "number" && version >= 1 && version <= 8
     ? version as StoredPreferences["version"]
     : undefined;
 }
@@ -89,8 +89,8 @@ function writeLegacyPreferences(preferences: Partial<UserPreferences>) {
 
   try {
     const current = readLegacyPreferences();
-    const nextValue: StoredPreferencesV7 = {
-      version: 7,
+    const nextValue: StoredPreferencesV8 = {
+      version: 8,
       ...current,
       ...preferences,
       nginx: normalizeNginxPreferences(preferences.nginx ?? current.nginx),
@@ -161,8 +161,8 @@ async function savePreferences(
   store: PreferencesStore,
   preferences: Partial<UserPreferences>,
 ) {
-  const value: StoredPreferencesV7 = {
-    version: 7,
+  const value: StoredPreferencesV8 = {
+    version: 8,
     ...preferences,
     nginx: normalizeNginxPreferences(preferences.nginx),
   };
@@ -183,7 +183,7 @@ export async function getPreferences(): Promise<Partial<UserPreferences>> {
     const storedPreferences = normalizePreferences(rawPreferences);
     const preferences = mergePreferences(storedPreferences, legacyPreferences);
     const storedVersion = getStoredVersion(rawPreferences);
-    const needsStoreMigration = storedVersion !== undefined && storedVersion !== 7;
+    const needsStoreMigration = storedVersion !== undefined && storedVersion !== 8;
 
     if (
       needsStoreMigration

@@ -56,6 +56,8 @@ describe("nginx release store", () => {
       backupRetentionCount: 5,
       logFollow: true,
       logBufferLines: 20_000,
+      configCustomGroups: [],
+      configNodeGroups: {},
     });
 
     await useNginxReleaseStore.getState().check(true);

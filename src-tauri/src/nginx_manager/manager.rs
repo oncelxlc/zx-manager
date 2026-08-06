@@ -1,14 +1,16 @@
+use super::config_graph::{build_config_graph, read_config_node};
 use super::configuration::load_configuration;
 use super::control::{execute as execute_control, OperationHistory};
 use super::dto::{
     AuthorizeNginxRootInput, CheckNginxUpdatesInput, ControlNginxInstanceInput, DirectorySelection,
     DirectorySelectionPurpose, GetNginxOperationHistoryInput, InspectNginxSystemServiceInput,
-    NginxAuthorizationLevel, NginxCapabilities, NginxConfiguration, NginxControlBackend,
-    NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState,
-    NginxOperationOutcome, NginxOperationPhase, NginxOperationRecord, NginxProcessRole,
-    NginxProviderIdentity, NginxRegistryState, NginxRegistryStatus, NginxReleaseChannel,
-    NginxReleaseStatus, NginxRuntimeDetails, NginxRuntimeMetricAvailability, NginxRuntimeProcess,
-    NginxRuntimeStatus, NginxStatusEvent, NginxStatusSubscription, NginxSystemServiceCandidate,
+    NginxAuthorizationLevel, NginxCapabilities, NginxConfigGraph, NginxConfigNodeDetail,
+    NginxConfigValidationResult, NginxConfiguration, NginxControlBackend, NginxInspection,
+    NginxInstance, NginxInstanceRecord, NginxLifecycleState, NginxOperationOutcome,
+    NginxOperationPhase, NginxOperationRecord, NginxProcessRole, NginxProviderIdentity,
+    NginxRegistryState, NginxRegistryStatus, NginxReleaseChannel, NginxReleaseStatus,
+    NginxRuntimeDetails, NginxRuntimeMetricAvailability, NginxRuntimeProcess, NginxRuntimeStatus,
+    NginxStatusEvent, NginxStatusSubscription, NginxSystemServiceCandidate,
     NginxSystemServiceInspection, NginxUpgradeProgress, NginxUpgradeResult,
     RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
     ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
@@ -358,6 +360,58 @@ impl NginxManager {
                 "the registered instance is not currently trusted for reads",
             ))
         }
+    }
+
+    pub fn config_graph(&self, instance_id: &str) -> NginxResult<NginxConfigGraph> {
+        build_config_graph(&self.configuration(instance_id)?)
+    }
+
+    pub fn config_node(
+        &self,
+        instance_id: &str,
+        node_id: &str,
+    ) -> NginxResult<NginxConfigNodeDetail> {
+        read_config_node(&self.configuration(instance_id)?, node_id)
+    }
+
+    pub fn validate_configuration(
+        &self,
+        instance_id: &str,
+    ) -> NginxResult<NginxConfigValidationResult> {
+        let record = self.get_record(instance_id)?;
+        let configuration = self.configuration(instance_id)?;
+        let graph = build_config_graph(&configuration)?;
+        let parser_valid = !graph
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == "error");
+        let config_path = record.config_path.as_deref().ok_or_else(|| {
+            NginxError::new(
+                "NGINX_CONFIG_NOT_FOUND",
+                "the instance has no authorized config path",
+            )
+        })?;
+        let output = run_command(
+            Path::new(&record.binary_path),
+            &["-t", "-c", config_path, "-p", &record.root_path],
+            Some(Path::new(&record.root_path)),
+            10,
+        );
+        let (native_valid, native_error_code) = match output {
+            Ok(output) if output.success => (true, None),
+            Ok(_) => (
+                false,
+                Some("NGINX_CONFIG_NATIVE_VALIDATION_FAILED".to_owned()),
+            ),
+            Err(error) => (false, Some(error.code.to_owned())),
+        };
+        Ok(NginxConfigValidationResult {
+            revision: graph.revision,
+            parser_valid,
+            native_valid,
+            native_error_code,
+            diagnostics: graph.diagnostics,
+        })
     }
 
     pub fn control(&self, input: ControlNginxInstanceInput) -> NginxResult<NginxOperationRecord> {

@@ -1,4 +1,5 @@
 pub mod commands;
+mod config_graph;
 mod configuration;
 mod control;
 mod dto;

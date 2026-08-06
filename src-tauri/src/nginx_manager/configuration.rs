@@ -173,9 +173,14 @@ impl Resolver {
         self.contexts
             .entry(source_id.clone())
             .or_insert_with(|| context.to_owned());
+        let include_chain = stack
+            .iter()
+            .filter_map(|path| self.loaded.get(path).cloned())
+            .collect();
         self.sources.push(NginxConfigSource {
             id: source_id.clone(),
             display_path: canonical.to_string_lossy().into_owned(),
+            include_chain,
             text,
             directives: directives.clone(),
         });
@@ -752,6 +757,10 @@ mod tests {
 
         assert_eq!(result.sources.len(), 2);
         assert!(result.sources[0].text.starts_with("# retained"));
+        assert_eq!(
+            result.sources[1].include_chain,
+            [result.sources[0].id.clone()]
+        );
         assert!(result.sources.iter().any(|source| {
             walk_directives(&source.directives)
                 .iter()

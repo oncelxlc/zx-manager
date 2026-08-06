@@ -1,11 +1,12 @@
 use super::dto::{
     AuthorizeNginxRootInput, CheckNginxUpdatesInput, ControlNginxInstanceInput, DirectorySelection,
     DirectorySelectionPurpose, GetNginxOperationHistoryInput, InspectNginxSystemServiceInput,
-    NginxConfiguration, NginxInspection, NginxInstance, NginxOperationRecord, NginxRegistryState,
-    NginxReleaseChannel, NginxReleaseStatus, NginxRuntimeDetails, NginxStatusEvent,
-    NginxStatusSubscription, NginxSystemServiceCandidate, NginxSystemServiceInspection,
-    NginxUpgradeProgress, NginxUpgradeResult, RegisterNginxInstanceInput,
-    RegisterNginxSystemServiceInput, ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
+    NginxConfigGraph, NginxConfigNodeDetail, NginxConfigValidationResult, NginxConfiguration,
+    NginxInspection, NginxInstance, NginxOperationRecord, NginxRegistryState, NginxReleaseChannel,
+    NginxReleaseStatus, NginxRuntimeDetails, NginxStatusEvent, NginxStatusSubscription,
+    NginxSystemServiceCandidate, NginxSystemServiceInspection, NginxUpgradeProgress,
+    NginxUpgradeResult, RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
+    ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
 };
 use super::error::{NginxError, NginxResult};
 use super::manager::NginxManager;
@@ -116,6 +117,31 @@ pub fn get_nginx_configuration(
     instance_id: String,
 ) -> NginxResult<NginxConfiguration> {
     manager.configuration(&instance_id)
+}
+
+#[tauri::command]
+pub fn read_nginx_config_graph(
+    manager: State<'_, NginxManager>,
+    instance_id: String,
+) -> NginxResult<NginxConfigGraph> {
+    manager.config_graph(&instance_id)
+}
+
+#[tauri::command]
+pub fn read_nginx_config_node(
+    manager: State<'_, NginxManager>,
+    instance_id: String,
+    node_id: String,
+) -> NginxResult<NginxConfigNodeDetail> {
+    manager.config_node(&instance_id, &node_id)
+}
+
+#[tauri::command]
+pub fn validate_nginx_configuration(
+    manager: State<'_, NginxManager>,
+    instance_id: String,
+) -> NginxResult<NginxConfigValidationResult> {
+    manager.validate_configuration(&instance_id)
 }
 
 #[tauri::command]

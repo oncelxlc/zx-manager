@@ -2,6 +2,9 @@ import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
 
 import type {
   NginxCommandError,
+  NginxConfigGraph,
+  NginxConfigNodeDetail,
+  NginxConfigValidationResult,
   NginxConfiguration,
   NginxControlAction,
   NginxDirectorySelection,
@@ -102,6 +105,28 @@ export function getNginxConfiguration(
 ): Promise<NginxConfiguration> {
   assertNginxDesktop();
   return invoke("get_nginx_configuration", { instanceId });
+}
+
+export function readNginxConfigGraph(
+  instanceId: string,
+): Promise<NginxConfigGraph> {
+  assertNginxDesktop();
+  return invoke("read_nginx_config_graph", { instanceId });
+}
+
+export function readNginxConfigNode(
+  instanceId: string,
+  nodeId: string,
+): Promise<NginxConfigNodeDetail> {
+  assertNginxDesktop();
+  return invoke("read_nginx_config_node", { instanceId, nodeId });
+}
+
+export function validateNginxConfiguration(
+  instanceId: string,
+): Promise<NginxConfigValidationResult> {
+  assertNginxDesktop();
+  return invoke("validate_nginx_configuration", { instanceId });
 }
 
 export function getNginxRuntimeDetails(

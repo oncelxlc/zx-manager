@@ -111,6 +111,7 @@ export interface NginxDirective {
 export interface NginxConfigSource {
   id: string;
   displayPath: string;
+  includeChain: string[];
   text: string;
   directives: NginxDirective[];
 }
@@ -163,6 +164,53 @@ export interface NginxConfiguration {
   pidPath: string | null;
   accessLogs: string[];
   errorLogs: string[];
+}
+
+export interface NginxConfigRevision {
+  value: string;
+}
+
+export interface NginxConfigGraphSource {
+  id: string;
+  displayPath: string;
+  includeChain: string[];
+  nodeCount: number;
+}
+
+export interface NginxConfigGraphNode {
+  id: string;
+  kind: string;
+  name: string;
+  arguments: string[];
+  label: string;
+  sourceId: string;
+  includeChain: string[];
+  location: NginxSourceLocation;
+  childIds: string[];
+  referenceIds: string[];
+  known: boolean;
+}
+
+export interface NginxConfigGraph {
+  instanceId: string;
+  entrySourceId: string;
+  revision: NginxConfigRevision;
+  sources: NginxConfigGraphSource[];
+  nodes: NginxConfigGraphNode[];
+  diagnostics: NginxConfigDiagnostic[];
+}
+
+export interface NginxConfigNodeDetail {
+  node: NginxConfigGraphNode;
+  raw: string;
+}
+
+export interface NginxConfigValidationResult {
+  revision: NginxConfigRevision;
+  parserValid: boolean;
+  nativeValid: boolean;
+  nativeErrorCode: string | null;
+  diagnostics: NginxConfigDiagnostic[];
 }
 
 export type NginxControlAction = "start" | "stop" | "reload" | "restart";

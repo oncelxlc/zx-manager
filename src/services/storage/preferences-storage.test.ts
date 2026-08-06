@@ -14,6 +14,8 @@ const nginxPreferences = {
   backupRetentionCount: 5,
   logFollow: true,
   logBufferLines: 20_000,
+  configCustomGroups: [],
+  configNodeGroups: {},
 };
 
 function createStore(initialValues: Record<string, unknown> = {}) {
@@ -38,7 +40,7 @@ describe("preferences storage", () => {
     loadStore.mockReset();
   });
 
-  it("migrates pre-v7 Store preferences without retaining retired fields", async () => {
+  it("migrates pre-v8 Store preferences without retaining retired fields", async () => {
     const store = createStore({
       preferences: {
         version: 6,
@@ -57,7 +59,7 @@ describe("preferences storage", () => {
       nginx: { ...nginxPreferences, releaseChannel: "mainline" },
     });
     expect(store.set).toHaveBeenCalledWith("preferences", {
-      version: 7,
+      version: 8,
       locale: "en-US",
       theme: "light",
       nginx: { ...nginxPreferences, releaseChannel: "mainline" },
@@ -93,7 +95,7 @@ describe("preferences storage", () => {
       nginx: nginxPreferences,
     });
     expect(store.set).toHaveBeenCalledWith("preferences", {
-      version: 7,
+      version: 8,
       locale: "en-US",
       theme: "system",
       nginx: nginxPreferences,
@@ -110,7 +112,7 @@ describe("preferences storage", () => {
     await expect(getPreferences()).resolves.toEqual({ theme: "light" });
     await setLocale("en-US");
     expect(JSON.parse(window.localStorage.getItem("local-console.preferences") ?? "{}")).toEqual({
-      version: 7,
+      version: 8,
       locale: "en-US",
       theme: "light",
       nginx: nginxPreferences,
@@ -119,7 +121,7 @@ describe("preferences storage", () => {
 
   it("persists Nginx preferences through the Store", async () => {
     const store = createStore({
-      preferences: { version: 7, locale: "zh-CN", theme: "dark" },
+      preferences: { version: 8, locale: "zh-CN", theme: "dark" },
     });
     loadStore.mockResolvedValue(store);
     const { setNginxPreferences } = await loadPreferencesStorage();
@@ -127,10 +129,31 @@ describe("preferences storage", () => {
     await setNginxPreferences({ updateCheckIntervalHours: 48 });
 
     expect(store.set).toHaveBeenLastCalledWith("preferences", {
-      version: 7,
+      version: 8,
       locale: "zh-CN",
       theme: "dark",
       nginx: { ...nginxPreferences, updateCheckIntervalHours: 48 },
+    });
+  });
+
+  it("preserves bounded configuration groups in schema v8", async () => {
+    const store = createStore({
+      preferences: {
+        version: 8,
+        nginx: {
+          configCustomGroups: [{ id: "traffic", name: " Traffic " }],
+          configNodeGroups: { ["a".repeat(64)]: "traffic", invalid: "traffic" },
+        },
+      },
+    });
+    loadStore.mockResolvedValue(store);
+    const { getPreferences } = await loadPreferencesStorage();
+
+    await expect(getPreferences()).resolves.toMatchObject({
+      nginx: {
+        configCustomGroups: [{ id: "traffic", name: "Traffic" }],
+        configNodeGroups: { ["a".repeat(64)]: "traffic" },
+      },
     });
   });
 });

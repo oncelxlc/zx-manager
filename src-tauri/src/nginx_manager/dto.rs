@@ -216,6 +216,7 @@ pub struct NginxDirective {
 pub struct NginxConfigSource {
     pub id: String,
     pub display_path: String,
+    pub include_chain: Vec<String>,
     pub text: String,
     pub directives: Vec<NginxDirective>,
 }
@@ -280,6 +281,65 @@ pub struct NginxConfiguration {
     pub pid_path: Option<String>,
     pub access_logs: Vec<String>,
     pub error_logs: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigRevision {
+    pub value: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigGraphSource {
+    pub id: String,
+    pub display_path: String,
+    pub include_chain: Vec<String>,
+    pub node_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigGraphNode {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub arguments: Vec<String>,
+    pub label: String,
+    pub source_id: String,
+    pub include_chain: Vec<String>,
+    pub location: NginxSourceLocation,
+    pub child_ids: Vec<String>,
+    pub reference_ids: Vec<String>,
+    pub known: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigGraph {
+    pub instance_id: String,
+    pub entry_source_id: String,
+    pub revision: NginxConfigRevision,
+    pub sources: Vec<NginxConfigGraphSource>,
+    pub nodes: Vec<NginxConfigGraphNode>,
+    pub diagnostics: Vec<NginxConfigDiagnostic>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigNodeDetail {
+    pub node: NginxConfigGraphNode,
+    pub raw: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigValidationResult {
+    pub revision: NginxConfigRevision,
+    pub parser_valid: bool,
+    pub native_valid: bool,
+    pub native_error_code: Option<String>,
+    pub diagnostics: Vec<NginxConfigDiagnostic>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]

@@ -15,6 +15,15 @@ permissions = [
 ]
 
 [[set]]
+identifier = "allow-nginx-config-read"
+description = "Allows the main window to read the bounded configuration graph and validate node identifiers for the registered Nginx instance."
+permissions = [
+  "allow-read-nginx-config-graph",
+  "allow-read-nginx-config-node",
+  "allow-validate-nginx-configuration",
+]
+
+[[set]]
 identifier = "allow-nginx-instance-register"
 description = "Allows the main window to register, extend authorization for, and unregister Nginx instances."
 permissions = [

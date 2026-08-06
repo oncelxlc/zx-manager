@@ -38,6 +38,8 @@ describe("Nginx startup restoration", () => {
       backupRetentionCount: 10,
       logFollow: false,
       logBufferLines: 50_000,
+      configCustomGroups: [],
+      configNodeGroups: {},
     };
 
     await restoreNginxOnStartup({ nginx: preferences });

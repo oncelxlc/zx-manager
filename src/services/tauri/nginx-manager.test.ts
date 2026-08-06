@@ -13,6 +13,8 @@ import {
   getNginxConfiguration,
   getNginxRuntimeDetails,
   inspectNginxDirectory,
+  readNginxConfigGraph,
+  readNginxConfigNode,
   registerNginxInstance,
   selectNginxDirectory,
   toNginxCommandError,
@@ -84,6 +86,22 @@ describe("nginx manager Tauri service", () => {
     expect(invoke).toHaveBeenCalledWith("get_nginx_configuration", {
       instanceId: "instance-1",
     });
+  });
+
+  it("reads graph nodes without accepting a path", async () => {
+    invoke.mockResolvedValue({ node: { id: "node-1" } });
+
+    await readNginxConfigGraph("instance-1");
+    await readNginxConfigNode("instance-1", "node-1");
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "read_nginx_config_graph", {
+      instanceId: "instance-1",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "read_nginx_config_node", {
+      instanceId: "instance-1",
+      nodeId: "node-1",
+    });
+    expect(JSON.stringify(invoke.mock.calls)).not.toContain("path");
   });
 
   it("reads runtime details by opaque registered instance id", async () => {

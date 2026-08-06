@@ -20,6 +20,7 @@
     "store:allow-save",
     "process:allow-restart",
     "allow-nginx-read",
+    "allow-nginx-config-read",
     "allow-nginx-instance-register",
     "allow-nginx-control",
     "allow-nginx-upgrade",
