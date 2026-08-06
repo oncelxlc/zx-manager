@@ -52,7 +52,7 @@ export function NginxUpgradeDialog({
             {t("upgrade.confirmDescription", { currentVersion, targetVersion })}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <div className="flex flex-col gap-3 text-sm">
+        <div aria-live="polite" className="flex flex-col gap-3 text-sm">
           <dl className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">
             <div><dt className="text-muted-foreground">{t("updates.checkedAt")}</dt><dd>{checkedAt}</dd></div>
             <div><dt className="text-muted-foreground">{t("upgrade.support")}</dt><dd>{supportReason}</dd></div>

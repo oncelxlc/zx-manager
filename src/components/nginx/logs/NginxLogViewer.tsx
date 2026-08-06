@@ -3,7 +3,13 @@ import { useEffect, useRef } from "react";
 
 import type { NginxLogLine } from "src/types/nginx";
 
-export function NginxLogViewer({ lines }: { lines: NginxLogLine[] }) {
+export function NginxLogViewer({
+  ariaLabel,
+  lines,
+}: {
+  ariaLabel: string;
+  lines: NginxLogLine[];
+}) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const virtualizer = useVirtualizer({
@@ -17,8 +23,8 @@ export function NginxLogViewer({ lines }: { lines: NginxLogLine[] }) {
   }, [lines.length, virtualizer]);
   return (
     <div
-      aria-label="Nginx log viewer"
-      className="h-[min(65vh,720px)] overflow-auto rounded-xl border bg-zinc-950 text-zinc-100"
+      aria-label={ariaLabel}
+      className="h-[min(65vh,720px)] overflow-auto rounded-xl border bg-zinc-950 text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:scroll-auto"
       onScroll={(event) => {
         const element = event.currentTarget;
         followRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32;

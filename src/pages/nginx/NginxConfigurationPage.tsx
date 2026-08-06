@@ -4,11 +4,13 @@ import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
+import { NginxDiagnostics } from "src/components/nginx/NginxDiagnostics";
 import { NginxConfigGraphList } from "src/components/nginx/configuration/NginxConfigGraphList";
 import { NginxConfigGraphToolbar } from "src/components/nginx/configuration/NginxConfigGraphToolbar";
 import { NginxConfigNodeSheet } from "src/components/nginx/configuration/NginxConfigNodeSheet";
 import { useNginxConfigGroups } from "src/components/nginx/configuration/useNginxConfigGroups";
 import { NginxInstanceGate } from "src/components/nginx/instance/NginxInstanceGate";
+import { NginxPageHeading } from "src/components/nginx/NginxPageHeading";
 import { useMainLayoutHeader } from "src/layouts/MainLayout";
 import { useNginxConfigurationStore } from "src/stores/nginx-configuration-store";
 import { nginxErrorTranslationKey } from "src/utils/nginx-error";
@@ -77,6 +79,7 @@ function NginxConfigurationContent() {
           )}</AlertDescription>
         </Alert>
       ) : null}
+      <NginxDiagnostics diagnostics={validation?.diagnostics ?? graph.diagnostics} />
       <p className="text-sm text-muted-foreground">
         {t("configuration.graphSummary", {
           files: graph.sources.length,
@@ -101,10 +104,10 @@ export function NginxConfigurationPage() {
   useMainLayoutHeader({ title: t("configuration.title") });
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{t("configuration.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("configuration.description")}</p>
-      </div>
+      <NginxPageHeading
+        description={t("configuration.description")}
+        title={t("configuration.title")}
+      />
       <NginxInstanceGate><NginxConfigurationContent /></NginxInstanceGate>
     </div>
   );

@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { NginxRuntimeBadge } from "src/components/nginx/NginxRuntimeBadge";
 import type { NginxInstance, NginxRuntimeDetails } from "src/types/nginx";
 
 interface NginxRuntimeSummaryProps {
@@ -38,9 +38,7 @@ export function NginxRuntimeSummary({ instance, runtime }: NginxRuntimeSummaryPr
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           {t("runtimeDetails.summary")}
-          <Badge variant={instance.runtimeStatus === "running" ? "success" : "secondary"}>
-            {t(`runtime.${instance.runtimeStatus}`)}
-          </Badge>
+          <NginxRuntimeBadge status={instance.runtimeStatus} />
         </CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">

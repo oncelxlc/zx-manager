@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { RefreshCwIcon, ShieldCheckIcon } from "lucide-react";
+import { RefreshCwIcon, ShieldCheckIcon, TriangleAlertIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -103,7 +103,11 @@ export function NginxUpdateCard() {
         <CardTitle className="flex items-center gap-2">
           {t("updates.title")}
           {status && status.updateAvailableCount > 0 ? (
-            <Badge variant="warning">
+            <Badge
+              aria-label={t("updates.availableBadge", { count: status.updateAvailableCount })}
+              variant="warning"
+            >
+              <TriangleAlertIcon />
               {t("updates.availableBadge", { count: status.updateAvailableCount })}
             </Badge>
           ) : null}

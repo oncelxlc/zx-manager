@@ -1,15 +1,11 @@
 import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { CircleCheckIcon, TriangleAlertIcon } from "lucide-react";
 
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { NginxInstanceGate } from "src/components/nginx/instance/NginxInstanceGate";
+import { NginxPageHeading } from "src/components/nginx/NginxPageHeading";
 import { NginxGlobalConfigCard } from "src/components/nginx/overview/NginxGlobalConfigCard";
 import { NginxUpdateCard } from "src/components/nginx/NginxUpdateCard";
 import { NginxControlActions } from "src/components/nginx/runtime/NginxControlActions";
@@ -66,9 +62,13 @@ function NginxOverviewContent() {
             {operations.slice(0, 5).map((operation) => (
               <div className="flex items-center justify-between gap-3 rounded-lg border p-3" key={operation.id}>
                 <span>{t(`control.${operation.action}Label`)}</span>
-                <span className={operation.success ? "text-muted-foreground" : "text-destructive"}>
+                <Badge
+                  aria-label={t(operation.success ? "overview.operationSucceeded" : "overview.operationFailed")}
+                  variant={operation.success ? "success" : "destructive"}
+                >
+                  {operation.success ? <CircleCheckIcon /> : <TriangleAlertIcon />}
                   {t(operation.success ? "overview.operationSucceeded" : "overview.operationFailed")}
-                </span>
+                </Badge>
               </div>
             ))}
             {operations.length === 0 ? (
@@ -90,17 +90,7 @@ export function NginxOverviewPage() {
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>Nginx</BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem><BreadcrumbPage>{t("overview.title")}</BreadcrumbPage></BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t("overview.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("overview.description")}</p>
-      </div>
+      <NginxPageHeading description={t("overview.description")} title={t("overview.title")} />
       <NginxInstanceGate><NginxOverviewContent /></NginxInstanceGate>
     </div>
   );

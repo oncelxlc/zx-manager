@@ -2,15 +2,9 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { RefreshCwIcon } from "lucide-react";
 
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { NginxInstanceGate } from "src/components/nginx/instance/NginxInstanceGate";
+import { NginxPageHeading } from "src/components/nginx/NginxPageHeading";
 import { NginxControlActions } from "src/components/nginx/runtime/NginxControlActions";
 import { NginxMetricsUnavailable } from "src/components/nginx/runtime/NginxMetricsUnavailable";
 import { NginxProcessTable } from "src/components/nginx/runtime/NginxProcessTable";
@@ -46,17 +40,10 @@ export function NginxRuntimePage() {
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-5 p-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>Nginx</BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem><BreadcrumbPage>{t("runtimePage.title")}</BreadcrumbPage></BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t("runtimePage.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("runtimePage.description")}</p>
-      </div>
+      <NginxPageHeading
+        description={t("runtimePage.description")}
+        title={t("runtimePage.title")}
+      />
       <NginxInstanceGate><NginxRuntimeContent /></NginxInstanceGate>
     </div>
   );

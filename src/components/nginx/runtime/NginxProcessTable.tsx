@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { CircleCheckIcon, TriangleAlertIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,10 +39,14 @@ export function NginxProcessTable({ processes }: NginxProcessTableProps) {
                 <TableCell>{process.cpuUsage.toFixed(1)}%</TableCell>
                 <TableCell>{(process.memoryBytes / 1024 ** 2).toFixed(1)} MiB</TableCell>
                 <TableCell>
-                  <Badge variant={process.executableVerified ? "success" : "destructive"}>
-                    {t(process.executableVerified
+                  <Badge
+                    aria-label={t(process.executableVerified
                       ? "runtimeDetails.verified"
                       : "runtimeDetails.unverified")}
+                    variant={process.executableVerified ? "success" : "destructive"}
+                  >
+                    {process.executableVerified ? <CircleCheckIcon /> : <TriangleAlertIcon />}
+                    {t(process.executableVerified ? "runtimeDetails.verified" : "runtimeDetails.unverified")}
                   </Badge>
                 </TableCell>
               </TableRow>

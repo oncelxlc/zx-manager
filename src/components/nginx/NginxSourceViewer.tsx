@@ -34,7 +34,7 @@ export function NginxSourceViewer({
     return null;
   }
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <Select
         items={items}
         onValueChange={(next) => next && onSourceChange(next)}

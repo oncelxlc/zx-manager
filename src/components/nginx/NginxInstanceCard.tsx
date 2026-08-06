@@ -19,7 +19,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -37,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
+import { NginxRuntimeBadge } from "src/components/nginx/NginxRuntimeBadge";
 import type {
   NginxControlAction,
   NginxInstance,
@@ -51,13 +51,6 @@ interface NginxInstanceCardProps {
   onControl: (action: NginxControlAction) => void;
   onRefresh: () => void;
   onUnregister: () => void;
-}
-
-function statusVariant(status: NginxInstance["runtimeStatus"]) {
-  if (status === "running") return "success" as const;
-  if (status === "conflict") return "destructive" as const;
-  if (status === "unknown") return "warning" as const;
-  return "secondary" as const;
 }
 
 export function NginxInstanceCard({
@@ -88,9 +81,7 @@ export function NginxInstanceCard({
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2">
             {instance.name}
-            <Badge variant={statusVariant(instance.runtimeStatus)}>
-              {t(`runtime.${instance.runtimeStatus}`)}
-            </Badge>
+            <NginxRuntimeBadge status={instance.runtimeStatus} />
           </CardTitle>
           <CardDescription className="break-all">{instance.rootPath}</CardDescription>
           <CardAction className="flex items-center gap-2">
