@@ -16,6 +16,8 @@ import { Spinner } from "@/components/ui/spinner";
 import type { NginxUpgradeProgress, NginxUpgradeResult } from "src/types/nginx";
 
 interface NginxUpgradeDialogProps {
+  cacheSource: string;
+  checkedAt: string;
   currentVersion: string;
   targetVersion: string;
   open: boolean;
@@ -24,9 +26,12 @@ interface NginxUpgradeDialogProps {
   result: NginxUpgradeResult | null;
   onConfirm: () => void;
   onOpenChange: (open: boolean) => void;
+  supportReason: string;
 }
 
 export function NginxUpgradeDialog({
+  cacheSource,
+  checkedAt,
   currentVersion,
   targetVersion,
   open,
@@ -35,6 +40,7 @@ export function NginxUpgradeDialog({
   result,
   onConfirm,
   onOpenChange,
+  supportReason,
 }: NginxUpgradeDialogProps) {
   const { t } = useTranslation("nginx");
   return (
@@ -46,9 +52,15 @@ export function NginxUpgradeDialog({
             {t("upgrade.confirmDescription", { currentVersion, targetVersion })}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <div className="space-y-3 text-sm">
+        <div className="flex flex-col gap-3 text-sm">
+          <dl className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">
+            <div><dt className="text-muted-foreground">{t("updates.checkedAt")}</dt><dd>{checkedAt}</dd></div>
+            <div><dt className="text-muted-foreground">{t("upgrade.support")}</dt><dd>{supportReason}</dd></div>
+            <div><dt className="text-muted-foreground">{t("updates.source")}</dt><dd>{cacheSource}</dd></div>
+            <div><dt className="text-muted-foreground">{t("updates.latest")}</dt><dd>{targetVersion}</dd></div>
+          </dl>
           <p className="flex items-center gap-2 rounded-lg border p-3">
-            <ShieldCheckIcon className="size-4 text-success" />
+            <ShieldCheckIcon className="text-success" />
             {t("upgrade.safetySummary")}
           </p>
           {progress ? (
