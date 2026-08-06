@@ -182,6 +182,37 @@ export interface NginxOperationRecord {
   stderr: string;
 }
 
+export type NginxProcessRole = "master" | "worker";
+export type NginxRuntimeMetricAvailability = "available" | "unavailable";
+
+export interface NginxRuntimeProcess {
+  pid: number;
+  parentPid: number | null;
+  role: NginxProcessRole;
+  cpuUsage: number;
+  memoryBytes: number;
+  startedAt: string | null;
+  uptimeSeconds: number;
+  executableVerified: boolean;
+}
+
+export interface NginxRuntimeDetails {
+  instanceId: string;
+  observedAt: string;
+  status: NginxRuntimeStatus;
+  masterPid: number | null;
+  workerCount: number;
+  totalCpuUsage: number;
+  totalMemoryBytes: number;
+  startedAt: string | null;
+  uptimeSeconds: number | null;
+  processes: NginxRuntimeProcess[];
+  processMetrics: NginxRuntimeMetricAvailability;
+  listeners: string[];
+  listenerMetrics: NginxRuntimeMetricAvailability;
+  connectionMetrics: NginxRuntimeMetricAvailability;
+}
+
 export type NginxOperationPhase =
   | "starting"
   | "stopping"
@@ -199,6 +230,7 @@ export interface NginxStatusEvent {
   sequence: number;
   observedAt: string;
   instance: NginxInstance | null;
+  runtimeDetails: NginxRuntimeDetails | null;
   operationPhase: NginxOperationPhase | null;
 }
 

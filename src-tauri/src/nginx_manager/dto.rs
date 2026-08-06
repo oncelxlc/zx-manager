@@ -337,6 +337,52 @@ pub struct NginxOperationRecord {
     pub stderr: String,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NginxProcessRole {
+    Master,
+    Worker,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NginxRuntimeMetricAvailability {
+    Available,
+    Unavailable,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxRuntimeProcess {
+    pub pid: u32,
+    pub parent_pid: Option<u32>,
+    pub role: NginxProcessRole,
+    pub cpu_usage: f32,
+    pub memory_bytes: u64,
+    pub started_at: Option<String>,
+    pub uptime_seconds: u64,
+    pub executable_verified: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxRuntimeDetails {
+    pub instance_id: String,
+    pub observed_at: String,
+    pub status: NginxRuntimeStatus,
+    pub master_pid: Option<u32>,
+    pub worker_count: usize,
+    pub total_cpu_usage: f32,
+    pub total_memory_bytes: u64,
+    pub started_at: Option<String>,
+    pub uptime_seconds: Option<u64>,
+    pub processes: Vec<NginxRuntimeProcess>,
+    pub process_metrics: NginxRuntimeMetricAvailability,
+    pub listeners: Vec<String>,
+    pub listener_metrics: NginxRuntimeMetricAvailability,
+    pub connection_metrics: NginxRuntimeMetricAvailability,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NginxStatusEvent {
@@ -344,6 +390,7 @@ pub struct NginxStatusEvent {
     pub sequence: u64,
     pub observed_at: String,
     pub instance: Option<NginxInstance>,
+    pub runtime_details: Option<NginxRuntimeDetails>,
     pub operation_phase: Option<NginxOperationPhase>,
 }
 

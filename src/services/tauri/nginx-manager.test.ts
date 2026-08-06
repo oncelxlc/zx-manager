@@ -11,6 +11,7 @@ import {
   checkNginxUpdates,
   controlNginxInstance,
   getNginxConfiguration,
+  getNginxRuntimeDetails,
   inspectNginxDirectory,
   registerNginxInstance,
   selectNginxDirectory,
@@ -81,6 +82,16 @@ describe("nginx manager Tauri service", () => {
     await getNginxConfiguration("instance-1");
 
     expect(invoke).toHaveBeenCalledWith("get_nginx_configuration", {
+      instanceId: "instance-1",
+    });
+  });
+
+  it("reads runtime details by opaque registered instance id", async () => {
+    invoke.mockResolvedValue({ instanceId: "instance-1", processes: [] });
+
+    await getNginxRuntimeDetails("instance-1");
+
+    expect(invoke).toHaveBeenCalledWith("get_nginx_runtime_details", {
       instanceId: "instance-1",
     });
   });

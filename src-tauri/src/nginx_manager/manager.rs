@@ -5,8 +5,9 @@ use super::dto::{
     DirectorySelectionPurpose, GetNginxOperationHistoryInput, InspectNginxSystemServiceInput,
     NginxAuthorizationLevel, NginxCapabilities, NginxConfiguration, NginxControlBackend,
     NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState,
-    NginxOperationOutcome, NginxOperationPhase, NginxOperationRecord, NginxProviderIdentity,
-    NginxRegistryState, NginxRegistryStatus, NginxReleaseChannel, NginxReleaseStatus,
+    NginxOperationOutcome, NginxOperationPhase, NginxOperationRecord, NginxProcessRole,
+    NginxProviderIdentity, NginxRegistryState, NginxRegistryStatus, NginxReleaseChannel,
+    NginxReleaseStatus, NginxRuntimeDetails, NginxRuntimeMetricAvailability, NginxRuntimeProcess,
     NginxRuntimeStatus, NginxStatusEvent, NginxStatusSubscription, NginxSystemServiceCandidate,
     NginxSystemServiceInspection, NginxUpgradeProgress, NginxUpgradeResult,
     RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
@@ -20,7 +21,7 @@ use super::upgrade::{
     backup_record, cleanup_backups, create_backup, extract_release, replace_binary, restore_binary,
     verify_signature,
 };
-use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use semver::Version;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -30,6 +31,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use sysinfo::{Pid, ProcessesToUpdate, System};
 use tauri::ipc::Channel;
 use uuid::Uuid;
 
@@ -105,6 +107,7 @@ pub struct NginxManager {
     next_subscription_id: AtomicU64,
     status_generation: Arc<AtomicU64>,
     status_sequence: Arc<AtomicU64>,
+    runtime_system: Arc<Mutex<System>>,
     operation_phase: Arc<Mutex<Option<NginxOperationPhase>>>,
     monitor_shutdown: Arc<AtomicBool>,
     monitor_handle: Mutex<Option<JoinHandle<()>>>,
@@ -134,6 +137,7 @@ impl NginxManager {
             next_subscription_id: AtomicU64::new(1),
             status_generation: Arc::new(AtomicU64::new(1)),
             status_sequence: Arc::new(AtomicU64::new(0)),
+            runtime_system: Arc::new(Mutex::new(System::new())),
             operation_phase: Arc::new(Mutex::new(None)),
             monitor_shutdown: Arc::new(AtomicBool::new(false)),
             monitor_handle: Mutex::new(None),
@@ -442,6 +446,22 @@ impl NginxManager {
             .lock()
             .unwrap()
             .list(input.instance_id.as_deref(), input.limit)
+    }
+
+    pub fn runtime_details(&self, instance_id: &str) -> NginxResult<NginxRuntimeDetails> {
+        let record = self.get_record(instance_id)?;
+        if record.lifecycle_state != NginxLifecycleState::Available {
+            return Err(NginxError::new(
+                "NGINX_INSTANCE_NOT_READABLE",
+                "the registered nginx executable is not available",
+            ));
+        }
+        let status = detect_runtime_status(&record);
+        Ok(collect_runtime_details(
+            &record,
+            status,
+            &mut self.runtime_system.lock().unwrap(),
+        ))
     }
 
     pub async fn upgrade(
@@ -999,6 +1019,7 @@ impl NginxManager {
             &self.status_generation,
             &self.status_sequence,
             &self.operation_phase,
+            &self.runtime_system,
             full_refresh,
         )
     }
@@ -1022,6 +1043,7 @@ impl NginxManager {
         let generation = Arc::clone(&self.status_generation);
         let sequence = Arc::clone(&self.status_sequence);
         let operation_phase = Arc::clone(&self.operation_phase);
+        let runtime_system = Arc::clone(&self.runtime_system);
         let shutdown = Arc::clone(&self.monitor_shutdown);
         *handle = Some(thread::spawn(move || {
             let mut previous_signature = String::new();
@@ -1033,6 +1055,7 @@ impl NginxManager {
                     &generation,
                     &sequence,
                     &operation_phase,
+                    &runtime_system,
                     full_refresh,
                 );
                 let signature = status_signature(&event);
@@ -1076,6 +1099,7 @@ fn build_status_event(
     generation: &AtomicU64,
     sequence: &AtomicU64,
     operation_phase: &Arc<Mutex<Option<NginxOperationPhase>>>,
+    runtime_system: &Arc<Mutex<System>>,
     full_refresh: bool,
 ) -> NginxStatusEvent {
     let instance = {
@@ -1092,11 +1116,19 @@ fn build_status_event(
             })
         }
     };
+    let runtime_details = instance.as_ref().map(|value| {
+        collect_runtime_details(
+            &value.record,
+            value.runtime_status,
+            &mut runtime_system.lock().unwrap(),
+        )
+    });
     NginxStatusEvent {
         generation: generation.load(Ordering::Acquire),
         sequence: sequence.fetch_add(1, Ordering::AcqRel) + 1,
         observed_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         instance,
+        runtime_details,
         operation_phase: *operation_phase.lock().unwrap(),
     }
 }
@@ -1104,7 +1136,7 @@ fn build_status_event(
 fn status_signature(event: &NginxStatusEvent) -> String {
     let instance = event.instance.as_ref();
     format!(
-        "{}|{}|{:?}|{:?}|{:?}|{}",
+        "{}|{}|{:?}|{:?}|{:?}|{}|{:?}|{:?}",
         event.generation,
         instance
             .map(|value| value.record.id.as_str())
@@ -1115,7 +1147,112 @@ fn status_signature(event: &NginxStatusEvent) -> String {
         instance
             .map(|value| value.record.version.as_str())
             .unwrap_or_default(),
+        event
+            .runtime_details
+            .as_ref()
+            .map(|value| value.total_cpu_usage),
+        event
+            .runtime_details
+            .as_ref()
+            .map(|value| value.total_memory_bytes),
     )
+}
+
+fn collect_runtime_details(
+    record: &NginxInstanceRecord,
+    status: NginxRuntimeStatus,
+    system: &mut System,
+) -> NginxRuntimeDetails {
+    let master_pid = verified_master_pid(record);
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    let expected = Path::new(&record.binary_path);
+    let mut processes = system
+        .processes()
+        .iter()
+        .filter_map(|(pid, process)| {
+            let executable = process.exe()?;
+            if !paths_identical(executable, expected) {
+                return None;
+            }
+            let started_at = DateTime::<Utc>::from_timestamp(process.start_time() as i64, 0)
+                .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true));
+            Some(NginxRuntimeProcess {
+                pid: pid.as_u32(),
+                parent_pid: process.parent().map(|value| value.as_u32()),
+                role: if master_pid.is_some_and(|master| master == *pid) {
+                    NginxProcessRole::Master
+                } else {
+                    NginxProcessRole::Worker
+                },
+                cpu_usage: process.cpu_usage(),
+                memory_bytes: process.memory(),
+                started_at,
+                uptime_seconds: process.run_time(),
+                executable_verified: true,
+            })
+        })
+        .collect::<Vec<_>>();
+    processes.sort_by_key(|process| (process.role != NginxProcessRole::Master, process.pid));
+    let started_at = processes
+        .iter()
+        .filter_map(|process| process.started_at.clone())
+        .min();
+    let uptime_seconds = processes.iter().map(|process| process.uptime_seconds).max();
+    NginxRuntimeDetails {
+        instance_id: record.id.clone(),
+        observed_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        status,
+        master_pid: master_pid.map(|value| value.as_u32()),
+        worker_count: processes
+            .iter()
+            .filter(|process| process.role == NginxProcessRole::Worker)
+            .count(),
+        total_cpu_usage: processes.iter().map(|process| process.cpu_usage).sum(),
+        total_memory_bytes: processes.iter().map(|process| process.memory_bytes).sum(),
+        started_at,
+        uptime_seconds,
+        processes,
+        process_metrics: NginxRuntimeMetricAvailability::Available,
+        listeners: Vec::new(),
+        listener_metrics: NginxRuntimeMetricAvailability::Unavailable,
+        connection_metrics: NginxRuntimeMetricAvailability::Unavailable,
+    }
+}
+
+fn verified_master_pid(record: &NginxInstanceRecord) -> Option<Pid> {
+    if !matches!(
+        record.control_backend,
+        NginxControlBackend::Portable | NginxControlBackend::None
+    ) {
+        return None;
+    }
+    let pid_path = record
+        .configure_arguments
+        .iter()
+        .find_map(|argument| argument.strip_prefix("--pid-path="))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("logs/nginx.pid"));
+    let pid_path = if pid_path.is_absolute() {
+        pid_path
+    } else {
+        Path::new(&record.root_path).join(pid_path)
+    };
+    let canonical = pid_path.canonicalize().ok()?;
+    if !record
+        .authorized_roots
+        .iter()
+        .any(|root| canonical.starts_with(Path::new(root)))
+        || reject_reparse_points(&canonical).is_err()
+        || fs::metadata(&canonical).ok()?.len() > 64
+    {
+        return None;
+    }
+    let pid = fs::read_to_string(canonical)
+        .ok()?
+        .trim()
+        .parse::<usize>()
+        .ok()?;
+    Some(Pid::from(pid))
 }
 
 fn locate_binary(root: &Path) -> NginxResult<PathBuf> {
@@ -1873,6 +2010,32 @@ mod tests {
         assert_eq!(
             executable_identity_status(&registered_binary, &different_binary),
             NginxRuntimeStatus::Stopped
+        );
+    }
+
+    #[test]
+    fn runtime_details_never_infer_listener_or_connection_metrics() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let binary = directory
+            .path()
+            .join(if cfg!(windows) { "nginx.exe" } else { "nginx" });
+        fs::write(&binary, b"fixture").expect("write fixture");
+        let fixture = record(
+            directory.path(),
+            &binary,
+            fingerprint(&binary).expect("fingerprint"),
+        );
+        let details =
+            collect_runtime_details(&fixture, NginxRuntimeStatus::Stopped, &mut System::new());
+
+        assert!(details.listeners.is_empty());
+        assert_eq!(
+            details.listener_metrics,
+            NginxRuntimeMetricAvailability::Unavailable
+        );
+        assert_eq!(
+            details.connection_metrics,
+            NginxRuntimeMetricAvailability::Unavailable
         );
     }
 }

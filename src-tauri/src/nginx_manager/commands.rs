@@ -2,10 +2,10 @@ use super::dto::{
     AuthorizeNginxRootInput, CheckNginxUpdatesInput, ControlNginxInstanceInput, DirectorySelection,
     DirectorySelectionPurpose, GetNginxOperationHistoryInput, InspectNginxSystemServiceInput,
     NginxConfiguration, NginxInspection, NginxInstance, NginxOperationRecord, NginxRegistryState,
-    NginxReleaseChannel, NginxReleaseStatus, NginxStatusEvent, NginxStatusSubscription,
-    NginxSystemServiceCandidate, NginxSystemServiceInspection, NginxUpgradeProgress,
-    NginxUpgradeResult, RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
-    ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
+    NginxReleaseChannel, NginxReleaseStatus, NginxRuntimeDetails, NginxStatusEvent,
+    NginxStatusSubscription, NginxSystemServiceCandidate, NginxSystemServiceInspection,
+    NginxUpgradeProgress, NginxUpgradeResult, RegisterNginxInstanceInput,
+    RegisterNginxSystemServiceInput, ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
 };
 use super::error::{NginxError, NginxResult};
 use super::manager::NginxManager;
@@ -141,6 +141,14 @@ pub fn get_nginx_operation_history(
     input: GetNginxOperationHistoryInput,
 ) -> Vec<NginxOperationRecord> {
     manager.operation_history(input)
+}
+
+#[tauri::command]
+pub fn get_nginx_runtime_details(
+    manager: State<'_, NginxManager>,
+    instance_id: String,
+) -> NginxResult<NginxRuntimeDetails> {
+    manager.runtime_details(&instance_id)
 }
 
 #[tauri::command]

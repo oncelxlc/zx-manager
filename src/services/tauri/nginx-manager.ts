@@ -10,6 +10,7 @@ import type {
   NginxReleaseStatus,
   NginxOperationRecord,
   NginxRegistryState,
+  NginxRuntimeDetails,
   NginxStatusEvent,
   NginxStatusSubscription,
   NginxUpgradeProgress,
@@ -101,6 +102,13 @@ export function getNginxConfiguration(
 ): Promise<NginxConfiguration> {
   assertNginxDesktop();
   return invoke("get_nginx_configuration", { instanceId });
+}
+
+export function getNginxRuntimeDetails(
+  instanceId: string,
+): Promise<NginxRuntimeDetails> {
+  assertNginxDesktop();
+  return invoke("get_nginx_runtime_details", { instanceId });
 }
 
 export function controlNginxInstance(

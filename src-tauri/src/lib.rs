@@ -49,6 +49,7 @@ pub fn run() {
             nginx_manager::commands::control_nginx_instance,
             nginx_manager::commands::upgrade_nginx_instance,
             nginx_manager::commands::get_nginx_operation_history,
+            nginx_manager::commands::get_nginx_runtime_details,
             nginx_manager::commands::list_nginx_system_services,
             nginx_manager::commands::inspect_nginx_system_service,
             nginx_manager::commands::register_nginx_system_service

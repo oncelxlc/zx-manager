@@ -99,10 +99,10 @@ describe("nginx store", () => {
 
   it("discards an older status event after a newer sequence", async () => {
     service.subscribeNginxStatus.mockImplementation(async (onMessage) => {
-      onMessage({ generation: 2, sequence: 2, observedAt: "new", instance: instance("new"), operationPhase: null });
-      onMessage({ generation: 2, sequence: 1, observedAt: "old", instance: instance("old"), operationPhase: null });
+      onMessage({ generation: 2, sequence: 2, observedAt: "new", instance: instance("new"), runtimeDetails: null, operationPhase: null });
+      onMessage({ generation: 2, sequence: 1, observedAt: "old", instance: instance("old"), runtimeDetails: null, operationPhase: null });
       return {
-        subscription: { subscriptionId: 1, initialEvent: { generation: 1, sequence: 9, observedAt: "older", instance: instance("older"), operationPhase: null } },
+        subscription: { subscriptionId: 1, initialEvent: { generation: 1, sequence: 9, observedAt: "older", instance: instance("older"), runtimeDetails: null, operationPhase: null } },
         cleanup: vi.fn(),
       };
     });
