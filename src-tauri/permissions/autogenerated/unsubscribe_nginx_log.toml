@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-unsubscribe-nginx-log"
+description = "Enables unsubscribe_nginx_log."
+commands.allow = ["unsubscribe_nginx_log"]

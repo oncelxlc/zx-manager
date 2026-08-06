@@ -33,6 +33,16 @@ permissions = [
 ]
 
 [[set]]
+identifier = "allow-nginx-logs-read"
+description = "Allows bounded history pages and one explicit realtime subscription for configuration-derived Nginx log sources."
+permissions = [
+  "allow-list-nginx-log-sources",
+  "allow-read-nginx-log-page",
+  "allow-subscribe-nginx-log",
+  "allow-unsubscribe-nginx-log",
+]
+
+[[set]]
 identifier = "allow-nginx-instance-register"
 description = "Allows the main window to register, extend authorization for, and unregister Nginx instances."
 permissions = [

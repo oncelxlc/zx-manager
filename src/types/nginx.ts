@@ -258,6 +258,40 @@ export interface NginxGlobalConfigApplyResult {
   errorCode: string | null;
 }
 
+export interface NginxLogSource {
+  id: string;
+  kind: "config-access" | "config-error" | "zxmanager-event";
+  label: string;
+  displayPath: string | null;
+  availability: "available" | "missing";
+  managed: boolean;
+}
+
+export interface NginxLogLine {
+  offset: number;
+  text: string;
+  truncated: boolean;
+}
+
+export interface NginxLogPage {
+  sourceId: string;
+  lines: NginxLogLine[];
+  nextCursor: string | null;
+}
+
+export interface NginxLogEvent {
+  generation: number;
+  sequence: number;
+  sourceId: string;
+  lines: NginxLogLine[];
+  resetReason: "rotate" | "truncate" | null;
+}
+
+export interface NginxLogSubscription {
+  subscriptionId: number;
+  initialEvent: NginxLogEvent;
+}
+
 export type NginxControlAction = "start" | "stop" | "reload" | "restart";
 
 export interface NginxOperationRecord {

@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-list-nginx-log-sources"
+description = "Enables list_nginx_log_sources."
+commands.allow = ["list_nginx_log_sources"]

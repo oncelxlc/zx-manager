@@ -4,11 +4,12 @@ use super::dto::{
     GetNginxOperationHistoryInput, InspectNginxSystemServiceInput, NginxConfigGraph,
     NginxConfigNodeDetail, NginxConfigValidationResult, NginxConfiguration,
     NginxGlobalConfigApplyResult, NginxGlobalConfigPatchValidation, NginxGlobalConfiguration,
-    NginxInspection, NginxInstance, NginxOperationRecord, NginxRegistryState, NginxReleaseChannel,
+    NginxInspection, NginxInstance, NginxLogEvent, NginxLogPage, NginxLogSource,
+    NginxLogSubscription, NginxOperationRecord, NginxRegistryState, NginxReleaseChannel,
     NginxReleaseStatus, NginxRuntimeDetails, NginxStatusEvent, NginxStatusSubscription,
     NginxSystemServiceCandidate, NginxSystemServiceInspection, NginxUpgradeProgress,
-    NginxUpgradeResult, RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
-    ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
+    NginxUpgradeResult, ReadNginxLogPageInput, RegisterNginxInstanceInput,
+    RegisterNginxSystemServiceInput, ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
     ValidateNginxGlobalConfigurationPatchInput,
 };
 use super::error::{NginxError, NginxResult};
@@ -169,6 +170,41 @@ pub fn apply_nginx_global_configuration_patch(
     input: ApplyNginxGlobalConfigurationPatchInput,
 ) -> NginxResult<NginxGlobalConfigApplyResult> {
     manager.apply_global_configuration_patch(input)
+}
+
+#[tauri::command]
+pub fn list_nginx_log_sources(
+    manager: State<'_, NginxManager>,
+    instance_id: String,
+) -> NginxResult<Vec<NginxLogSource>> {
+    manager.log_sources(&instance_id)
+}
+
+#[tauri::command]
+pub fn read_nginx_log_page(
+    manager: State<'_, NginxManager>,
+    input: ReadNginxLogPageInput,
+) -> NginxResult<NginxLogPage> {
+    manager.read_log_page(
+        &input.instance_id,
+        &input.source_id,
+        input.cursor.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub fn subscribe_nginx_log(
+    manager: State<'_, NginxManager>,
+    instance_id: String,
+    source_id: String,
+    channel: Channel<NginxLogEvent>,
+) -> NginxResult<NginxLogSubscription> {
+    manager.subscribe_log(&instance_id, &source_id, channel)
+}
+
+#[tauri::command]
+pub fn unsubscribe_nginx_log(manager: State<'_, NginxManager>, subscription_id: u64) {
+    manager.unsubscribe_log(subscription_id);
 }
 
 #[tauri::command]

@@ -22,6 +22,7 @@
     "allow-nginx-read",
     "allow-nginx-config-read",
     "allow-nginx-config-write",
+    "allow-nginx-logs-read",
     "allow-nginx-instance-register",
     "allow-nginx-control",
     "allow-nginx-upgrade",

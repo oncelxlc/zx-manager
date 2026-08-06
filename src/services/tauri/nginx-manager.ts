@@ -10,6 +10,10 @@ import type {
   NginxGlobalConfigPatchValidation,
   NginxGlobalConfiguration,
   NginxGlobalConfigurationPatch,
+  NginxLogEvent,
+  NginxLogPage,
+  NginxLogSource,
+  NginxLogSubscription,
   NginxConfiguration,
   NginxControlAction,
   NginxDirectorySelection,
@@ -162,6 +166,45 @@ export function applyNginxGlobalConfigurationPatch(
   return invoke("apply_nginx_global_configuration_patch", {
     input: { instanceId, expectedRevision, patch, mode },
   });
+}
+
+export function listNginxLogSources(instanceId: string): Promise<NginxLogSource[]> {
+  assertNginxDesktop();
+  return invoke("list_nginx_log_sources", { instanceId });
+}
+
+export function readNginxLogPage(
+  instanceId: string,
+  sourceId: string,
+  cursor: string | null,
+): Promise<NginxLogPage> {
+  assertNginxDesktop();
+  return invoke("read_nginx_log_page", { input: { instanceId, sourceId, cursor } });
+}
+
+export async function subscribeNginxLog(
+  instanceId: string,
+  sourceId: string,
+  onMessage: (event: NginxLogEvent) => void,
+) {
+  assertNginxDesktop();
+  const channel = new Channel<NginxLogEvent>();
+  channel.onmessage = onMessage;
+  const subscription = await invoke<NginxLogSubscription>("subscribe_nginx_log", {
+    instanceId,
+    sourceId,
+    channel,
+  });
+  let cleaned = false;
+  return {
+    subscription,
+    cleanup: async () => {
+      if (cleaned) return;
+      cleaned = true;
+      channel.onmessage = () => undefined;
+      await invoke("unsubscribe_nginx_log", { subscriptionId: subscription.subscriptionId });
+    },
+  };
 }
 
 export function getNginxRuntimeDetails(

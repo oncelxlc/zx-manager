@@ -371,6 +371,58 @@ pub struct NginxGlobalConfigApplyResult {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NginxLogSource {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    pub display_path: Option<String>,
+    pub availability: String,
+    pub managed: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogLine {
+    pub offset: u64,
+    pub text: String,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogPage {
+    pub source_id: String,
+    pub lines: Vec<NginxLogLine>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadNginxLogPageInput {
+    pub instance_id: String,
+    pub source_id: String,
+    pub cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogEvent {
+    pub generation: u64,
+    pub sequence: u64,
+    pub source_id: String,
+    pub lines: Vec<NginxLogLine>,
+    pub reset_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogSubscription {
+    pub subscription_id: u64,
+    pub initial_event: NginxLogEvent,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NginxConfigGraphSource {
     pub id: String,
     pub display_path: String,

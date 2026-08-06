@@ -8,18 +8,19 @@ use super::dto::{
     NginxCapabilities, NginxConfigGraph, NginxConfigNodeDetail, NginxConfigValidationResult,
     NginxConfiguration, NginxControlBackend, NginxGlobalConfigApplyMode,
     NginxGlobalConfigApplyResult, NginxGlobalConfigPatchValidation, NginxGlobalConfiguration,
-    NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState,
-    NginxOperationOutcome, NginxOperationPhase, NginxOperationRecord, NginxProcessRole,
-    NginxProviderIdentity, NginxRegistryState, NginxRegistryStatus, NginxReleaseChannel,
-    NginxReleaseStatus, NginxRuntimeDetails, NginxRuntimeMetricAvailability, NginxRuntimeProcess,
-    NginxRuntimeStatus, NginxStatusEvent, NginxStatusSubscription, NginxSystemServiceCandidate,
-    NginxSystemServiceInspection, NginxUpgradeProgress, NginxUpgradeResult,
-    RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
-    ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
+    NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState, NginxLogEvent,
+    NginxLogPage, NginxLogSource, NginxLogSubscription, NginxOperationOutcome, NginxOperationPhase,
+    NginxOperationRecord, NginxProcessRole, NginxProviderIdentity, NginxRegistryState,
+    NginxRegistryStatus, NginxReleaseChannel, NginxReleaseStatus, NginxRuntimeDetails,
+    NginxRuntimeMetricAvailability, NginxRuntimeProcess, NginxRuntimeStatus, NginxStatusEvent,
+    NginxStatusSubscription, NginxSystemServiceCandidate, NginxSystemServiceInspection,
+    NginxUpgradeProgress, NginxUpgradeResult, RegisterNginxInstanceInput,
+    RegisterNginxSystemServiceInput, ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
     ValidateNginxGlobalConfigurationPatchInput,
 };
 use super::error::{NginxError, NginxResult};
 use super::global_config::{apply_global_patch, read_global_configuration, validate_global_patch};
+use super::logs::{file_identity, list_sources, read_page, ResolvedLogSource};
 use super::process::{run_command, run_nginx, ProcessOutput};
 use super::registry::NginxRegistry;
 use super::release::{is_stale, CachedRelease, ReleaseUpdateService};
@@ -55,6 +56,18 @@ struct InspectionToken {
     binary: PathBuf,
     config: Option<PathBuf>,
     expires_at: Instant,
+}
+
+struct LogCursorToken {
+    source_id: String,
+    offset: u64,
+    expires_at: Instant,
+}
+
+struct LogTailSubscription {
+    id: u64,
+    shutdown: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
 }
 
 #[derive(Clone)]
@@ -107,6 +120,9 @@ pub struct NginxManager {
     service_discoveries: Mutex<HashMap<String, ServiceDiscoveryToken>>,
     service_inspections: Mutex<HashMap<String, ServiceInspectionToken>>,
     operation_locks: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    log_cursors: Mutex<HashMap<String, LogCursorToken>>,
+    log_subscription: Mutex<Option<LogTailSubscription>>,
+    next_log_subscription_id: AtomicU64,
     operation_history: Mutex<OperationHistory>,
     release_updates: ReleaseUpdateService,
     status_subscribers: Arc<Mutex<HashMap<u64, Channel<NginxStatusEvent>>>>,
@@ -137,6 +153,9 @@ impl NginxManager {
             service_discoveries: Mutex::new(HashMap::new()),
             service_inspections: Mutex::new(HashMap::new()),
             operation_locks: Mutex::new(HashMap::new()),
+            log_cursors: Mutex::new(HashMap::new()),
+            log_subscription: Mutex::new(None),
+            next_log_subscription_id: AtomicU64::new(1),
             operation_history: Mutex::new(operation_history),
             release_updates,
             status_subscribers: Arc::new(Mutex::new(HashMap::new())),
@@ -469,6 +488,166 @@ impl NginxManager {
             &input.patch,
             input.mode,
         )
+    }
+
+    pub fn log_sources(&self, instance_id: &str) -> NginxResult<Vec<NginxLogSource>> {
+        let record = self.get_record(instance_id)?;
+        Ok(list_sources(&record, &self.data_directory)?
+            .into_iter()
+            .map(|source| source.dto)
+            .collect())
+    }
+
+    pub fn read_log_page(
+        &self,
+        instance_id: &str,
+        source_id: &str,
+        cursor: Option<&str>,
+    ) -> NginxResult<NginxLogPage> {
+        let source = self.resolve_log_source(instance_id, source_id)?;
+        let offset = if let Some(cursor) = cursor {
+            let token = self
+                .log_cursors
+                .lock()
+                .unwrap()
+                .remove(cursor)
+                .ok_or_else(|| {
+                    NginxError::new(
+                        "NGINX_LOG_CURSOR_INVALID",
+                        "the log cursor is invalid or expired",
+                    )
+                })?;
+            if token.expires_at <= Instant::now() || token.source_id != source_id {
+                return Err(NginxError::new(
+                    "NGINX_LOG_CURSOR_INVALID",
+                    "the cursor cannot cross log sources",
+                ));
+            }
+            token.offset
+        } else {
+            0
+        };
+        let (lines, next_offset, has_more) = read_page(&source.path, offset)?;
+        let next_cursor = has_more.then(|| {
+            let id = Uuid::new_v4().to_string();
+            self.log_cursors.lock().unwrap().insert(
+                id.clone(),
+                LogCursorToken {
+                    source_id: source_id.to_owned(),
+                    offset: next_offset,
+                    expires_at: Instant::now() + TOKEN_TTL,
+                },
+            );
+            id
+        });
+        Ok(NginxLogPage {
+            source_id: source_id.to_owned(),
+            lines,
+            next_cursor,
+        })
+    }
+
+    pub fn subscribe_log(
+        &self,
+        instance_id: &str,
+        source_id: &str,
+        channel: Channel<NginxLogEvent>,
+    ) -> NginxResult<NginxLogSubscription> {
+        let source = self.resolve_log_source(instance_id, source_id)?;
+        let mut slot = self.log_subscription.lock().unwrap();
+        if slot.is_some() {
+            return Err(NginxError::new(
+                "NGINX_LOG_SUBSCRIPTION_ACTIVE",
+                "only one log source may be followed",
+            ));
+        }
+        let subscription_id = self.next_log_subscription_id.fetch_add(1, Ordering::AcqRel);
+        let generation = subscription_id;
+        let initial_event = NginxLogEvent {
+            generation,
+            sequence: 0,
+            source_id: source_id.to_owned(),
+            lines: Vec::new(),
+            reset_reason: None,
+        };
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let thread_shutdown = Arc::clone(&shutdown);
+        let thread_source_id = source_id.to_owned();
+        let handle = thread::spawn(move || {
+            let mut offset = fs::metadata(&source.path)
+                .map(|value| value.len())
+                .unwrap_or_default();
+            let mut identity = file_identity(&source.path);
+            let mut sequence = 0u64;
+            while !thread_shutdown.load(Ordering::Acquire) {
+                thread::park_timeout(Duration::from_millis(500));
+                if thread_shutdown.load(Ordering::Acquire) {
+                    break;
+                }
+                let next_identity = file_identity(&source.path);
+                let length = fs::metadata(&source.path)
+                    .map(|value| value.len())
+                    .unwrap_or_default();
+                let reset_reason = if identity.is_some() && next_identity != identity {
+                    offset = 0;
+                    Some("rotate".to_owned())
+                } else if length < offset {
+                    offset = 0;
+                    Some("truncate".to_owned())
+                } else {
+                    None
+                };
+                identity = next_identity;
+                let (lines, next, _) = read_page(&source.path, offset).unwrap_or_default();
+                offset = next;
+                if lines.is_empty() && reset_reason.is_none() {
+                    continue;
+                }
+                sequence += 1;
+                let _ = channel.send(NginxLogEvent {
+                    generation,
+                    sequence,
+                    source_id: thread_source_id.clone(),
+                    lines,
+                    reset_reason,
+                });
+            }
+        });
+        *slot = Some(LogTailSubscription {
+            id: subscription_id,
+            shutdown,
+            handle,
+        });
+        Ok(NginxLogSubscription {
+            subscription_id,
+            initial_event,
+        })
+    }
+
+    pub fn unsubscribe_log(&self, subscription_id: u64) {
+        let subscription = self.log_subscription.lock().unwrap().take();
+        if let Some(subscription) = subscription.filter(|item| item.id == subscription_id) {
+            subscription.shutdown.store(true, Ordering::Release);
+            subscription.handle.thread().unpark();
+            let _ = subscription.handle.join();
+        }
+    }
+
+    fn resolve_log_source(
+        &self,
+        instance_id: &str,
+        source_id: &str,
+    ) -> NginxResult<ResolvedLogSource> {
+        let record = self.get_record(instance_id)?;
+        list_sources(&record, &self.data_directory)?
+            .into_iter()
+            .find(|source| source.dto.id == source_id && source.dto.availability == "available")
+            .ok_or_else(|| {
+                NginxError::new(
+                    "NGINX_LOG_SOURCE_NOT_FOUND",
+                    "the derived log source is unavailable",
+                )
+            })
     }
 
     pub fn control(&self, input: ControlNginxInstanceInput) -> NginxResult<NginxOperationRecord> {
@@ -945,6 +1124,11 @@ impl NginxManager {
     }
 
     pub fn shutdown(&self) {
+        if let Some(subscription) = self.log_subscription.lock().unwrap().take() {
+            subscription.shutdown.store(true, Ordering::Release);
+            subscription.handle.thread().unpark();
+            let _ = subscription.handle.join();
+        }
         self.monitor_shutdown.store(true, Ordering::Release);
         if let Some(handle) = self.monitor_handle.lock().unwrap().take() {
             handle.thread().unpark();
