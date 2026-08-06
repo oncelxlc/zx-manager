@@ -5,7 +5,6 @@ import {
   BoxIcon,
   CableIcon,
   CircleHelpIcon,
-  FileCodeIcon,
   FileKeyIcon,
   LayoutDashboardIcon,
   SearchIcon,
@@ -23,7 +22,6 @@ import { toast } from "@/components/ui/toast";
 import { restartApplication } from "src/services/tauri/application";
 import { writeDiagnosticText } from "src/services/tauri/system-information";
 import { useSystemInformationStore } from "src/stores/system-information-store";
-import { useNginxReleaseStore } from "src/stores/nginx-release-store";
 import {
   formatMachinePlatform,
   getErrorTranslationKey,
@@ -32,22 +30,27 @@ import {
 import { PreferencesDialog } from "./preferences/PreferencesDialog";
 import {
   NavigationGroup,
-  type NavigationItem,
+  type NavigationEntry,
 } from "./navigation/NavigationGroup";
 import { SidebarFooterContent } from "./sidebar/SidebarFooterContent";
 
-const managementItems: NavigationItem[] = [
-  {labelKey: "items.dashboard", icon: LayoutDashboardIcon},
-  {labelKey: "items.services", icon: ServerCogIcon},
-  {labelKey: "items.nginx", icon: BoxIcon},
-];
-
-const resourceItems: NavigationItem[] = [
-  {labelKey: "items.configuration", icon: FileCodeIcon},
-  {labelKey: "items.logs", icon: TerminalSquareIcon},
-  {labelKey: "items.nginxLogs", icon: TerminalSquareIcon},
-  {labelKey: "items.certificates", icon: FileKeyIcon},
-  {labelKey: "items.networkPorts", icon: CableIcon},
+const navigationEntries: NavigationEntry[] = [
+  {type: "link", labelKey: "items.dashboard", icon: LayoutDashboardIcon, to: "/"},
+  {type: "link", labelKey: "items.services", icon: ServerCogIcon, to: null},
+  {
+    type: "collapsible",
+    labelKey: "items.nginx",
+    icon: BoxIcon,
+    defaultTo: "/nginx/overview",
+    children: [
+      {labelKey: "items.nginxOverview", to: "/nginx/overview"},
+      {labelKey: "items.nginxRuntime", to: "/nginx/runtime"},
+      {labelKey: "items.nginxConfiguration", to: "/nginx/configuration"},
+      {labelKey: "items.nginxLogs", to: "/nginx/logs"},
+    ],
+  },
+  {type: "link", labelKey: "items.certificates", icon: FileKeyIcon, to: null},
+  {type: "link", labelKey: "items.networkPorts", icon: CableIcon, to: null},
 ];
 
 function showMockAction(label: string, description: string) {
@@ -67,46 +70,24 @@ export function AppSidebar() {
   const [restartConfirmationOpen, setRestartConfirmationOpen] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const summary = useSystemInformationStore((state) => state.summary);
-  const nginxUpdateCount = useNginxReleaseStore(
-    (state) => state.status?.updateAvailableCount ?? 0,
-  );
   const information = useSystemInformationStore((state) => state.information);
   const loadSummary = useSystemInformationStore((state) => state.loadSummary);
   const loadInformation = useSystemInformationStore((state) => state.loadInformation);
   const summaryLoading = useSystemInformationStore(
     (state) => state.summaryStatus === "loading",
   );
-  const activeNavigationItem =
-    location.pathname === "/"
-      ? "items.dashboard"
-      : location.pathname === "/system-information"
-        ? ""
-        : location.pathname.startsWith("/nginx/manage")
-          ? "items.nginx"
-          : location.pathname === "/nginx/logs"
-            ? "items.nginxLogs"
-            : activeItem;
-
   useEffect(() => {
     void loadSummary();
   }, [loadSummary]);
 
-  function handleItemSelect(labelKey: string) {
+  function handleItemSelect(labelKey: string, to: string | null = null) {
     setActiveItem(labelKey);
     if (labelKey === "items.settings") {
       setSettingsOpen(true);
       return;
     }
-    if (labelKey === "items.dashboard") {
-      void navigate("/");
-      return;
-    }
-    if (labelKey === "items.nginx") {
-      void navigate("/nginx/manage");
-      return;
-    }
-    if (labelKey === "items.nginxLogs") {
-      void navigate("/nginx/logs");
+    if (to) {
+      void navigate(to);
       return;
     }
     if (labelKey !== "items.dashboard") {
@@ -215,17 +196,10 @@ export function AppSidebar() {
 
       <SidebarContent>
         <NavigationGroup
-          label={t("navigation:groups.management")}
-          items={managementItems}
-          activeItem={activeNavigationItem}
+          activeMockItem={activeItem}
+          entries={navigationEntries}
           onItemSelect={handleItemSelect}
-          badges={{"items.nginx": nginxUpdateCount}}
-        />
-        <NavigationGroup
-          label={t("navigation:groups.resources")}
-          items={resourceItems}
-          activeItem={activeNavigationItem}
-          onItemSelect={handleItemSelect}
+          pathname={location.pathname}
         />
       </SidebarContent>
 

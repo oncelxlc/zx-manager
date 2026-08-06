@@ -169,15 +169,15 @@ describe("AppSidebar system information navigation", () => {
     );
   });
 
-  it("opens the real Nginx management and log routes without mock toasts", async () => {
+  it("opens the Nginx overview and nested log routes without mock toasts", async () => {
     const user = userEvent.setup();
     renderSidebar();
 
-    await user.click(screen.getByRole("button", { name: "Nginx Management" }));
+    await user.click(screen.getByRole("button", { name: "Nginx" }));
     expect(screen.getByLabelText("current path")).toHaveTextContent(
-      "/nginx/manage",
+      "/nginx/overview",
     );
-    await user.click(screen.getByRole("button", { name: "Nginx Logs" }));
+    await user.click(screen.getByRole("button", { name: "Logs" }));
     expect(screen.getByLabelText("current path")).toHaveTextContent(
       "/nginx/logs",
     );

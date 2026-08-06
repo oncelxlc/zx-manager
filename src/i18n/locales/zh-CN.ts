@@ -6,8 +6,8 @@ const zhCN = {
   },
   navigation: {
     groups: { management: "管理", resources: "资源" },
-    items: { certificates: "证书", configuration: "配置", dashboard: "仪表盘", help: "帮助", logs: "日志", networkPorts: "网络端口", nginx: "Nginx 管理", nginxLogs: "Nginx 日志", search: "搜索", services: "服务", settings: "设置", systemMonitor: "系统监控" },
-    labels: { openMachineActions: "打开本机操作" },
+    items: { certificates: "证书", configuration: "配置", dashboard: "仪表盘", help: "帮助", logs: "日志", networkPorts: "网络端口", nginx: "Nginx", nginxConfiguration: "配置", nginxLogs: "日志", nginxOverview: "概览", nginxRuntime: "运行状态", search: "搜索", services: "服务", settings: "设置", systemMonitor: "系统监控" },
+    labels: { collapseNginx: "收起 Nginx 菜单", expandNginx: "展开 Nginx 菜单", openMachineActions: "打开本机操作" },
     machine: { name: "本地计算机", platformUnavailable: "正在获取系统摘要", copyDiagnostics: "复制诊断信息", openGuide: "打开指南", refreshSummary: "刷新设备摘要", restartApp: "重启应用", restartConfirmationTitle: "重启 ZxManager？", restartConfirmationDescription: "应用将关闭并立即重新启动。未保存的操作可能会丢失。", restartError: "无法重启应用", systemInfo: "系统信息" },
     toast: { copyDiagnosticsError: "无法复制诊断信息", copyDiagnosticsSuccess: "诊断信息已复制", copyDiagnosticsSuccessDescription: "已将不含主机名、挂载点和驱动详情的白名单 JSON 写入剪贴板。", futureAction: "此操作已为后续 Tauri 命令准备就绪。", moduleMock: "此模块当前以本地仪表盘模拟方式呈现。", selected: "已选择 {{label}}", summaryRefreshError: "无法刷新设备摘要", summaryRefreshSuccess: "设备摘要已更新" },
   },
@@ -55,6 +55,7 @@ const zhCN = {
     toast: { refreshSuccessTitle: "系统信息已刷新", refreshSuccessDescription: "已采集最新的设备和运行环境快照。", refreshErrorTitle: "刷新失败" },
   },
   nginx: {
+    runtimePage: { title: "Nginx 运行状态", description: "查看已登记实例的真实进程、资源和监听状态。", emptyTitle: "运行详情正在接入", emptyDescription: "此页面只会展示 Rust 后端验证过的运行数据，不会使用模拟指标。" },
     management: { title: "Nginx 管理", description: "管理由 Rust 后端检查并明确授权的本机 Nginx 实例。", instancesTitle: "Nginx 概览", instancesDescription: "系统只登记一个 Nginx 实例。", instanceReady: "nginx/{{version}} 已登记", instanceEmpty: "尚未登记", openInstances: "管理实例", registryBoundary: "注册表仅保存稳定路径、指纹和授权信息，不保存 PID 等运行态数据。", logsTitle: "日志", logsDescription: "查看已授权实例的日志源。", openLogs: "打开日志", noRealtimeClaim: "Nginx 状态与控制为真实数据；日志和其他 Dashboard 服务仍保持模拟或占位。", sitesTitle: "站点与拓扑", sitesDescription: "查看 server、监听、location 和 upstream 声明关系。", openSites: "打开站点", topologyBoundary: "拓扑只来自配置声明，绝不表示实时请求或流量。", configurationTitle: "配置来源", configurationDescription: "读取原始文本、Include 和稳定诊断。", openConfiguration: "打开配置", sourceBoundary: "注释、未知指令、顺序和源位置均保留在原始源码模型中。" },
     instances: { title: "Nginx 实例", description: "每个系统最多登记一个 Nginx；运行状态每 2 秒同步。", add: "登记 Nginx", emptyTitle: "尚未登记 Nginx", emptyDescription: "选择 Nginx 安装目录；后端将验证二进制、版本、路径和指纹。", errorTitle: "无法加载 Nginx 实例", retry: "重试", notObserved: "尚未观测", observedAt: "最近观测", moreActions: "更多操作", columns: { name: "名称", version: "版本", lifecycle: "生命周期", authorization: "授权", path: "目录", actions: "操作" }, refreshOne: "刷新 {{name}}", unregisterOne: "注销 {{name}}" },
     registration: { title: "登记 Nginx 实例", description: "以下信息由 Rust 直接执行 nginx -v/-V 后生成；显示名固定为 Nginx。", name: "实例名称", register: "登记实例", warningsTitle: "检查警告", authorization: { label: "授权级别", readOnly: "只读", full: "完整", readOnlyDescription: "允许读取配置和状态，不允许修改文件。", fullDescription: "允许显式控制，以及 Windows 便携版的确认式升级和自动回滚。" } },

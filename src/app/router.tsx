@@ -1,5 +1,12 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, redirect } from "react-router";
 import MainLayout from "../layouts/MainLayout.tsx";
+
+function redirectWithSearch(pathname: string) {
+  return ({ request }: { request: Request }) => {
+    const url = new URL(request.url);
+    return redirect(`${pathname}${url.search}`);
+  };
+}
 
 export const router = createBrowserRouter([
   {
@@ -23,28 +30,25 @@ export const router = createBrowserRouter([
           ),
       },
       {
-        path: "nginx/manage",
+        path: "nginx",
+        loader: redirectWithSearch("/nginx/overview"),
+      },
+      {
+        path: "nginx/overview",
         lazy: () =>
-          import("../pages/nginx/NginxManagementPage.tsx").then((module) => ({
-            Component: module.NginxManagementPage,
+          import("../pages/nginx/NginxOverviewPage.tsx").then((module) => ({
+            Component: module.NginxOverviewPage,
           })),
       },
       {
-        path: "nginx/manage/instances",
+        path: "nginx/runtime",
         lazy: () =>
-          import("../pages/nginx/NginxInstancesPage.tsx").then((module) => ({
-            Component: module.NginxInstancesPage,
+          import("../pages/nginx/NginxRuntimePage.tsx").then((module) => ({
+            Component: module.NginxRuntimePage,
           })),
       },
       {
-        path: "nginx/manage/sites",
-        lazy: () =>
-          import("../pages/nginx/NginxSitesPage.tsx").then((module) => ({
-            Component: module.NginxSitesPage,
-          })),
-      },
-      {
-        path: "nginx/manage/configuration",
+        path: "nginx/configuration",
         lazy: () =>
           import("../pages/nginx/NginxConfigurationPage.tsx").then((module) => ({
             Component: module.NginxConfigurationPage,
@@ -57,6 +61,10 @@ export const router = createBrowserRouter([
             Component: module.NginxLogsPage,
           })),
       },
+      { path: "nginx/manage", loader: redirectWithSearch("/nginx/overview") },
+      { path: "nginx/manage/instances", loader: redirectWithSearch("/nginx/overview") },
+      { path: "nginx/manage/sites", loader: redirectWithSearch("/nginx/configuration") },
+      { path: "nginx/manage/configuration", loader: redirectWithSearch("/nginx/configuration") },
     ],
   },
 ]);
