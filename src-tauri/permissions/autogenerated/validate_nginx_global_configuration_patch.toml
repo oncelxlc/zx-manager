@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-validate-nginx-global-configuration-patch"
+description = "Enables the validate_nginx_global_configuration_patch command without any pre-configured scope."
+commands.allow = ["validate_nginx_global_configuration_patch"]
+
+[[permission]]
+identifier = "deny-validate-nginx-global-configuration-patch"
+description = "Denies the validate_nginx_global_configuration_patch command without any pre-configured scope."
+commands.deny = ["validate_nginx_global_configuration_patch"]

@@ -156,26 +156,38 @@ impl NginxRegistry {
 }
 
 pub(super) fn write_json_atomically<T: Serialize>(path: &Path, value: &T) -> NginxResult<()> {
-    let parent = path.parent().ok_or_else(|| {
-        NginxError::new("NGINX_REGISTRY_PATH_INVALID", "registry path has no parent")
-    })?;
-    fs::create_dir_all(parent)
-        .map_err(|error| NginxError::io("create registry directory", error))?;
-    let temporary_path = parent.join(format!(".registry-{}.tmp", Uuid::new_v4()));
     let bytes = serde_json::to_vec_pretty(value)
         .map_err(|error| NginxError::new("NGINX_REGISTRY_SERIALIZE_FAILED", error.to_string()))?;
+    write_bytes_atomically(path, &bytes, "registry")
+}
+
+pub(super) fn write_bytes_atomically(
+    path: &Path,
+    bytes: &[u8],
+    temporary_prefix: &str,
+) -> NginxResult<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| NginxError::new("NGINX_ATOMIC_PATH_INVALID", "target path has no parent"))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| NginxError::io("create atomic write directory", error))?;
+    let temporary_path = parent.join(format!(".{temporary_prefix}-{}.tmp", Uuid::new_v4()));
     let result = (|| {
         let mut temporary = OpenOptions::new()
             .create_new(true)
             .write(true)
             .open(&temporary_path)
-            .map_err(|error| NginxError::io("create registry temporary file", error))?;
+            .map_err(|error| NginxError::io("create atomic temporary file", error))?;
+        if let Ok(metadata) = fs::metadata(path) {
+            fs::set_permissions(&temporary_path, metadata.permissions())
+                .map_err(|error| NginxError::io("preserve target permissions", error))?;
+        }
         temporary
-            .write_all(&bytes)
-            .map_err(|error| NginxError::io("write registry temporary file", error))?;
+            .write_all(bytes)
+            .map_err(|error| NginxError::io("write atomic temporary file", error))?;
         temporary
             .sync_all()
-            .map_err(|error| NginxError::io("sync registry temporary file", error))?;
+            .map_err(|error| NginxError::io("sync atomic temporary file", error))?;
         atomic_replace(&temporary_path, path)?;
         sync_directory(parent)?;
         Ok(())

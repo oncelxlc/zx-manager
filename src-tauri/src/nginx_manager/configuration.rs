@@ -689,6 +689,8 @@ fn location(source_id: &str, text: &str, start: usize, end: usize) -> NginxSourc
     let (end_line, end_column) = line_column(text, end);
     NginxSourceLocation {
         source_id: source_id.to_owned(),
+        byte_start: start,
+        byte_end: end,
         line,
         column,
         end_line,

@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke, isTauri }));
 
 import {
   checkNginxUpdates,
+  applyNginxGlobalConfigurationPatch,
   controlNginxInstance,
   getNginxConfiguration,
   getNginxRuntimeDetails,
@@ -17,6 +18,7 @@ import {
   readNginxConfigNode,
   registerNginxInstance,
   selectNginxDirectory,
+  validateNginxGlobalConfigurationPatch,
   toNginxCommandError,
 } from "./nginx-manager";
 
@@ -102,6 +104,31 @@ describe("nginx manager Tauri service", () => {
       nodeId: "node-1",
     });
     expect(JSON.stringify(invoke.mock.calls)).not.toContain("path");
+  });
+
+  it("sends only allowlisted global fields with an expected revision", async () => {
+    const patch = {
+      workerProcesses: "auto",
+      workerRlimitNofile: null,
+      pid: "logs/nginx.pid",
+      errorLog: "logs/error.log warn",
+      topLevelIncludes: ["conf.d/*.conf"],
+      workerConnections: "4096",
+      multiAccept: "on",
+      acceptMutex: "off",
+      acceptMutexDelay: "500ms",
+    };
+    invoke.mockResolvedValue({ parserValid: true, nativeValid: true });
+
+    await validateNginxGlobalConfigurationPatch("instance-1", "revision-1", patch);
+    await applyNginxGlobalConfigurationPatch("instance-1", "revision-1", patch, "reload");
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "validate_nginx_global_configuration_patch", {
+      input: { instanceId: "instance-1", expectedRevision: "revision-1", patch },
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "apply_nginx_global_configuration_patch", {
+      input: { instanceId: "instance-1", expectedRevision: "revision-1", patch, mode: "reload" },
+    });
   });
 
   it("reads runtime details by opaque registered instance id", async () => {

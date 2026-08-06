@@ -138,13 +138,19 @@ fn flatten_directives(
 fn revision(configuration: &NginxConfiguration) -> NginxConfigRevision {
     let mut hasher = Sha256::new();
     for source in &configuration.sources {
-        hasher.update(source.id.as_bytes());
-        hasher.update([0]);
         hasher.update(source.text.as_bytes());
         hasher.update([0xff]);
     }
     NginxConfigRevision {
         value: format!("{:x}", hasher.finalize()),
+        modified_at: configuration
+            .sources
+            .iter()
+            .find(|source| source.id == configuration.entry_source_id)
+            .and_then(|source| std::fs::metadata(&source.display_path).ok())
+            .and_then(|metadata| metadata.modified().ok())
+            .map(chrono::DateTime::<chrono::Utc>::from)
+            .map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
     }
 }
 
@@ -264,6 +270,8 @@ mod tests {
     fn location() -> NginxSourceLocation {
         NginxSourceLocation {
             source_id: "source".to_owned(),
+            byte_start: 0,
+            byte_end: 10,
             line: 1,
             column: 1,
             end_line: 1,

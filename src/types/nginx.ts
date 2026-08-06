@@ -94,6 +94,8 @@ export interface NginxReleaseStatus {
 
 export interface NginxSourceLocation {
   sourceId: string;
+  byteStart: number;
+  byteEnd: number;
   line: number;
   column: number;
   endLine: number;
@@ -168,6 +170,7 @@ export interface NginxConfiguration {
 
 export interface NginxConfigRevision {
   value: string;
+  modifiedAt: string | null;
 }
 
 export interface NginxConfigGraphSource {
@@ -211,6 +214,48 @@ export interface NginxConfigValidationResult {
   nativeValid: boolean;
   nativeErrorCode: string | null;
   diagnostics: NginxConfigDiagnostic[];
+}
+
+export interface NginxGlobalConfigurationPatch {
+  workerProcesses: string | null;
+  workerRlimitNofile: string | null;
+  pid: string | null;
+  errorLog: string | null;
+  topLevelIncludes: string[];
+  workerConnections: string | null;
+  multiAccept: string | null;
+  acceptMutex: string | null;
+  acceptMutexDelay: string | null;
+}
+
+export interface NginxGlobalConfiguration extends NginxGlobalConfigurationPatch {
+  instanceId: string;
+  revision: NginxConfigRevision;
+}
+
+export type NginxGlobalConfigApplyMode = "save" | "reload" | "restart";
+
+export interface NginxGlobalConfigFieldError {
+  field: keyof NginxGlobalConfigurationPatch;
+  code: string;
+}
+
+export interface NginxGlobalConfigPatchValidation {
+  currentRevision: NginxConfigRevision;
+  proposedRevision: NginxConfigRevision | null;
+  fieldErrors: NginxGlobalConfigFieldError[];
+  parserValid: boolean;
+  nativeValid: boolean;
+  nativeErrorCode: string | null;
+}
+
+export interface NginxGlobalConfigApplyResult {
+  revision: NginxConfigRevision;
+  mode: NginxGlobalConfigApplyMode;
+  success: boolean;
+  rolledBack: boolean;
+  rollbackSucceeded: boolean | null;
+  errorCode: string | null;
 }
 
 export type NginxControlAction = "start" | "stop" | "reload" | "restart";

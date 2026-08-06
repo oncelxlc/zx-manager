@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { NginxInstanceGate } from "src/components/nginx/instance/NginxInstanceGate";
+import { NginxGlobalConfigCard } from "src/components/nginx/overview/NginxGlobalConfigCard";
 import { NginxUpdateCard } from "src/components/nginx/NginxUpdateCard";
 import { NginxControlActions } from "src/components/nginx/runtime/NginxControlActions";
 import { NginxMetricsUnavailable } from "src/components/nginx/runtime/NginxMetricsUnavailable";
@@ -32,6 +33,7 @@ function NginxOverviewContent() {
   return (
     <div className="flex flex-col gap-5">
       <NginxRuntimeSummary instance={instance} runtime={runtime} />
+      <NginxGlobalConfigCard instance={instance} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>

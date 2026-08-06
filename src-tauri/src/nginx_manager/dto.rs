@@ -195,6 +195,8 @@ pub struct CheckNginxUpdatesInput {
 #[serde(rename_all = "camelCase")]
 pub struct NginxSourceLocation {
     pub source_id: String,
+    pub byte_start: usize,
+    pub byte_end: usize,
     pub line: usize,
     pub column: usize,
     pub end_line: usize,
@@ -287,6 +289,84 @@ pub struct NginxConfiguration {
 #[serde(rename_all = "camelCase")]
 pub struct NginxConfigRevision {
     pub value: String,
+    pub modified_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxGlobalConfigurationPatch {
+    pub worker_processes: Option<String>,
+    pub worker_rlimit_nofile: Option<String>,
+    pub pid: Option<String>,
+    pub error_log: Option<String>,
+    pub top_level_includes: Vec<String>,
+    pub worker_connections: Option<String>,
+    pub multi_accept: Option<String>,
+    pub accept_mutex: Option<String>,
+    pub accept_mutex_delay: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxGlobalConfiguration {
+    pub instance_id: String,
+    pub revision: NginxConfigRevision,
+    #[serde(flatten)]
+    pub values: NginxGlobalConfigurationPatch,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidateNginxGlobalConfigurationPatchInput {
+    pub instance_id: String,
+    pub expected_revision: String,
+    pub patch: NginxGlobalConfigurationPatch,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NginxGlobalConfigApplyMode {
+    Save,
+    Reload,
+    Restart,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyNginxGlobalConfigurationPatchInput {
+    pub instance_id: String,
+    pub expected_revision: String,
+    pub patch: NginxGlobalConfigurationPatch,
+    pub mode: NginxGlobalConfigApplyMode,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxGlobalConfigFieldError {
+    pub field: String,
+    pub code: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxGlobalConfigPatchValidation {
+    pub current_revision: NginxConfigRevision,
+    pub proposed_revision: Option<NginxConfigRevision>,
+    pub field_errors: Vec<NginxGlobalConfigFieldError>,
+    pub parser_valid: bool,
+    pub native_valid: bool,
+    pub native_error_code: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxGlobalConfigApplyResult {
+    pub revision: NginxConfigRevision,
+    pub mode: NginxGlobalConfigApplyMode,
+    pub success: bool,
+    pub rolled_back: bool,
+    pub rollback_succeeded: Option<bool>,
+    pub error_code: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

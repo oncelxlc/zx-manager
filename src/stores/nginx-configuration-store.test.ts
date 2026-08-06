@@ -39,7 +39,7 @@ function graph(instanceId: string): NginxConfigGraph {
   return {
     instanceId,
     entrySourceId: "source",
-    revision: { value: "revision" },
+    revision: { value: "revision", modifiedAt: null },
     sources: [],
     nodes: [],
     diagnostics: [],

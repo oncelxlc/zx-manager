@@ -1,12 +1,15 @@
 use super::dto::{
-    AuthorizeNginxRootInput, CheckNginxUpdatesInput, ControlNginxInstanceInput, DirectorySelection,
-    DirectorySelectionPurpose, GetNginxOperationHistoryInput, InspectNginxSystemServiceInput,
-    NginxConfigGraph, NginxConfigNodeDetail, NginxConfigValidationResult, NginxConfiguration,
+    ApplyNginxGlobalConfigurationPatchInput, AuthorizeNginxRootInput, CheckNginxUpdatesInput,
+    ControlNginxInstanceInput, DirectorySelection, DirectorySelectionPurpose,
+    GetNginxOperationHistoryInput, InspectNginxSystemServiceInput, NginxConfigGraph,
+    NginxConfigNodeDetail, NginxConfigValidationResult, NginxConfiguration,
+    NginxGlobalConfigApplyResult, NginxGlobalConfigPatchValidation, NginxGlobalConfiguration,
     NginxInspection, NginxInstance, NginxOperationRecord, NginxRegistryState, NginxReleaseChannel,
     NginxReleaseStatus, NginxRuntimeDetails, NginxStatusEvent, NginxStatusSubscription,
     NginxSystemServiceCandidate, NginxSystemServiceInspection, NginxUpgradeProgress,
     NginxUpgradeResult, RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
     ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
+    ValidateNginxGlobalConfigurationPatchInput,
 };
 use super::error::{NginxError, NginxResult};
 use super::manager::NginxManager;
@@ -142,6 +145,30 @@ pub fn validate_nginx_configuration(
     instance_id: String,
 ) -> NginxResult<NginxConfigValidationResult> {
     manager.validate_configuration(&instance_id)
+}
+
+#[tauri::command]
+pub fn get_nginx_global_configuration(
+    manager: State<'_, NginxManager>,
+    instance_id: String,
+) -> NginxResult<NginxGlobalConfiguration> {
+    manager.global_configuration(&instance_id)
+}
+
+#[tauri::command]
+pub fn validate_nginx_global_configuration_patch(
+    manager: State<'_, NginxManager>,
+    input: ValidateNginxGlobalConfigurationPatchInput,
+) -> NginxResult<NginxGlobalConfigPatchValidation> {
+    manager.validate_global_configuration_patch(input)
+}
+
+#[tauri::command]
+pub fn apply_nginx_global_configuration_patch(
+    manager: State<'_, NginxManager>,
+    input: ApplyNginxGlobalConfigurationPatchInput,
+) -> NginxResult<NginxGlobalConfigApplyResult> {
+    manager.apply_global_configuration_patch(input)
 }
 
 #[tauri::command]

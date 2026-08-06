@@ -21,6 +21,15 @@ permissions = [
   "allow-read-nginx-config-graph",
   "allow-read-nginx-config-node",
   "allow-validate-nginx-configuration",
+  "allow-get-nginx-global-configuration",
+]
+
+[[set]]
+identifier = "allow-nginx-config-write"
+description = "Allows validated minimal patches and atomic application of the registered Nginx entry configuration."
+permissions = [
+  "allow-validate-nginx-global-configuration-patch",
+  "allow-apply-nginx-global-configuration-patch",
 ]
 
 [[set]]

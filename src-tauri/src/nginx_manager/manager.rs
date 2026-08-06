@@ -2,20 +2,24 @@ use super::config_graph::{build_config_graph, read_config_node};
 use super::configuration::load_configuration;
 use super::control::{execute as execute_control, OperationHistory};
 use super::dto::{
-    AuthorizeNginxRootInput, CheckNginxUpdatesInput, ControlNginxInstanceInput, DirectorySelection,
-    DirectorySelectionPurpose, GetNginxOperationHistoryInput, InspectNginxSystemServiceInput,
-    NginxAuthorizationLevel, NginxCapabilities, NginxConfigGraph, NginxConfigNodeDetail,
-    NginxConfigValidationResult, NginxConfiguration, NginxControlBackend, NginxInspection,
-    NginxInstance, NginxInstanceRecord, NginxLifecycleState, NginxOperationOutcome,
-    NginxOperationPhase, NginxOperationRecord, NginxProcessRole, NginxProviderIdentity,
-    NginxRegistryState, NginxRegistryStatus, NginxReleaseChannel, NginxReleaseStatus,
-    NginxRuntimeDetails, NginxRuntimeMetricAvailability, NginxRuntimeProcess, NginxRuntimeStatus,
-    NginxStatusEvent, NginxStatusSubscription, NginxSystemServiceCandidate,
+    ApplyNginxGlobalConfigurationPatchInput, AuthorizeNginxRootInput, CheckNginxUpdatesInput,
+    ControlNginxInstanceInput, DirectorySelection, DirectorySelectionPurpose,
+    GetNginxOperationHistoryInput, InspectNginxSystemServiceInput, NginxAuthorizationLevel,
+    NginxCapabilities, NginxConfigGraph, NginxConfigNodeDetail, NginxConfigValidationResult,
+    NginxConfiguration, NginxControlBackend, NginxGlobalConfigApplyMode,
+    NginxGlobalConfigApplyResult, NginxGlobalConfigPatchValidation, NginxGlobalConfiguration,
+    NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState,
+    NginxOperationOutcome, NginxOperationPhase, NginxOperationRecord, NginxProcessRole,
+    NginxProviderIdentity, NginxRegistryState, NginxRegistryStatus, NginxReleaseChannel,
+    NginxReleaseStatus, NginxRuntimeDetails, NginxRuntimeMetricAvailability, NginxRuntimeProcess,
+    NginxRuntimeStatus, NginxStatusEvent, NginxStatusSubscription, NginxSystemServiceCandidate,
     NginxSystemServiceInspection, NginxUpgradeProgress, NginxUpgradeResult,
     RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
     ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
+    ValidateNginxGlobalConfigurationPatchInput,
 };
 use super::error::{NginxError, NginxResult};
+use super::global_config::{apply_global_patch, read_global_configuration, validate_global_patch};
 use super::process::{run_command, run_nginx, ProcessOutput};
 use super::registry::NginxRegistry;
 use super::release::{is_stale, CachedRelease, ReleaseUpdateService};
@@ -412,6 +416,59 @@ impl NginxManager {
             native_error_code,
             diagnostics: graph.diagnostics,
         })
+    }
+
+    pub fn global_configuration(&self, instance_id: &str) -> NginxResult<NginxGlobalConfiguration> {
+        read_global_configuration(&self.configuration(instance_id)?)
+    }
+
+    pub fn validate_global_configuration_patch(
+        &self,
+        input: ValidateNginxGlobalConfigurationPatchInput,
+    ) -> NginxResult<NginxGlobalConfigPatchValidation> {
+        let record = self.get_record(&input.instance_id)?;
+        if !refresh_instance(record.clone()).capabilities.can_edit {
+            return Err(NginxError::new(
+                "NGINX_CONFIG_WRITE_NOT_AUTHORIZED",
+                "the instance is not authorized for configuration writes",
+            ));
+        }
+        validate_global_patch(&record, &input.expected_revision, &input.patch)
+    }
+
+    pub fn apply_global_configuration_patch(
+        &self,
+        input: ApplyNginxGlobalConfigurationPatchInput,
+    ) -> NginxResult<NginxGlobalConfigApplyResult> {
+        let record = self.get_record(&input.instance_id)?;
+        let capabilities = refresh_instance(record.clone()).capabilities;
+        if !capabilities.can_edit {
+            return Err(NginxError::new(
+                "NGINX_CONFIG_WRITE_NOT_AUTHORIZED",
+                "the instance is not authorized for configuration writes",
+            ));
+        }
+        if input.mode != NginxGlobalConfigApplyMode::Save && !capabilities.can_control {
+            return Err(NginxError::new(
+                "NGINX_CONTROL_NOT_AUTHORIZED",
+                "the instance cannot reload or restart after saving",
+            ));
+        }
+        let transaction_lock = self
+            .operation_locks
+            .lock()
+            .unwrap()
+            .entry(record.id.clone())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone();
+        let _transaction = OperationGuard::try_acquire(transaction_lock)?;
+        apply_global_patch(
+            &record,
+            &self.data_directory,
+            &input.expected_revision,
+            &input.patch,
+            input.mode,
+        )
     }
 
     pub fn control(&self, input: ControlNginxInstanceInput) -> NginxResult<NginxOperationRecord> {

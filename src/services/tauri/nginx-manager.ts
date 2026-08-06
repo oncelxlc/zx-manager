@@ -5,6 +5,11 @@ import type {
   NginxConfigGraph,
   NginxConfigNodeDetail,
   NginxConfigValidationResult,
+  NginxGlobalConfigApplyMode,
+  NginxGlobalConfigApplyResult,
+  NginxGlobalConfigPatchValidation,
+  NginxGlobalConfiguration,
+  NginxGlobalConfigurationPatch,
   NginxConfiguration,
   NginxControlAction,
   NginxDirectorySelection,
@@ -127,6 +132,36 @@ export function validateNginxConfiguration(
 ): Promise<NginxConfigValidationResult> {
   assertNginxDesktop();
   return invoke("validate_nginx_configuration", { instanceId });
+}
+
+export function getNginxGlobalConfiguration(
+  instanceId: string,
+): Promise<NginxGlobalConfiguration> {
+  assertNginxDesktop();
+  return invoke("get_nginx_global_configuration", { instanceId });
+}
+
+export function validateNginxGlobalConfigurationPatch(
+  instanceId: string,
+  expectedRevision: string,
+  patch: NginxGlobalConfigurationPatch,
+): Promise<NginxGlobalConfigPatchValidation> {
+  assertNginxDesktop();
+  return invoke("validate_nginx_global_configuration_patch", {
+    input: { instanceId, expectedRevision, patch },
+  });
+}
+
+export function applyNginxGlobalConfigurationPatch(
+  instanceId: string,
+  expectedRevision: string,
+  patch: NginxGlobalConfigurationPatch,
+  mode: NginxGlobalConfigApplyMode,
+): Promise<NginxGlobalConfigApplyResult> {
+  assertNginxDesktop();
+  return invoke("apply_nginx_global_configuration_patch", {
+    input: { instanceId, expectedRevision, patch, mode },
+  });
 }
 
 export function getNginxRuntimeDetails(
