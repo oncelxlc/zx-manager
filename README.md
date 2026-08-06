@@ -14,14 +14,17 @@ ZxManager 仍处于早期开发阶段。请注意区分以下两类能力：
 | 诊断复制 | 通过 Tauri 剪贴板插件写入经过白名单筛选的诊断信息。 |
 | 偏好设置 | 优先写入 Tauri Store，并保留旧版 `localStorage` 数据迁移和不可用时的降级路径。 |
 | 应用重启 | 通过 Tauri Process 插件执行真实的应用重启，并在界面中提供确认和失败反馈。 |
-| Nginx 管理 | 严格登记一个真实 Nginx；每 2 秒监听运行状态，并提供幂等启停、重载、重启和防重复启动。 |
+| Nginx 管理 | 严格登记一个真实 Nginx；每 2 秒监听运行状态，并提供真实进程/资源摘要、幂等启停、重载、重启和防重复启动。 |
+| Nginx 配置 | 在授权根内递归解析 `include`/glob，以有界配置图只读浏览；全局配置只开放白名单字段，并通过 revision、`nginx -t`、原子替换和失败回滚安全应用。 |
+| Nginx 日志 | 日志来源只由已验证配置和 ZxManager 审计事件推导，支持有界历史分页与单来源实时流。当前只有 ZxManager 受管来源可手动轮转；外部日志只读，不提供后台自动调度。 |
 | Nginx 升级 | Windows 便携版可手动确认升级。Rust 只下载 nginx.org 官方 ZIP/ASC，验签并自动创建关键快照；替换后失败会自动回滚。 |
 | 其他服务管理 | Dashboard 中除 Nginx 外的服务数据、资源趋势以及添加、启动、停止、重启和移除操作仍为前端 Mock。 |
 
 ## 功能概览
 
 - Dashboard：Nginx 指标和服务行接入真实状态与控制；其他服务、资源趋势、添加与操作反馈仍为 Mock。
-- Nginx：严格单实例注册表、旧多实例迁移决议、2 秒状态 Channel、冲突检测和 Windows 便携版安全升级。
+- Nginx：四个 lazy 页面覆盖概览、运行状态、递归配置图和日志；共用严格单实例门控，旧多实例迁移未解决前会阻止控制、配置、日志、轮转和升级。
+- Nginx 配置与日志：配置节点按稳定 ID 延迟读取，白名单编辑带冲突保护和自动回滚；日志分页、实时流及手动轮转均由来源 ID 绑定，前端不能提交任意路径。
 - 系统信息：查看操作系统、CPU、内存、Swap、GPU、磁盘、应用运行环境和数据可用性。
 - 桌面体验：原生静态启动窗口会在主窗口后台完成主题、语言和初始路由加载后立即交接，此外还提供应用重启、响应式侧栏和局部滚动的数据表格。
 - 个性化：中文与 English 界面，以及亮色、深色和跟随系统三种主题。
@@ -59,7 +62,7 @@ pnpm tauri:dev
 pnpm dev
 ```
 
-Vite 开发服务器使用 `http://localhost:1420`。浏览器模式可用于前端布局开发，但系统信息、Tauri Store、剪贴板和应用重启等桌面能力需要在 Tauri 环境中验证。
+Vite 开发服务器使用 `http://localhost:1420`。浏览器模式可用于前端布局开发，但系统信息、Nginx 管理、Tauri Store、剪贴板和应用重启等桌面能力需要在 Tauri 环境中验证。
 
 ## 常用命令
 
@@ -101,7 +104,7 @@ src/
 src-tauri/
   capabilities/            主窗口能力与插件权限
   permissions/             应用命令权限
-  src/nginx_manager/       单实例注册表、状态监听、控制、配置读取、官方更新与升级回滚
+  src/nginx_manager/       单实例、运行监控、配置图/编辑、日志流/轮转、更新与升级回滚
   src/system_information/  系统信息 DTO、采集器与 GPU 枚举
   src/lib.rs               插件注册与命令入口
 ```
@@ -118,9 +121,15 @@ src-tauri/
 
 ## Nginx 与其他服务的边界
 
-Nginx 的 Dashboard 行使用 `src/services/tauri/nginx-manager.ts` 调用权限受控的 Rust 命令。注册表为严格单例；多条旧 v1 记录必须先由用户选择唯一保留项，未保留项只取消登记，不删除文件。状态订阅仅在 ZxManager 运行期间存在，不安装系统服务。
+Nginx 的 Dashboard 行和四个管理页面使用 `src/services/tauri/nginx-manager.ts` 调用权限受控的 Rust 命令。注册表为严格单例；多条旧 v1 记录必须先由用户选择唯一保留项，未保留项只取消登记，不删除文件。状态订阅仅在 ZxManager 运行期间存在，不安装新的系统服务，也不提供自动安装或全盘发现。
+
+配置读取限制为授权根内的递归配置集，并限制为 4 MiB/文件、32 MiB/配置集、2,048 个文件、32 层 include 和 50,000 个图节点。图摘要不携带完整源码，节点详情通过当前 revision 下的稳定节点 ID 延迟读取。全局编辑只允许 `main`/`events` 白名单字段；保存采用最小字节补丁、revision 冲突拒绝、临时文件验证、原生 `nginx -t`、同目录原子替换和失败回滚，不能强制覆盖磁盘新版本。
+
+日志来源只能由配置图中的日志指令和 ZxManager 审计事件推导，前端不能提交路径。历史页受 1 MiB、2,000 行和 64 KiB/行限制；实时流是单来源 Channel，使用 generation/sequence 和文件身份识别 truncate/rotate，并在切换来源或卸载时清理。外部 Nginx 日志保持只读；当前可轮转的受管来源仅为 ZxManager 审计日志，轮转策略由 Rust 原子持久化，但没有后台月度调度。
 
 Windows 便携版升级使用 `allow-nginx-upgrade` 最小权限。升级目标 URL 只能来自 Rust 缓存的 nginx.org 发布元数据；后端限制跳转、响应和解压大小，验证 PGP 主密钥或签名子密钥完整指纹，并在停止 Nginx 前完成候选版本、配置与关键快照检查。快照只包含 `nginx.exe`、`conf/**` 和存在时的 `modules/**`，不包含 `logs`、`temp`、`cache`、`html` 或站点内容，也不提供手动恢复入口。
+
+Nginx 权限按 `allow-nginx-read`、`allow-nginx-config-read`、`allow-nginx-config-write`、`allow-nginx-logs-read`、`allow-nginx-log-rotate`、登记、控制、系统服务和升级分组，只授予 `main` 窗口；静态 `splashscreen` 不在任何 capability 中。控制、配置应用、受管轮转和升级共用非排队排他锁，冲突时立即返回，不在后台排队执行。
 
 `src/services/tauri/service-manager.ts` 继续模拟 Nginx 之外的异步服务操作。若要接入其他真实服务管理，需要：
 

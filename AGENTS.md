@@ -10,7 +10,7 @@ ZxManager is a React 19 + Tauri 2 desktop console for local infrastructure manag
 - A static, permissionless splashscreen is shown while the hidden main window loads preferences, theme, localization, and the initial route. The main window performs an explicit permission-scoped handoff after its layout mounts.
 - Application restart uses the Tauri Process plugin.
 - Dashboard Nginx status and Start/Stop/Restart operations use the real, permission-scoped Nginx backend. Other service rows and their operations remain frontend-only mocks in `src/services/tauri/service-manager.ts`.
-- Nginx uses a strict singleton registry, an app-lifetime two-second status Channel, and a shared non-queuing operation lock. Windows portable builds additionally support confirmed, signature-verified upgrades with critical snapshots and automatic rollback.
+- Nginx uses a strict singleton registry, an app-lifetime two-second status Channel, and a shared non-queuing operation lock. Its real backend also provides bounded recursive configuration graphs, allowlisted global configuration editing, source-bound log paging/tailing, and manual rotation for explicitly managed logs. Windows portable builds additionally support confirmed, signature-verified upgrades with critical snapshots and automatic rollback.
 
 Keep that boundary explicit. Never describe a mocked Dashboard action as real system control. Any new host-level operation requires an auditable Rust command or official Tauri plugin plus the narrowest practical capability permission.
 
@@ -49,7 +49,7 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 - Add short comments for non-obvious lifecycle, asynchronous ordering, virtualization fallback, pagination/sorting, and security boundaries. Do not annotate self-evident JSX or ordinary props.
 - Derive values from props, store state, or local inputs with pure functions and `useMemo` when needed; do not mirror them in `useState`. Use `useEffect` only to synchronize with external systems (Tauri, subscriptions, timers, browser APIs, or async persistence), never to keep derived UI state in sync.
 - Keep route-level lazy loading. Load heavy charts, PDF viewers, and code editors with `React.lazy`/`Suspense` and a layout-stable fallback. Current Dashboard charts follow this rule; PDF and editor modules do not yet exist.
-- Use `@tanstack/react-virtual` for unbounded service, log, or file lists, retaining semantic table/list controls and bounded overscan. The current service table is virtualized; logs and files need an auditable, permission-scoped backend before a UI is added.
+- Use `@tanstack/react-virtual` for unbounded service, log, or file lists, retaining semantic table/list controls and bounded overscan. The current service table, Nginx configuration graph, and Nginx log viewer are virtualized; other logs and files need an auditable, permission-scoped backend before a UI is added.
 - Use Tauri `Channel` for high-throughput streams such as logs and Nginx status. Keep a single-flight subscription boundary, explicit cleanup, ordering/generation checks, and bounded frontend buffers.
 - Keep page-specific header state in the route page and register it with `MainLayout`; do not move feature loading state into the layout merely to render header actions.
 
@@ -60,8 +60,11 @@ The Tauri backend lives in `src-tauri/`. Application commands and startup are un
 - Run blocking system collection work outside the async UI path. Keep command errors serializable and suitable for localization at the frontend edge.
 - Do not execute arbitrary shell strings from the WebView. Validate identifiers and arguments again in Rust when real service management is introduced.
 - Keep non-Nginx service management mocked until a platform-specific, permission-scoped backend and corresponding tests exist. Never route Nginx Dashboard actions through the mock service manager.
-- Nginx registry v2 stores at most one instance. A legacy v1 registry with multiple entries must block control, configuration reads, and upgrades until the user selects one record to keep; migration must archive v1 and never delete Nginx files.
+- Nginx registry v2 stores at most one instance. A legacy v1 registry with multiple entries must block control, configuration reads/writes, logs, rotation, and upgrades until the user selects one record to keep; migration must archive v1 and never delete Nginx files.
 - Nginx status subscriptions use generation/sequence ordering and explicit cleanup. Portable runtime detection must verify PID ownership and executable identity; an unverified process using the same binary is a conflict and must block start.
+- Nginx configuration graphs must remain bounded to 4 MiB per file, 32 MiB total, 2,048 files, include depth 32, and 50,000 graph nodes. Graph summaries must not carry full raw text; node details must validate a stable node ID against the current revision.
+- Nginx global edits are restricted to the existing main/events allowlist. Preserve comments, unknown directives, ordering, and formatting with minimal byte patches; reject revision conflicts and retain native `nginx -t`, atomic replacement, critical snapshots, and automatic rollback.
+- Nginx log commands accept only source IDs derived from the verified configuration graph or ZxManager audit events. Keep pages bounded to 1 MiB, 2,000 lines, and 64 KiB per line; tailing is single-source with generation/sequence, file identity, truncate/rotate detection, cleanup, and bounded frontend buffers. External logs remain read-only. Only explicitly managed sources may be rotated, and no background scheduler currently exists.
 - Managed Nginx upgrades are Windows portable-only and user-confirmed. Accept release URLs only from cached nginx.org metadata, verify the detached signature against pinned full fingerprints, reject unsafe ZIP entries, snapshot only `nginx.exe`, `conf/**`, and `modules/**`, and automatically roll back failures after replacement.
 - Call out every dependency, capability, generated permission, or `tauri.conf.json` change in the final summary and pull request.
 
