@@ -5,6 +5,7 @@ export type ExpandDirection = "auto" | "up" | "down" | "left" | "right";
 export type EdgeMode = "disabled" | "compact" | "peek" | "fullHide";
 export type Theme = "system" | "light" | "dark";
 export type AnimationPreset = "subtle" | "smooth" | "spring" | "custom";
+export type CustomCurve = "linear" | "easeIn" | "easeOut";
 export type Performance = "performance" | "balanced" | "quality";
 
 export interface IslandConfig {
@@ -51,6 +52,7 @@ export interface IslandConfig {
   animation: {
     enabled: boolean;
     preset: AnimationPreset;
+    customCurve?: CustomCurve;
     expandMs: number;
     collapseMs: number;
     edgeMs: number;

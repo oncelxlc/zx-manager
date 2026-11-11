@@ -496,3 +496,64 @@ pub(super) fn uninstall(hwnd: HWND) -> Result<(), String> {
         Err(errors.join("；"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::island::surface::Surface;
+    use std::sync::mpsc;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        MOD_ALT, MOD_CONTROL, MOD_SHIFT, VK_F24,
+    };
+
+    #[test]
+    #[ignore = "uses an interactive Windows desktop and briefly registers Ctrl+Alt+Shift+F24"]
+    fn hooks_and_hotkey_release_before_the_next_registration() {
+        let surface = Surface::start(|_| {}).unwrap();
+        for _ in 0..2 {
+            let (events, received) = mpsc::channel();
+            surface
+                .call(move |hwnd| {
+                    install(hwnd, move |event| {
+                        let _ = events.send(event);
+                    })?;
+                    let result = (|| {
+                        hotkeys(
+                            hwnd,
+                            [
+                                Some((MOD_ALT | MOD_CONTROL | MOD_SHIFT, VK_F24.into())),
+                                None,
+                                None,
+                            ],
+                        )?;
+                        let id = WATCH.with_borrow(|w| w.as_ref().unwrap().hotkeys[0].0);
+                        unsafe {
+                            SendMessageW(hwnd, WM_HOTKEY, id as usize, 0);
+                        }
+                        track(hwnd, true, true)?;
+                        let watching = WATCH.with_borrow(|w| {
+                            w.as_ref()
+                                .is_some_and(|w| !w.mouse.is_null() && !w.foreground.is_null())
+                        });
+                        track(hwnd, false, false)?;
+                        let released = WATCH.with_borrow(|w| {
+                            w.as_ref().is_some_and(|w| {
+                                w.mouse.is_null() && w.foreground.is_null() && w.location.is_null()
+                            })
+                        });
+                        if watching && released {
+                            Ok(())
+                        } else {
+                            Err("系统监听状态不符".into())
+                        }
+                    })();
+                    result.and(uninstall(hwnd))
+                })
+                .unwrap();
+            assert!(received
+                .try_iter()
+                .any(|event| matches!(event, NativeEvent::Toggle)));
+        }
+        surface.shutdown().unwrap();
+    }
+}

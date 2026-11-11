@@ -2,7 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { ChevronDown, ChevronUp, EyeOff, Pin } from "lucide-react";
 import { useEffect, useState, type HTMLAttributes } from "react";
 import defaults from "./defaults.json";
-import type { AnimationPreset, IslandConfig, IslandState } from "./types";
+import type { AnimationPreset, CustomCurve, IslandConfig, IslandState } from "./types";
 
 export const stateLabels: Record<IslandState, string> = {
   disabled: "已停用", hidden: "已隐藏", edgePeek: "边缘待唤醒", compact: "已收起",
@@ -11,7 +11,11 @@ export const stateLabels: Record<IslandState, string> = {
 
 export const lightSurface = "#f5f5f4";
 
-export function motionEasing(preset: AnimationPreset, expanding: boolean) {
+export function motionEasing(preset: AnimationPreset, expanding: boolean, customCurve?: CustomCurve) {
+  if (preset === "custom" && customCurve) {
+    if (customCurve === "linear") return "linear";
+    return customCurve === "easeIn" ? "cubic-bezier(.333333,0,.666667,.333333)" : "cubic-bezier(.333333,.666667,.666667,1)";
+  }
   if (preset === "spring") return "cubic-bezier(.22,1.16,.4,1)";
   if (preset === "subtle") return "ease-out";
   return expanding ? "cubic-bezier(.22,1,.36,1)" : "cubic-bezier(.4,0,1,1)";
@@ -70,7 +74,7 @@ export function IslandShell({ config, state, events, onClick, onPin, onHide }: S
   const motion = animation.enabled && !animation.reducedMotion && !economical;
   const clickEnabled = peek || (interaction.clickExpand && state !== "pinned");
   const contentMs = animation.enabled ? animation.reducedMotion ? Math.min(70, animation.contentMs) : animation.contentMs : 0;
-  const easing = motion ? motionEasing(animation.preset, expanded) : "linear";
+  const easing = motion ? motionEasing(animation.preset, expanded, animation.customCurve) : "linear";
   const offset = motion ? animation.amplitude * (animation.preset === "subtle" ? 2 : 5) : 0;
   const scaleDelta = motion && animation.performance === "quality" ? 0.03 * animation.amplitude : 0;
   const automaticColor = appearance.theme === "system" && appearance.background.toLowerCase() === defaults.appearance.background;

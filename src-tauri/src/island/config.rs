@@ -57,12 +57,17 @@ config_enum!(PerformanceMode {
     Balanced,
     Quality
 });
+config_enum!(CustomCurve {
+    Linear,
+    EaseIn,
+    EaseOut
+});
 
 macro_rules! config_group {
-    ($name:ident { $($field:ident : $ty:ty = $default:expr),+ $(,)? }) => {
+    ($name:ident { $($(#[$attr:meta])* $field:ident : $ty:ty = $default:expr),+ $(,)? }) => {
         #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
         #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
-        pub struct $name { $(pub $field: $ty),+ }
+        pub struct $name { $($(#[$attr])* pub $field: $ty),+ }
         impl Default for $name {
             fn default() -> Self { Self { $($field: $default),+ } }
         }
@@ -127,6 +132,8 @@ config_group!(AppearanceConfig {
 config_group!(AnimationConfig {
     enabled: bool = true,
     preset: AnimationPreset = AnimationPreset::Smooth,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    custom_curve: Option<CustomCurve> = None,
     expand_ms: u32 = 300,
     collapse_ms: u32 = 240,
     edge_ms: u32 = 220,
@@ -145,6 +152,18 @@ config_group!(InteractionConfig {
     pin_enabled: bool = true,
     drag_enabled: bool = true,
 });
+
+impl AnimationConfig {
+    /// Coefficients of a*t + b*t² + c*t³. An absent curve preserves the original Custom preset.
+    pub fn custom_coefficients(&self) -> [f64; 3] {
+        match self.custom_curve {
+            None => [0.0, 3.0, -2.0],
+            Some(CustomCurve::Linear) => [1.0, 0.0, 0.0],
+            Some(CustomCurve::EaseIn) => [0.0, 1.0, 0.0],
+            Some(CustomCurve::EaseOut) => [2.0, -1.0, 0.0],
+        }
+    }
+}
 
 config_group!(HotkeyConfig {
     toggle: String = "Ctrl+Alt+I".into(),

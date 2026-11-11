@@ -84,6 +84,9 @@ export function SettingsGroups({ group, config, displays, update }: Props) {
       <Check label="启用动画" value={animation.enabled} change={enabled => update(group, { enabled })} />
       <Choice label="动画预设" value={animation.preset} change={preset => update(group, { preset })}
         options={[["subtle", "轻盈 · Subtle"], ["smooth", "平滑 · Smooth"], ["spring", "弹性 · Spring"], ["custom", "自定义 · Custom"]]} />
+      {animation.preset === "custom" && <Choice label="过渡曲线" value={animation.customCurve ?? ""}
+        options={[["", "默认平滑"], ["linear", "匀速"], ["easeIn", "渐快"], ["easeOut", "渐慢"]]}
+        change={curve => update(group, { customCurve: curve || undefined })} />}
       <Amount label="展开时长（毫秒）" value={animation.expandMs} min={0} max={2000} change={expandMs => update(group, { expandMs })} />
       <Amount label="收起时长（毫秒）" value={animation.collapseMs} min={0} max={2000} change={collapseMs => update(group, { collapseMs })} />
       <Amount label="边缘时长（毫秒）" value={animation.edgeMs} min={0} max={2000} change={edgeMs => update(group, { edgeMs })} />

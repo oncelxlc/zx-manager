@@ -35,10 +35,13 @@ it("keeps animation preview cancellable without saving the draft", async () => {
   open("#/settings/island");
   fireEvent.click(screen.getByRole("button", { name: "动画效果" }));
   const field = await screen.findByLabelText("展开时长（毫秒）");
+  expect(screen.queryByLabelText("过渡曲线")).toBeNull();
+  fireEvent.change(screen.getByLabelText("动画预设"), { target: { value: "custom" } });
+  fireEvent.change(screen.getByLabelText("过渡曲线"), { target: { value: "easeOut" } });
   fireEvent.change(field, { target: { value: "340" } });
   fireEvent.click(screen.getByRole("button", { name: "播放预览" }));
   await waitFor(() => expect(validate).toHaveBeenCalledWith({
-    ...config, animation: { ...config.animation, expandMs: 340 },
+    ...config, animation: { ...config.animation, preset: "custom", customCurve: "easeOut", expandMs: 340 },
   }));
   fireEvent.click(screen.getByRole("button", { name: "取消预览" }));
   expect(screen.getByRole("button", { name: "播放预览" })).toBeTruthy();

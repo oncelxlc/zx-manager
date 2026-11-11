@@ -31,15 +31,32 @@ pnpm dev
 
 ## Windows 灵动岛
 
-桌面功能面向 Windows 10 / 11，需要 WebView2 和 Rust 1.89 或更高版本。默认启动后在主显示器顶部居中显示收起的胶囊。主窗口使用 `#/`，设置中心使用 `#/settings/island`，独立窗口使用 `#/island`。在普通浏览器运行 `pnpm dev` 可以编辑草稿、播放预览。
+桌面功能面向 Windows 10 / 11，主界面需要 WebView2，开发需要 Rust 1.89 或更高版本。默认启动后在主显示器顶部居中显示收起的胶囊。主窗口使用 `#/`，设置中心使用 `#/settings/island`，WebView 版岛屿使用 `#/island`。在普通浏览器运行 `pnpm dev` 可以编辑草稿、播放预览。
 
 - **显示与后台**　默认关闭主窗口会将它隐藏，灵动岛继续运行。从通知区域的 zx-once 菜单可打开主界面、打开设置、显示或隐藏灵动岛、退出应用。在「启动管理」中可以调整关闭行为和登录启动。登录启动使用当前用户的 Run 项。
 - **交互**　默认悬停或点击可展开。展开后可以固定、取消固定或隐藏。固定后保留展开状态。拖动胶囊可以更换位置，打开位置记忆后，松开鼠标时保存。设置中心也支持选择显示器、九宫格锚点、自定义坐标和展开方向。坐标与尺寸使用逻辑像素，自定义坐标的原点是所选显示器工作区的左上角。
 - **快捷键**　默认用 `Ctrl+Alt+I` 切换、`Ctrl+Alt+S` 显示、`Ctrl+Alt+H` 隐藏。在「交互与快捷键」可以更改组合或留空以释放该快捷键。完全隐藏后仍可用托盘唤醒。
 - **边界隐藏**　关闭边界策略、离开后收起、保留可悬停唤醒的边缘窄条、完全隐藏，共四种模式。隐藏和唤醒延迟可调。全屏暂停默认开启，退出全屏后恢复之前的状态。
-- **动画**　在「动画效果」选择 Subtle、Smooth、Spring 或 Custom，调整时长、幅度与性能档位。「减少动态效果」和 Windows 动画偏好控制过渡。预览可以取消；点击「保存设置」才会提交草稿。
+- **动画**　在「动画效果」选择 Subtle、Smooth、Spring 或 Custom，调整时长、幅度与性能档位。Custom 还可选择默认平滑、匀速、渐快或渐慢曲线。「减少动态效果」和 Windows 动画偏好控制过渡。预览可以取消，点击「保存设置」才会提交草稿。
 
 ### 配置和故障排查
+
+Windows 开发版提供两种灵动岛显示后端。默认 `webview` 保留现有窗口。`native` 在同一进程的专用消息线程创建 Win32 工具窗，以 Direct2D、DirectWrite 和 DXGI 绘制内容，并使用 DirectComposition 播放过渡。Tauri 保留主界面、托盘、配置与状态管理。两种后端共用现有设置、快捷键和位置记忆。
+
+退出当前运行的 zx-once，然后在 PowerShell 中启动原生版。已安装的桌面程序也可以从设置了同一环境变量的终端启动。
+
+```powershell
+$env:ZX_ISLAND_RENDERER = "native"
+pnpm tauri:dev
+```
+
+回退时退出应用，将当前终端的 `$env:ZX_ISLAND_RENDERER` 设为 `"webview"` 后重新启动。两种后端都能读取已有的 v1 设置。Custom 选择「默认平滑」时保存会省略新增的 `animation.customCurve` 字段。如果还需要降级到此前的旧程序，可先选回「默认平滑」并保存。设置页的「重启岛屿」可在本次进程内重建当前后端。若只想验证原生窗口、合成和资源释放，可在仓库根目录运行独立 PoC。它使用内置配置，完成自检即退出。
+
+```powershell
+cargo run --manifest-path src-tauri/Cargo.toml --locked --example island_native_poc
+```
+
+实测数据、采样口径和兼容性验收范围见[性能基线](docs/island-performance-baseline.md)、[原生渲染设计](docs/island-native-renderer-design.md)和[迁移验证报告](docs/island-performance-report.md)。
 
 Windows 配置保存在 `%APPDATA%\com.oncel.zx-once\island.json`，再次保存时会保留上一份配置为 `island.json.bak`。遇到版本冲突，放弃旧草稿后按当前配置重新编辑。如果文件损坏，先退出应用，保留损坏文件，再将备份复制为 `island.json`。高于当前应用支持的配置版本需要对应版本的应用。
 

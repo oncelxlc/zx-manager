@@ -1,10 +1,13 @@
+mod backend;
 mod commands;
 mod config;
 mod config_store;
 mod geometry;
 mod manager;
 mod native;
+mod render;
 mod state;
+pub(crate) mod surface;
 mod window;
 
 use commands::*;
@@ -46,6 +49,7 @@ pub fn install(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry
             island_preview,
             island_reset_config,
             island_get_runtime_status,
+            island_get_performance_stats,
             island_get_displays,
             island_set_position,
             island_set_pinned,

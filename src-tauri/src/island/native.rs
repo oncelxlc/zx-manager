@@ -1,8 +1,8 @@
 pub(super) mod motion;
 mod watch;
-pub(super) use watch::begin_drag;
-
+use super::backend::Backend;
 use super::config::{parse_hotkey, HotkeyConfig};
+use super::surface::SurfaceEvent;
 use std::{ffi::OsString, io, sync::mpsc};
 use tauri::WebviewWindow;
 use windows_sys::Win32::Foundation::HWND;
@@ -13,6 +13,7 @@ use winreg::{
 
 #[derive(Clone, Debug)]
 pub enum NativeEvent {
+    Input(SurfaceEvent),
     Toggle,
     Show,
     Hide,
@@ -42,19 +43,12 @@ pub(super) fn on_ui<T: Send + 'static>(
     receive.recv().map_err(|_| "窗口线程已关闭".to_string())?
 }
 
-pub struct Native {
-    window: WebviewWindow,
-}
-
-impl Native {
-    pub fn new(
-        window: &WebviewWindow,
+impl Backend {
+    pub fn install_watch(
+        &self,
         callback: impl Fn(NativeEvent) + Send + Sync + 'static,
-    ) -> Result<Self, String> {
-        on_ui(window, move |hwnd| watch::install(hwnd, callback))?;
-        Ok(Self {
-            window: window.clone(),
-        })
+    ) -> Result<(), String> {
+        self.on_ui(move |hwnd| watch::install(hwnd, callback))
     }
 
     pub fn configure_hotkeys(&self, keys: Option<&HotkeyConfig>) -> Result<(), String> {
@@ -66,21 +60,31 @@ impl Native {
             ],
             None => [None; 3],
         };
-        on_ui(&self.window, move |hwnd| watch::hotkeys(hwnd, bindings))
+        self.on_ui(move |hwnd| watch::hotkeys(hwnd, bindings))
     }
 
     pub fn track(&self, fullscreen: bool, outside: bool) -> Result<(), String> {
-        on_ui(&self.window, move |hwnd| {
-            watch::track(hwnd, fullscreen, outside)
-        })
+        self.on_ui(move |hwnd| watch::track(hwnd, fullscreen, outside))
     }
 
     pub fn pointer_inside(&self) -> Result<bool, String> {
-        on_ui(&self.window, watch::pointer_inside)
+        self.on_ui(watch::pointer_inside)
     }
 
-    pub fn shutdown(&self) -> Result<(), String> {
-        on_ui(&self.window, watch::uninstall)
+    pub fn uninstall_watch(&self) -> Result<(), String> {
+        if let Self::Native(surface) = self {
+            surface.cancel_drag()?;
+        }
+        self.on_ui(watch::uninstall)
+    }
+
+    pub fn begin_drag(&self) -> Result<super::geometry::Rect, String> {
+        let origin = match self {
+            Self::Webview(window) => window.outer_rect()?,
+            Self::Native(surface) => surface.prepare_drag()?,
+        };
+        self.on_ui(watch::begin_drag)?;
+        Ok(origin)
     }
 }
 

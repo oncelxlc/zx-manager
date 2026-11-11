@@ -1,5 +1,8 @@
 use super::{os_error, watch::notify, NativeEvent};
-use crate::island::{config::AnimationPreset, geometry::Rect};
+use crate::island::{
+    config::{AnimationConfig, AnimationPreset},
+    geometry::Rect,
+};
 use std::{
     cell::Cell,
     ptr::null_mut,
@@ -26,6 +29,7 @@ struct Motion {
     duration: Duration,
     radius: i32,
     preset: AnimationPreset,
+    curve: [f64; 3],
     amplitude: f64,
 }
 
@@ -102,8 +106,7 @@ pub(in crate::island) fn apply(
     target: Rect,
     radius: i32,
     ms: u32,
-    preset: AnimationPreset,
-    amplitude: f64,
+    animation: &AnimationConfig,
     transition: bool,
 ) -> Result<(), String> {
     let allowed = ms != 0 && animations_allowed();
@@ -112,8 +115,9 @@ pub(in crate::island) fn apply(
             m.hwnd == hwnd
                 && m.to == target
                 && m.radius == radius
-                && m.preset == preset
-                && m.amplitude == amplitude
+                && m.preset == animation.preset
+                && m.curve == animation.custom_coefficients()
+                && m.amplitude == animation.amplitude
         })
     {
         return Ok(());
@@ -137,8 +141,9 @@ pub(in crate::island) fn apply(
         started: Instant::now(),
         duration: Duration::from_millis(ms.into()),
         radius,
-        preset,
-        amplitude,
+        preset: animation.preset,
+        curve: animation.custom_coefficients(),
+        amplitude: animation.amplitude,
     }));
     if unsafe { SetTimer(hwnd, FRAME_TIMER, 16, Some(tick)) } == 0 {
         let error = os_error("创建窗口动画定时器失败");
@@ -164,7 +169,11 @@ unsafe extern "system" fn tick(hwnd: HWND, _: u32, _: usize, _: u32) {
             let k = 6.0 + animation.amplitude * 2.0;
             (1.0 - (1.0 + k * t) * (-k * t).exp()) / (1.0 - (1.0 + k) * (-k).exp())
         }
-        AnimationPreset::Smooth | AnimationPreset::Custom => t * t * (3.0 - 2.0 * t),
+        AnimationPreset::Smooth => t * t * (3.0 - 2.0 * t),
+        AnimationPreset::Custom => {
+            let [a, b, c] = animation.curve;
+            t * (a + t * (b + t * c))
+        }
     };
     let next = if t >= 1.0 {
         animation.to

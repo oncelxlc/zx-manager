@@ -61,7 +61,7 @@ impl IslandManager {
     }
 
     fn set_hotkeys(&self, config: &IslandConfig) -> Result<()> {
-        match &self.native {
+        match self.window.as_ref().filter(|_| self.watching) {
             Some(native) => native.configure_hotkeys(config.active_hotkeys()),
             None if !config.enabled => Ok(()),
             None => Err("系统快捷键尚未就绪，请重启灵动岛".into()),
@@ -111,12 +111,14 @@ impl IslandManager {
             return Err("当前位置无法拖动".into());
         }
         let window = self.window.as_ref().ok_or("灵动岛窗口不可用")?;
-        let origin = window
-            .webview()
-            .outer_position()
-            .map_err(|error| error.to_string())?;
-        window.begin_drag()?;
-        self.drag_origin = Some(origin);
+        let origin = match window.begin_drag() {
+            Ok(origin) => origin,
+            Err(error) => {
+                self.refresh()?;
+                return Err(error);
+            }
+        };
+        self.drag_origin = Some((origin.x, origin.y));
         self.timer = None;
         Ok(())
     }
@@ -125,33 +127,34 @@ impl IslandManager {
         let Some(origin) = self.drag_origin.take() else {
             return Ok(());
         };
+        if let Err(error) = self.apply_drag_position(origin) {
+            self.refresh()
+                .map_err(|rollback| format!("{error}；恢复岛屿位置失败：{rollback}"))?;
+            return Err(error);
+        }
+        self.observe_initial_pointer()
+    }
+
+    fn apply_drag_position(&mut self, origin: (i32, i32)) -> Result<()> {
         let mut config = self.effective_config();
         let window = self.window.as_ref().ok_or("灵动岛窗口不可用")?;
-        if window
-            .webview()
-            .outer_position()
-            .map_err(|error| error.to_string())?
-            == origin
-        {
-            self.refresh()?;
-            return self.observe_initial_pointer();
+        let at = window.outer_rect()?;
+        if (at.x, at.y) == origin {
+            return self.refresh();
         }
-        let (display, x, y) = window.position(&config, self.machine.state)?;
+        let (display, x, y) = window.drag_position(&self.app, &config, self.machine.state, at)?;
         config.placement.anchor = Anchor::Custom;
         config.placement.display_id = Some(display);
         config.placement.offset_x = x;
         config.placement.offset_y = y;
         if config.placement.remember_position {
-            if let Err(error) = self.save(config) {
-                self.refresh()?;
-                return Err(error);
-            }
+            self.save(config)?;
         } else {
             self.session_position = Some(config.placement);
             self.position_changed()?;
             self.refresh()?;
         }
-        self.observe_initial_pointer()
+        Ok(())
     }
 
     fn position_changed(&self) -> Result<()> {

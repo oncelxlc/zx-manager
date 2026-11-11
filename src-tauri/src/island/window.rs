@@ -3,9 +3,9 @@ use super::geometry::{Display, Rect};
 use super::state::IslandState;
 use std::cell::Cell;
 use tauri::window::{Effect, EffectsBuilder};
-use tauri::{AppHandle, Manager, Monitor, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Monitor, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-fn display(monitor: &Monitor, primary: Option<&Monitor>) -> Display {
+pub(super) fn display(monitor: &Monitor, primary: Option<&Monitor>) -> Display {
     let pos = monitor.position();
     let name = monitor.name().cloned().unwrap_or_else(|| {
         format!(
@@ -78,20 +78,12 @@ impl WindowController {
         &self.window
     }
 
-    pub fn apply(&self, cfg: &IslandConfig, state: IslandState) -> Result<(), String> {
-        if matches!(
-            state,
-            IslandState::Disabled | IslandState::Hidden | IslandState::Suspended
-        ) {
-            return self.hide();
-        }
-        let monitors = displays(self.window.app_handle())?;
-        let screen = monitors
-            .iter()
-            .find(|d| cfg.placement.display_id.as_ref() == Some(&d.id))
-            .or_else(|| monitors.iter().find(|d| d.primary))
-            .or_else(|| monitors.first())
-            .ok_or("找不到可用显示器")?;
+    pub fn apply(
+        &self,
+        cfg: &IslandConfig,
+        state: IslandState,
+        screen: &Display,
+    ) -> Result<(), String> {
         let target = screen.target(cfg, state);
         let acrylic =
             cfg.appearance.blur && cfg.animation.performance != PerformanceMode::Performance;
@@ -113,17 +105,15 @@ impl WindowController {
         let animate = cfg.animation.enabled
             && !cfg.animation.reduced_motion
             && cfg.animation.performance != PerformanceMode::Performance;
-        let preset = cfg.animation.preset;
+        let animation = cfg.animation.clone();
         let radius = (cfg.appearance.radius * screen.scale_factor).round() as i32;
-        let amplitude = cfg.animation.amplitude;
         super::native::on_ui(&self.window, move |hwnd| {
             super::native::motion::apply(
                 hwnd,
                 target,
                 radius,
                 if animate { duration } else { 0 },
-                preset,
-                amplitude,
+                &animation,
                 state != previous,
             )
         })?;
@@ -140,34 +130,15 @@ impl WindowController {
         Ok(())
     }
 
-    pub fn begin_drag(&self) -> Result<(), String> {
-        super::native::on_ui(&self.window, super::native::begin_drag)
-    }
-
-    pub fn position(
-        &self,
-        cfg: &IslandConfig,
-        state: IslandState,
-    ) -> Result<(String, f64, f64), String> {
-        let monitor = self
-            .window
-            .current_monitor()
-            .map_err(|e| e.to_string())?
-            .ok_or("岛屿当前显示器已断开")?;
-        let screen = display(&monitor, None);
+    pub fn outer_rect(&self) -> Result<Rect, String> {
         let position = self.window.outer_position().map_err(|e| e.to_string())?;
         let size = self.window.outer_size().map_err(|e| e.to_string())?;
-        let (x, y) = screen.drag_offset(
-            cfg,
-            state,
-            Rect {
-                x: position.x,
-                y: position.y,
-                width: size.width as i32,
-                height: size.height as i32,
-            },
-        );
-        Ok((screen.id, x, y))
+        Ok(Rect {
+            x: position.x,
+            y: position.y,
+            width: size.width as i32,
+            height: size.height as i32,
+        })
     }
 
     pub fn shutdown(&self) -> Result<(), String> {

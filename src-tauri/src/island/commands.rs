@@ -1,7 +1,7 @@
 use super::{
     config::IslandConfig,
     geometry::Display,
-    manager::{IslandManager, ManagerHandle, RuntimeStatus},
+    manager::{IslandManager, ManagerHandle, PerformanceStats, RuntimeStatus},
     state::Event,
     window,
 };
@@ -33,6 +33,13 @@ pub(super) async fn island_get_runtime_status(
     window: WebviewWindow,
 ) -> Result<RuntimeStatus, String> {
     request(&window, BOTH, |manager| Ok(manager.status())).await
+}
+
+#[tauri::command]
+pub(super) async fn island_get_performance_stats(
+    window: WebviewWindow,
+) -> Result<PerformanceStats, String> {
+    request(&window, MAIN, |manager| manager.performance()).await
 }
 
 #[tauri::command]

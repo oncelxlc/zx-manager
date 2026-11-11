@@ -66,7 +66,7 @@ export function IslandPreview({ config, desktop, report }: {
   return (
     <section aria-label="动画预览" {...stylex.props(s.preview)}>
       <div inert {...stylex.props(s.canvas)}>
-        <div {...stylex.props(s.frame(vertical ? height : width, vertical ? width : height, duration, motionEasing(animation.preset, expanded), offset))}>
+        <div {...stylex.props(s.frame(vertical ? height : width, vertical ? width : height, duration, motionEasing(animation.preset, expanded, animation.customCurve), offset))}>
           <IslandShell config={config} state={state} />
         </div>
       </div>

@@ -25,6 +25,7 @@ fn compiled_acl_grants_each_windows_view_its_commands() {
         ("island_preview", main),
         ("island_reset_config", main),
         ("island_get_displays", main),
+        ("island_get_performance_stats", main),
         ("island_set_position", main),
         ("island_interact", island),
         ("island_drag", island),

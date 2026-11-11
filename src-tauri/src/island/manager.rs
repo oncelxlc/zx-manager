@@ -1,11 +1,13 @@
 mod settings;
 
 use super::{
+    backend::{Backend, RendererKind},
     config::{Anchor, IslandConfig, PlacementConfig},
     config_store::ConfigStore,
-    native::{self, Native, NativeEvent},
+    native::{self, NativeEvent},
+    render::RenderStats,
     state::{Event, IslandState, Machine, TimerAction},
-    window::WindowController,
+    surface::SurfaceEvent,
 };
 use serde::Serialize;
 use std::{
@@ -45,7 +47,7 @@ impl ManagerHandle {
                     last_error: None,
                     session_position: None,
                     window: None,
-                    native: None,
+                    watching: false,
                     generation: 0,
                     sequence: 0,
                     timer: None,
@@ -97,14 +99,20 @@ pub(super) struct RuntimeStatus {
     last_error: Option<String>,
 }
 
+#[derive(Serialize)]
+pub(super) struct PerformanceStats {
+    renderer: RendererKind,
+    native: Option<RenderStats>,
+}
+
 pub(super) struct IslandManager {
     pub app: AppHandle,
     config: IslandConfig,
     machine: Machine,
     store: ConfigStore,
     worker: ManagerHandle,
-    window: Option<WindowController>,
-    native: Option<Native>,
+    window: Option<Backend>,
+    watching: bool,
     session_position: Option<PlacementConfig>,
     load_error: Option<String>,
     last_error: Option<String>,
@@ -112,7 +120,7 @@ pub(super) struct IslandManager {
     sequence: u64,
     timer: Option<(Instant, Event)>,
     ready: bool,
-    drag_origin: Option<tauri::PhysicalPosition<i32>>,
+    drag_origin: Option<(i32, i32)>,
     exiting: bool,
 }
 
@@ -160,6 +168,14 @@ impl IslandManager {
         }
     }
 
+    pub fn performance(&self) -> Result<PerformanceStats> {
+        let window = self.window.as_ref().ok_or("灵动岛窗口未启动")?;
+        Ok(PerformanceStats {
+            renderer: window.kind(),
+            native: window.stats()?,
+        })
+    }
+
     fn effective_config(&self) -> IslandConfig {
         let mut config = self.config.clone();
         if let Some(position) = &self.session_position {
@@ -173,23 +189,34 @@ impl IslandManager {
 
     pub fn restart(&mut self) -> Result<()> {
         let config = self.store.load()?;
+        let kind = RendererKind::from_env()?;
         self.ready = false;
         self.drag_origin = None;
         self.timer = None;
-        if let Some(native) = &self.native {
-            native.shutdown()?;
-        }
-        self.native = None;
         self.generation += 1;
+        self.stop_watching()?;
+        let worker = self.worker.clone();
+        let generation = self.generation;
+        let notify = move |event| {
+            let _ = worker.post(move |manager| {
+                if manager.generation == generation {
+                    manager.system_event(event)?;
+                }
+                Ok(())
+            });
+        };
         // Tauri releases a destroyed window label asynchronously. Reload the existing WebView.
-        if let Some(window) = &self.window {
+        if let (RendererKind::Webview, Some(Backend::Webview(window))) = (kind, &self.window) {
             window.hide()?;
             window
                 .webview()
                 .reload()
                 .map_err(|error| error.to_string())?;
         } else {
-            self.window = Some(WindowController::new(&self.app)?);
+            if let Some(window) = self.window.take() {
+                window.shutdown()?;
+            }
+            self.window = Some(Backend::new(kind, &self.app, notify.clone())?);
         }
         self.load_error = None;
         self.last_error = None;
@@ -197,34 +224,29 @@ impl IslandManager {
         self.machine = Machine::new(&self.config);
         self.session_position = None;
         let window = self.window.as_ref().ok_or("灵动岛窗口不可用")?;
-        let handle = self.worker.clone();
-        let generation = self.generation;
-        let native = Native::new(window.webview(), move |event| {
-            let _ = handle.post(move |manager| {
-                if manager.generation == generation {
-                    manager.system_event(event)?;
-                }
-                Ok(())
-            });
-        })?;
-        if let Err(error) = native.configure_hotkeys(self.config.active_hotkeys()) {
+        window.install_watch(notify)?;
+        self.watching = true;
+        if let Err(error) = window.configure_hotkeys(self.config.active_hotkeys()) {
             self.report(error);
         }
-        self.native = Some(native);
         if let Err(error) = native::set_autostart(self.config.startup.launch_at_login) {
             self.report(error);
         }
         self.app
             .emit("island://config-changed", &self.config)
             .map_err(|e| e.to_string())?;
-        self.refresh()
+        if kind == RendererKind::Native {
+            self.mark_ready()
+        } else {
+            self.refresh()
+        }
     }
 
     pub fn mark_ready(&mut self) -> Result<()> {
         if self.ready {
             return Ok(());
         }
-        if self.native.is_none() {
+        if !self.watching {
             return Err("系统窗口初始化失败，请从设置中重启灵动岛".into());
         }
         self.ready = true;
@@ -239,7 +261,7 @@ impl IslandManager {
                 IslandState::Compact | IslandState::Expanded
             )
         {
-            if let Some(native) = &self.native {
+            if let Some(native) = &self.window {
                 if !native.pointer_inside()? {
                     self.transition(Event::PointerLeave)?;
                 }
@@ -256,19 +278,19 @@ impl IslandManager {
         let state = self.machine.state;
         if let Some(window) = &self.window {
             if self.ready && self.drag_origin.is_none() {
-                window.apply(&self.effective_config(), state)?;
+                window.apply(&self.app, &self.effective_config(), state)?;
             }
-        }
-        if let Some(native) = &self.native {
             let fullscreen = self.ready
                 && self.config.edge.hide_on_fullscreen
                 && !matches!(state, IslandState::Disabled | IslandState::Hidden);
-            native.track(
-                fullscreen,
-                self.ready
-                    && state == IslandState::Expanded
-                    && self.config.interaction.outside_collapse,
-            )?;
+            if self.watching {
+                window.track(
+                    fullscreen,
+                    self.ready
+                        && state == IslandState::Expanded
+                        && self.config.interaction.outside_collapse,
+                )?;
+            }
         }
         Ok(())
     }
@@ -310,6 +332,16 @@ impl IslandManager {
 
     fn system_event(&mut self, event: NativeEvent) -> Result<()> {
         let event = match event {
+            NativeEvent::Input(input) => match input {
+                SurfaceEvent::PointerEnter => Event::PointerEnter,
+                SurfaceEvent::PointerLeave => Event::PointerLeave,
+                SurfaceEvent::Click => Event::Click,
+                SurfaceEvent::Pin(true) => Event::Pin,
+                SurfaceEvent::Pin(false) => Event::Unpin,
+                SurfaceEvent::Hide => Event::Hide,
+                SurfaceEvent::DragStart => return self.drag(),
+                SurfaceEvent::Error(error) => return Err(error),
+            },
             NativeEvent::Show => Event::Show,
             NativeEvent::Hide => Event::Hide,
             NativeEvent::Toggle => Event::Toggle,
@@ -354,15 +386,20 @@ impl IslandManager {
             .map_err(|e| e.to_string())
     }
 
+    fn stop_watching(&mut self) -> Result<()> {
+        if std::mem::take(&mut self.watching) {
+            if let Some(window) = &self.window {
+                window.uninstall_watch()?;
+            }
+        }
+        Ok(())
+    }
+
     fn close_window(&mut self) -> Result<()> {
         self.generation += 1;
         self.ready = false;
         self.drag_origin = None;
-        let hooks = self
-            .native
-            .take()
-            .map(|native| native.shutdown())
-            .transpose();
+        let hooks = self.stop_watching();
         let window = self
             .window
             .take()
