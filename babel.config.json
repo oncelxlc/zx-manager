@@ -1,0 +1,4 @@
+{
+  "parserOpts": { "plugins": ["typescript", "jsx"] },
+  "plugins": [["@stylexjs/babel-plugin", { "runtimeInjection": false }]]
+}

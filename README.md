@@ -1,165 +1,50 @@
 # ZxManager
 
-ZxManager 是一个基于 Tauri 2 与 React 19 的本地基础设施管理控制台。项目目前包含真实的系统信息与 Nginx 单实例管理能力，以及用于验证其他服务交互的 Dashboard 原型。
+ZxManager 是基于 Tauri 2、React、Vite 和 React Router 的单窗口桌面项目。浏览器和桌面共用一个中文欢迎页，主要依赖清单默认展开，点击标题可以收起或重新展开。
 
-![ZxManager application icon](public/icon.png)
+## 主要依赖
 
-## 项目状态
-
-ZxManager 仍处于早期开发阶段。请注意区分以下两类能力：
-
-| 能力 | 当前实现 |
+| 用途 | 技术 |
 | --- | --- |
-| 系统信息 | 通过权限受控的 Tauri 命令读取真实的系统、CPU、内存、Swap、GPU、磁盘和运行环境信息。 |
-| 诊断复制 | 通过 Tauri 剪贴板插件写入经过白名单筛选的诊断信息。 |
-| 偏好设置 | 优先写入 Tauri Store，并保留旧版 `localStorage` 数据迁移和不可用时的降级路径。 |
-| 应用重启 | 通过 Tauri Process 插件执行真实的应用重启，并在界面中提供确认和失败反馈。 |
-| Nginx 管理 | 严格登记一个真实 Nginx；每 2 秒监听运行状态，并提供真实进程/资源摘要、幂等启停、重载、重启和防重复启动。 |
-| Nginx 配置 | 在授权根内递归解析 `include`/glob，以有界配置图只读浏览；全局配置只开放白名单字段，并通过 revision、`nginx -t`、原子替换和失败回滚安全应用。 |
-| Nginx 日志 | 日志来源只由已验证配置和 ZxManager 审计事件推导，支持有界历史分页与单来源实时流。当前只有 ZxManager 受管来源可手动轮转；外部日志只读，不提供后台自动调度。 |
-| Nginx 升级 | Windows 便携版可手动确认升级。Rust 只下载 nginx.org 官方 ZIP/ASC，验签并自动创建关键快照；替换后失败会自动回滚。 |
-| 其他服务管理 | Dashboard 中除 Nginx 外的服务数据、资源趋势以及添加、启动、停止、重启和移除操作仍为前端 Mock。 |
+| 桌面窗口与打包 | Tauri 2（Rust） |
+| 界面与类型检查 | React、React DOM、TypeScript |
+| 开发服务器与前端构建 | Vite |
+| 路由 | React Router 的 `HashRouter`，首页为 `#/` |
+| 样式与组件 | StyleX、shadcn/ui（Base UI） |
+| 图标 | lucide-react |
+| 状态管理 | Redux Toolkit、React Redux |
 
-## 功能概览
+依赖标签使用项目内的 shadcn/ui `Badge` 组件。组件源码放在 `src/components/ui/`，样式使用 StyleX 编写。添加组件时，复制所需组件的源码，将其样式迁移到 StyleX。[shadcn/ui 源码分发说明](https://ui.shadcn.com/docs)
 
-- Dashboard：Nginx 指标和服务行接入真实状态与控制；其他服务、资源趋势、添加与操作反馈仍为 Mock。
-- Nginx：四个 lazy 页面覆盖概览、运行状态、递归配置图和日志；共用严格单实例门控，旧多实例迁移未解决前会阻止控制、配置、日志、轮转和升级。
-- Nginx 配置与日志：配置节点按稳定 ID 延迟读取，白名单编辑带冲突保护和自动回滚；日志分页、实时流及手动轮转均由来源 ID 绑定，前端不能提交任意路径。
-- 系统信息：查看操作系统、CPU、内存、Swap、GPU、磁盘、应用运行环境和数据可用性。
-- 桌面体验：原生静态启动窗口会在主窗口后台完成主题、语言和初始路由加载后立即交接，此外还提供应用重启、响应式侧栏和局部滚动的数据表格。
-- 个性化：中文与 English 界面，以及亮色、深色和跟随系统三种主题。
-- 状态处理：系统信息支持加载、刷新、错误、部分数据不可用和保留最近成功数据。
-- 安全边界：真实桌面能力均通过显式 Tauri 命令或插件权限开放。
+## 本地运行
 
-## 技术栈
+开发环境建议使用 Node.js 24（24.15.0 以上）或 26，以及 pnpm 12。在仓库根目录安装锁定版本的依赖并启动开发服务器。
 
-- React 19、TypeScript、React Router、Zustand
-- Tauri 2、Rust、sysinfo、wgpu
-- Vite 7、Tailwind CSS 4
-- shadcn `base-nova`、Base UI、Lucide、Recharts
-- i18next、react-i18next
-- Vitest、jsdom、Testing Library
-
-## 快速开始
-
-### 环境要求
-
-- Node.js LTS
-- pnpm
-- Rust stable 工具链
-- 当前操作系统对应的 [Tauri 2 开发依赖](https://v2.tauri.app/start/prerequisites/)
-
-安装依赖并启动完整桌面应用：
-
-```bash
-pnpm install
-pnpm tauri:dev
-```
-
-仅启动 Web 前端：
-
-```bash
+```sh
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Vite 开发服务器使用 `http://localhost:1420`。浏览器模式可用于前端布局开发，但系统信息、Nginx 管理、Tauri Store、剪贴板和应用重启等桌面能力需要在 Tauri 环境中验证。
+要运行桌面应用，请先安装 Rust 工具链，并按操作系统准备 [Tauri 开发依赖](https://v2.tauri.app/start/prerequisites/)。
 
-## 常用命令
+运行 `pnpm tauri:dev` 启动桌面窗口，或运行 `pnpm tauri:build` 生成桌面安装包。
 
-| 命令 | 用途 |
+## 测试与构建
+
+运行 `pnpm check` 一次完成以下三项检查，也可以单独运行其中一项定位问题。
+
+| 命令 | 检查内容 |
 | --- | --- |
-| `pnpm dev` | 启动 Vite 开发服务器。 |
-| `pnpm tauri:dev` | 启动带热更新的 Tauri 桌面应用。 |
-| `pnpm typecheck` | 执行 TypeScript 严格类型检查。 |
-| `pnpm test` | 运行一次前端测试。 |
-| `pnpm test:watch` | 以监听模式运行前端测试。 |
-| `pnpm build` | 类型检查并构建前端生产资源。 |
-| `pnpm tauri:build` | 构建当前平台的桌面安装包。 |
-| `cargo fmt --manifest-path src-tauri/Cargo.toml --check` | 检查 Rust 格式。 |
-| `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings` | 运行 Rust 静态检查。 |
-| `cargo test --manifest-path src-tauri/Cargo.toml` | 运行 Rust 单元测试。 |
+| `pnpm typecheck` | TypeScript 类型和生产 React 组件的有效行数 |
+| `pnpm test` | Vitest 在 jsdom 中检查欢迎页、未知路由回退和 Redux 展开/收起交互，再运行组件行数检查器的单元测试 |
+| `pnpm build` | 编译前端，将生产资源输出到 `dist/` |
 
-## 项目结构
+开发时可以用 `pnpm test:watch` 持续运行前端测试。修改视觉样式后，在 `pnpm tauri:dev` 打开的窗口检查标签布局，并用键盘展开和收起依赖清单。
 
-```text
-@/
-  components/ui/           shadcn/Base UI 基础组件
-  components/theme-provider.tsx
-  hooks/                   UI 基础层 Hook
-  lib/                     UI 通用工具
-src/
-  app/                     路由定义
-  components/              应用组件
-  data/                    Dashboard Mock 数据
-  i18n/                    国际化初始化、翻译与格式化
-  layouts/                 共享页面布局
-  pages/                   路由页面
-  services/
-    storage/               偏好持久化边界
-    tauri/                 前端到 Tauri/Mock 服务边界
-  stores/                  Zustand 状态
-  test/                    前端测试初始化与 Fixture
-  types/                   领域类型
-  utils/                   业务工具
-src-tauri/
-  capabilities/            主窗口能力与插件权限
-  permissions/             应用命令权限
-  src/nginx_manager/       单实例、运行监控、配置图/编辑、日志流/轮转、更新与升级回滚
-  src/system_information/  系统信息 DTO、采集器与 GPU 枚举
-  src/lib.rs               插件注册与命令入口
+推送代码和创建或更新拉取请求时，GitHub Actions 会在 Windows 执行 `pnpm check`，并检查 Rust 格式、Clippy 和 Cargo 测试。需要本地复现 Rust 检查时，在 `src-tauri/` 运行以下命令。
+
+```sh
+cargo fmt --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked
 ```
-
-`@/*` 映射到仓库根目录的 `@/`，仅用于可复用 UI 基础层；`src/*` 映射到应用代码。两个别名同时配置在 `tsconfig.json` 和 `vite.config.ts`。
-
-## 开发约定
-
-- Tauri 启动时先显示无脚本的 `public/splashscreen.html`，主窗口保持隐藏；主窗口仍先渲染 React 启动兜底，再读取偏好、应用主题、初始化 i18n 并挂载初始路由，最后通过受限命令完成窗口交接。
-- 所有新增的用户可见文案都应使用 `react-i18next`，并同步更新 `src/i18n/locales/zh-CN.ts` 与 `src/i18n/locales/en-US.ts`。
-- UI 偏好通过 `src/services/storage/preferences-storage.ts` 读写；不要在组件中直接访问 Store 或 `localStorage`。
-- 前端到桌面能力的调用统一放在 `src/services/tauri/`。新增真实系统操作时，必须同时实现受限的 Rust 命令或官方插件权限。
-- 应用组件优先复用 `@/components/ui/` 中的现有基础组件和 `cn()`，不要引入重复的组件或样式体系。
-
-## Nginx 与其他服务的边界
-
-Nginx 的 Dashboard 行和四个管理页面使用 `src/services/tauri/nginx-manager.ts` 调用权限受控的 Rust 命令。注册表为严格单例；多条旧 v1 记录必须先由用户选择唯一保留项，未保留项只取消登记，不删除文件。状态订阅仅在 ZxManager 运行期间存在，不安装新的系统服务，也不提供自动安装或全盘发现。
-
-配置读取限制为授权根内的递归配置集，并限制为 4 MiB/文件、32 MiB/配置集、2,048 个文件、32 层 include 和 50,000 个图节点。图摘要不携带完整源码，节点详情通过当前 revision 下的稳定节点 ID 延迟读取。全局编辑只允许 `main`/`events` 白名单字段；保存采用最小字节补丁、revision 冲突拒绝、临时文件验证、原生 `nginx -t`、同目录原子替换和失败回滚，不能强制覆盖磁盘新版本。
-
-日志来源只能由配置图中的日志指令和 ZxManager 审计事件推导，前端不能提交路径。历史页受 1 MiB、2,000 行和 64 KiB/行限制；实时流是单来源 Channel，使用 generation/sequence 和文件身份识别 truncate/rotate，并在切换来源或卸载时清理。外部 Nginx 日志保持只读；当前可轮转的受管来源仅为 ZxManager 审计日志，轮转策略由 Rust 原子持久化，但没有后台月度调度。
-
-Windows 便携版升级使用 `allow-nginx-upgrade` 最小权限。升级目标 URL 只能来自 Rust 缓存的 nginx.org 发布元数据；后端限制跳转、响应和解压大小，验证 PGP 主密钥或签名子密钥完整指纹，并在停止 Nginx 前完成候选版本、配置与关键快照检查。快照只包含 `nginx.exe`、`conf/**` 和存在时的 `modules/**`，不包含 `logs`、`temp`、`cache`、`html` 或站点内容，也不提供手动恢复入口。
-
-Nginx 权限按 `allow-nginx-read`、`allow-nginx-config-read`、`allow-nginx-config-write`、`allow-nginx-logs-read`、`allow-nginx-log-rotate`、登记、控制、系统服务和升级分组，只授予 `main` 窗口；静态 `splashscreen` 不在任何 capability 中。控制、配置应用、受管轮转和升级共用非排队排他锁，冲突时立即返回，不在后台排队执行。
-
-`src/services/tauri/service-manager.ts` 继续模拟 Nginx 之外的异步服务操作。若要接入其他真实服务管理，需要：
-
-1. 在 `src-tauri/src/` 实现明确且可审计的 Rust 命令。
-2. 在 `src-tauri/capabilities/` 和必要的权限文件中仅开放所需操作。
-3. 保持 Rust 命令名、前端 `invoke()` 名称和 TypeScript 类型同步。
-4. 替换 Mock 前先补充 Rust 单元测试、前端状态测试和目标平台桌面烟测。
-
-不要从 WebView 直接执行任意 Shell 命令，也不要把 Nginx 之外的当前 Dashboard 操作描述为真实系统控制。
-
-## 验证
-
-前端修改至少运行：
-
-```bash
-pnpm typecheck
-pnpm test
-pnpm build
-```
-
-Rust 或 Tauri 权限修改还应运行：
-
-```bash
-cargo fmt --manifest-path src-tauri/Cargo.toml --check
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml
-```
-
-可见 UI 修改应使用 `pnpm tauri:dev` 验证桌面流程；涉及响应式布局时，再通过 Web 前端检查 1024px 以下的 Sidebar 行为。表格应在自身容器内滚动，不应造成页面级横向溢出。
-
-## 推荐编辑器
-
-[VS Code](https://code.visualstudio.com/) 配合 [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) 与 [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer) 扩展可获得较好的开发体验。
