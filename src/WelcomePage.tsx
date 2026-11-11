@@ -19,7 +19,7 @@ export function WelcomePage() {
         <img src="/icon.png" width={50} height={50} alt="" />
         <h1 {...stylex.props(styles.heading)}>
           <span {...stylex.props(styles.greeting)}>欢迎使用</span>{" "}
-          <span {...stylex.props(styles.name)}>ZxManager</span>
+          <span {...stylex.props(styles.name)}>zx-once</span>
         </h1>
         <section aria-labelledby="dependencies" {...stylex.props(styles.section)}>
           <h2 id="dependencies" {...stylex.props(styles.sectionHeading)}>

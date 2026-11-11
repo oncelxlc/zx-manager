@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    zx_manager_lib::run()
+    zx_once_lib::run()
 }
