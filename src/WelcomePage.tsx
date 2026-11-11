@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { ChevronRight } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
+import { Link } from "react-router";
 import { Badge } from "./components/ui/badge";
 import { toggleDependencies, type RootState } from "./store";
 
@@ -21,6 +22,7 @@ export function WelcomePage() {
           <span {...stylex.props(styles.greeting)}>欢迎使用</span>{" "}
           <span {...stylex.props(styles.name)}>zx-once</span>
         </h1>
+        <Link to="/settings/island" {...stylex.props(styles.settings)}>灵动岛设置</Link>
         <section aria-labelledby="dependencies" {...stylex.props(styles.section)}>
           <h2 id="dependencies" {...stylex.props(styles.sectionHeading)}>
             <button
@@ -72,6 +74,10 @@ const styles = stylex.create({
     lineHeight: 1.08,
   },
   section: { marginTop: "2.5rem", paddingTop: "1rem", borderTop: "1px solid #d6d3d1" },
+  settings: {
+    display: "inline-flex", alignItems: "center", minHeight: "2.75rem", marginTop: "1rem",
+    color: "#16685a", fontWeight: 600, textUnderlineOffset: "0.25rem",
+  },
   sectionHeading: { margin: 0 },
   toggle: {
     display: "inline-flex",

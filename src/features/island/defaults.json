@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "revision": 0,
+  "enabled": true,
+  "startup": { "launchAtLogin": false, "showOnStart": true, "startCompact": true, "closeToTray": true },
+  "placement": {
+    "anchor": "topCenter", "displayId": null, "offsetX": 0.0, "offsetY": 0.0,
+    "orientation": "auto", "expandDirection": "auto", "rememberPosition": true
+  },
+  "edge": {
+    "mode": "compact", "autoHide": true, "hideDelayMs": 900, "wakeDelayMs": 80,
+    "triggerWidth": 6.0, "peekSize": 6.0, "hideOnFullscreen": true
+  },
+  "appearance": {
+    "compactWidth": 156.0, "compactHeight": 44.0, "expandedWidth": 328.0, "expandedHeight": 168.0,
+    "radius": 24.0, "opacity": 0.96, "background": "#202326", "border": "#45494D",
+    "shadow": true, "blur": false, "theme": "dark"
+  },
+  "animation": {
+    "enabled": true, "preset": "smooth", "expandMs": 300, "collapseMs": 240, "edgeMs": 220,
+    "contentMs": 180, "amplitude": 1.0, "reducedMotion": false, "performance": "balanced"
+  },
+  "interaction": {
+    "hoverExpand": true, "clickExpand": true, "outsideCollapse": true, "autoCollapse": true,
+    "collapseDelayMs": 450, "pinEnabled": true, "dragEnabled": true
+  },
+  "hotkeys": { "toggle": "Ctrl+Alt+I", "show": "Ctrl+Alt+S", "hide": "Ctrl+Alt+H" }
+}

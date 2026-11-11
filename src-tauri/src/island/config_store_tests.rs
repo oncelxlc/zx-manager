@@ -1,0 +1,72 @@
+use super::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+struct Directory(PathBuf);
+
+impl Directory {
+    fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "zx-once-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for Directory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn migration_keeps_old_bytes_and_supplies_missing_defaults() {
+    let dir = Directory::new();
+    let store = ConfigStore::new(dir.0.clone());
+    let old = br#"{"revision":4,"startup":{"showOnStart":false}}"#;
+    fs::write(dir.0.join("island.json"), old).unwrap();
+    let config = store.load().unwrap();
+    assert_eq!(config.schema_version, SCHEMA_VERSION);
+    assert!(!config.startup.show_on_start);
+    assert_eq!(config.animation, IslandConfig::default().animation);
+    assert_eq!(fs::read(dir.0.join("island.json.bak")).unwrap(), old);
+    assert_eq!(store.save(&config, 4).unwrap().revision, 5);
+    assert!(store.save(&config, 4).is_err());
+    assert_eq!(store.load().unwrap().revision, 5);
+}
+
+#[test]
+fn concurrent_writers_cannot_commit_the_same_revision_twice() {
+    let dir = Directory::new();
+    let barrier = std::sync::Barrier::new(2);
+    std::thread::scope(|scope| {
+        let save = || {
+            let store = ConfigStore::new(dir.0.clone());
+            barrier.wait();
+            store.save(&IslandConfig::default(), 0).is_ok()
+        };
+        let first = scope.spawn(save);
+        let second = scope.spawn(save);
+        assert_ne!(first.join().unwrap(), second.join().unwrap());
+    });
+}
+
+#[test]
+fn malformed_and_future_versions_are_preserved_on_load_and_save() {
+    let dir = Directory::new();
+    let path = dir.0.join("island.json");
+    let store = ConfigStore::new(dir.0.clone());
+    for old in ["{", r#"{"schemaVersion":99}"#] {
+        fs::write(&path, old).unwrap();
+        assert!(store.load().is_err());
+        assert!(store.save(&IslandConfig::default(), 0).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), old);
+    }
+}

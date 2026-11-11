@@ -1,0 +1,18 @@
+[[permission]]
+identifier = "island-read"
+description = "Read the island configuration and its current state."
+commands.allow = ["island_get_config", "island_get_runtime_status"]
+
+[[permission]]
+identifier = "island-settings"
+description = "Manage the island from the settings window."
+commands.allow = [
+    "island_update_config", "island_set_enabled", "island_show", "island_hide",
+    "island_toggle", "island_restart", "island_preview", "island_reset_config",
+    "island_get_displays", "island_set_position", "island_set_pinned",
+]
+
+[[permission]]
+identifier = "island-input"
+description = "Report island readiness and interact with the floating window."
+commands.allow = ["island_ready", "island_interact", "island_drag", "island_set_pinned", "island_hide"]

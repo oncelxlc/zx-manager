@@ -22,6 +22,7 @@
     "@base-ui/react": "^1.9.0",
     "@reduxjs/toolkit": "^2.14.0",
     "@stylexjs/stylex": "^0.19.1",
+    "@tauri-apps/api": "~2.11.1",
     "lucide-react": "^1.71.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

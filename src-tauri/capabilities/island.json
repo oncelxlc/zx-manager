@@ -1,0 +1,7 @@
+{
+  "identifier": "island",
+  "description": "The floating window reads state and reports user interaction.",
+  "windows": ["island"],
+  "platforms": ["windows"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "island-read", "island-input"]
+}

@@ -1,4 +1,5 @@
 import { configureStore, createSlice } from "@reduxjs/toolkit";
+import { island } from "./features/island/islandSlice";
 
 const welcome = createSlice({
   name: "welcome",
@@ -13,7 +14,7 @@ const welcome = createSlice({
 export const { toggleDependencies } = welcome.actions;
 
 export function createAppStore() {
-  return configureStore({ reducer: { welcome: welcome.reducer } });
+  return configureStore({ reducer: { welcome: welcome.reducer, island: island.reducer } });
 }
 
 type AppStore = ReturnType<typeof createAppStore>;
