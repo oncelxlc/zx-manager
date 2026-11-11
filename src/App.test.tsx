@@ -24,7 +24,7 @@ function renderAt(hash: string) {
 it("shows the welcome page and lists its main dependencies", () => {
   renderAt("#/");
 
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/欢迎使用\s*ZxManager/);
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/欢迎使用\s*zx-once/);
   const dependencies = within(screen.getByRole("list")).getAllByRole("listitem");
   expect(dependencies.map((item) => item.textContent).sort()).toEqual([
     "React", "React Router", "Redux Toolkit", "StyleX", "Tauri", "TypeScript", "Vite", "lucide-react", "shadcn/ui",
@@ -51,5 +51,5 @@ it("redirects an unknown hash route to the welcome page", async () => {
   renderAt("#/missing");
 
   await waitFor(() => expect(window.location.hash).toBe("#/"));
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/ZxManager/);
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/zx-once/);
 });

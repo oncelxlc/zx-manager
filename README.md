@@ -1,6 +1,6 @@
-# ZxManager
+# zx-once
 
-ZxManager 是基于 Tauri 2、React、Vite 和 React Router 的单窗口桌面项目。浏览器和桌面共用一个中文欢迎页，主要依赖清单默认展开，点击标题可以收起或重新展开。
+zx-once 是基于 Tauri 2、React、Vite 和 React Router 的单窗口桌面项目。浏览器和桌面共用一个中文欢迎页，主要依赖清单默认展开，点击标题可以收起或重新展开。
 
 ## 主要依赖
 
