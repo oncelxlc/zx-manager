@@ -1,20 +1,11 @@
-import { ThemeProvider } from "@/components/theme-provider.tsx";
-import { Toaster } from "@/components/ui/toast";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { router } from "./app/router.tsx";
-import { RouterProvider } from "react-router";
-import type { ThemeMode } from "src/types/preferences";
+import { Navigate, Route, Routes } from "react-router";
+import { WelcomePage } from "./WelcomePage";
 
-function App({initialTheme}: { initialTheme: ThemeMode }) {
+export default function App() {
   return (
-    <ThemeProvider defaultTheme={initialTheme}>
-      <Toaster>
-        <TooltipProvider>
-          <RouterProvider router={router}/>
-        </TooltipProvider>
-      </Toaster>
-    </ThemeProvider>
+    <Routes>
+      <Route path="/" element={<WelcomePage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
-
-export default App;
