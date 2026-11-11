@@ -16,7 +16,7 @@ export function NginxDiagnostics({
     <Alert variant="destructive">
       <AlertTitle>{t("configuration.diagnosticsTitle")}</AlertTitle>
       <AlertDescription>
-        <ul className="list-disc space-y-1 pl-4">
+        <ul className="flex list-disc flex-col gap-1 pl-4">
           {diagnostics.map((item, index) => (
             <li key={`${item.code}-${index}`}>
               {t(`configuration.diagnostics.${item.code}`, {

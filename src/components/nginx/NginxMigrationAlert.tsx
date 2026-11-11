@@ -25,7 +25,7 @@ export function NginxMigrationAlert({
     <Alert variant="destructive">
       <AlertTriangleIcon />
       <AlertTitle>{t("migration.title")}</AlertTitle>
-      <AlertDescription className="space-y-3">
+      <AlertDescription className="flex flex-col gap-3">
         <p>{t("migration.description")}</p>
         <div className="grid gap-2">
           {candidates.map((candidate) => (

@@ -1,4 +1,3 @@
-import { restoreNetworkMonitorOnStartup } from "src/services/tauri/network-monitor-startup";
 import { restoreNginxOnStartup } from "src/services/tauri/nginx-startup";
 import type { UserPreferences } from "src/types/preferences";
 
@@ -13,10 +12,8 @@ export function configureStartupBackgroundTasks(
 
 export function restoreStartupBackgroundTasks(): Promise<void> {
   if (!restorationPromise) {
-    restorationPromise = Promise.allSettled([
-      restoreNetworkMonitorOnStartup(configuredPreferences),
-      restoreNginxOnStartup(configuredPreferences),
-    ]).then(() => undefined);
+    restorationPromise = restoreNginxOnStartup(configuredPreferences)
+      .catch(() => undefined);
   }
   return restorationPromise;
 }

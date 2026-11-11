@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-read-nginx-log-page"
+description = "Enables read_nginx_log_page."
+commands.allow = ["read_nginx_log_page"]

@@ -54,7 +54,7 @@ export function NginxSitesTable({
                 nativeButton={false}
                 render={
                   <Link
-                    to={`/nginx/manage/configuration?instance=${encodeURIComponent(instanceId)}&source=${encodeURIComponent(site.source.sourceId)}&line=${site.source.line}`}
+                    to={`/nginx/configuration?instance=${encodeURIComponent(instanceId)}&source=${encodeURIComponent(site.source.sourceId)}&line=${site.source.line}`}
                   />
                 }
                 size="sm"

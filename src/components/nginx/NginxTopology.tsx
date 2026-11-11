@@ -20,7 +20,7 @@ export function NginxTopology({
         <CardTitle>{t("topology.title")}</CardTitle>
         <CardDescription>{t("topology.description")}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="flex flex-col gap-3">
         <div className="flex flex-wrap gap-2">
           {nodes.map((node) => (
             <Badge key={node.id} variant="outline">
@@ -31,7 +31,7 @@ export function NginxTopology({
         {edges.length > 0 ? edges.map((edge) => (
           <div className="flex items-center gap-2 text-sm" key={`${edge.from}-${edge.to}`}>
             <span>{labels.get(edge.from)}</span>
-            <ArrowRightIcon className="size-4 text-muted-foreground" />
+            <ArrowRightIcon className="text-muted-foreground" />
             <span>{labels.get(edge.to)}</span>
             <span className="text-muted-foreground">({edge.label})</span>
           </div>

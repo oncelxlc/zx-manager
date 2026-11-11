@@ -11,6 +11,44 @@ permissions = [
   "allow-get-nginx-release-status",
   "allow-check-nginx-updates",
   "allow-get-nginx-configuration",
+  "allow-get-nginx-runtime-details",
+]
+
+[[set]]
+identifier = "allow-nginx-config-read"
+description = "Allows the main window to read the bounded configuration graph and validate node identifiers for the registered Nginx instance."
+permissions = [
+  "allow-read-nginx-config-graph",
+  "allow-read-nginx-config-node",
+  "allow-validate-nginx-configuration",
+  "allow-get-nginx-global-configuration",
+]
+
+[[set]]
+identifier = "allow-nginx-config-write"
+description = "Allows validated minimal patches and atomic application of the registered Nginx entry configuration."
+permissions = [
+  "allow-validate-nginx-global-configuration-patch",
+  "allow-apply-nginx-global-configuration-patch",
+]
+
+[[set]]
+identifier = "allow-nginx-logs-read"
+description = "Allows bounded history pages and one explicit realtime subscription for configuration-derived Nginx log sources."
+permissions = [
+  "allow-list-nginx-log-sources",
+  "allow-read-nginx-log-page",
+  "allow-subscribe-nginx-log",
+  "allow-unsubscribe-nginx-log",
+]
+
+[[set]]
+identifier = "allow-nginx-log-rotate"
+description = "Allows manual rotation and bounded retention policy updates for explicitly managed log sources."
+permissions = [
+  "allow-get-nginx-log-rotation-policy",
+  "allow-update-nginx-log-rotation-policy",
+  "allow-rotate-nginx-logs",
 ]
 
 [[set]]

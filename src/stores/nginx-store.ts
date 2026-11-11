@@ -3,6 +3,8 @@ import { create } from "zustand";
 import {
   controlNginxInstance,
   getNginxRegistryState,
+  getNginxOperationHistory,
+  getNginxRuntimeDetails,
   inspectNginxDirectory,
   refreshNginxInstance,
   registerNginxInstance,
@@ -22,6 +24,7 @@ import type {
   NginxOperationPhase,
   NginxOperationRecord,
   NginxRegistryState,
+  NginxRuntimeDetails,
   NginxStatusEvent,
   NginxUpgradeProgress,
   NginxUpgradeResult,
@@ -35,11 +38,13 @@ interface NginxState {
   inspection: NginxInspection | null;
   observedAt: string | null;
   operationPhase: NginxOperationPhase | null;
+  runtimeDetails: NginxRuntimeDetails | null;
   loadStatus: LoadStatus;
   operationStatus: LoadStatus;
   upgradeProgress: NginxUpgradeProgress | null;
   lastUpgradeResult: NginxUpgradeResult | null;
   lastOperation: NginxOperationRecord | null;
+  operationHistory: NginxOperationRecord[];
   error: NginxCommandError | null;
   loadRegistry: (force?: boolean) => Promise<NginxRegistryState | null>;
   ensureStatusSubscription: () => Promise<void>;
@@ -49,8 +54,10 @@ interface NginxState {
   ) => Promise<NginxInstance | null>;
   resolveMigration: (keepInstanceId: string) => Promise<boolean>;
   refreshInstance: () => Promise<NginxInstance | null>;
+  refreshRuntimeDetails: () => Promise<NginxRuntimeDetails | null>;
   unregisterInstance: () => Promise<boolean>;
   controlInstance: (action: NginxControlAction) => Promise<boolean>;
+  loadOperationHistory: () => Promise<NginxOperationRecord[]>;
   upgradeInstance: (input: {
     channel: "stable" | "mainline";
     targetVersion: string;
@@ -89,6 +96,7 @@ function applyStatusEvent(event: NginxStatusEvent) {
     instance: event.instance,
     observedAt: event.observedAt,
     operationPhase: event.operationPhase,
+    runtimeDetails: event.runtimeDetails,
     registryState: state.registryState?.status === "migrationRequired"
       ? state.registryState
       : event.instance
@@ -132,11 +140,13 @@ export const useNginxStore = create<NginxState>((set, get) => ({
   inspection: null,
   observedAt: null,
   operationPhase: null,
+  runtimeDetails: null,
   loadStatus: "idle",
   operationStatus: "idle",
   upgradeProgress: null,
   lastUpgradeResult: null,
   lastOperation: null,
+  operationHistory: [],
   error: null,
   loadRegistry: (force = false) => {
     if (!force && get().loadStatus === "success" && get().registryState) {
@@ -217,6 +227,18 @@ export const useNginxStore = create<NginxState>((set, get) => ({
       return null;
     }
   },
+  refreshRuntimeDetails: async () => {
+    const instance = get().instance;
+    if (!instance) return null;
+    try {
+      const runtimeDetails = await getNginxRuntimeDetails(instance.id);
+      set({ runtimeDetails });
+      return runtimeDetails;
+    } catch (error) {
+      set({ error: toNginxCommandError(error) });
+      return null;
+    }
+  },
   unregisterInstance: async () => {
     const instance = get().instance;
     if (!instance || get().operationStatus === "loading") return false;
@@ -237,11 +259,27 @@ export const useNginxStore = create<NginxState>((set, get) => ({
     set({ operationStatus: "loading", error: null, lastOperation: null });
     try {
       const operation = await controlNginxInstance(instance.id, action);
-      set({ operationStatus: "success", lastOperation: operation });
+      set((state) => ({
+        operationStatus: "success",
+        lastOperation: operation,
+        operationHistory: [operation, ...state.operationHistory].slice(0, 20),
+      }));
       return operation.success;
     } catch (error) {
       set({ operationStatus: "error", error: toNginxCommandError(error) });
       return false;
+    }
+  },
+  loadOperationHistory: async () => {
+    const instance = get().instance;
+    if (!instance) return [];
+    try {
+      const operationHistory = await getNginxOperationHistory(instance.id, 20);
+      set({ operationHistory });
+      return operationHistory;
+    } catch (error) {
+      set({ error: toNginxCommandError(error) });
+      return [];
     }
   },
   upgradeInstance: async (input) => {
@@ -284,11 +322,13 @@ export function resetNginxStore() {
     inspection: null,
     observedAt: null,
     operationPhase: null,
+    runtimeDetails: null,
     loadStatus: "idle",
     operationStatus: "idle",
     upgradeProgress: null,
     lastUpgradeResult: null,
     lastOperation: null,
+    operationHistory: [],
     error: null,
   });
 }

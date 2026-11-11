@@ -1,18 +1,30 @@
+use super::config_graph::{build_config_graph, read_config_node};
 use super::configuration::load_configuration;
 use super::control::{execute as execute_control, OperationHistory};
 use super::dto::{
-    AuthorizeNginxRootInput, CheckNginxUpdatesInput, ControlNginxInstanceInput, DirectorySelection,
-    DirectorySelectionPurpose, GetNginxOperationHistoryInput, InspectNginxSystemServiceInput,
-    NginxAuthorizationLevel, NginxCapabilities, NginxConfiguration, NginxControlBackend,
-    NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState,
-    NginxOperationOutcome, NginxOperationPhase, NginxOperationRecord, NginxProviderIdentity,
-    NginxRegistryState, NginxRegistryStatus, NginxReleaseChannel, NginxReleaseStatus,
-    NginxRuntimeStatus, NginxStatusEvent, NginxStatusSubscription, NginxSystemServiceCandidate,
-    NginxSystemServiceInspection, NginxUpgradeProgress, NginxUpgradeResult,
-    RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
+    ApplyNginxGlobalConfigurationPatchInput, AuthorizeNginxRootInput, CheckNginxUpdatesInput,
+    ControlNginxInstanceInput, DirectorySelection, DirectorySelectionPurpose,
+    GetNginxOperationHistoryInput, InspectNginxSystemServiceInput, NginxAuthorizationLevel,
+    NginxCapabilities, NginxConfigGraph, NginxConfigNodeDetail, NginxConfigValidationResult,
+    NginxConfiguration, NginxControlBackend, NginxGlobalConfigApplyMode,
+    NginxGlobalConfigApplyResult, NginxGlobalConfigPatchValidation, NginxGlobalConfiguration,
+    NginxInspection, NginxInstance, NginxInstanceRecord, NginxLifecycleState, NginxLogEvent,
+    NginxLogPage, NginxLogRotationPolicy, NginxLogRotationResult, NginxLogSource,
+    NginxLogSubscription, NginxOperationOutcome, NginxOperationPhase, NginxOperationRecord,
+    NginxProcessRole, NginxProviderIdentity, NginxRegistryState, NginxRegistryStatus,
+    NginxReleaseChannel, NginxReleaseStatus, NginxRuntimeDetails, NginxRuntimeMetricAvailability,
+    NginxRuntimeProcess, NginxRuntimeStatus, NginxStatusEvent, NginxStatusSubscription,
+    NginxSystemServiceCandidate, NginxSystemServiceInspection, NginxUpgradeProgress,
+    NginxUpgradeResult, RegisterNginxInstanceInput, RegisterNginxSystemServiceInput,
     ResolveNginxRegistryMigrationInput, UpgradeNginxInstanceInput,
+    ValidateNginxGlobalConfigurationPatchInput,
 };
 use super::error::{NginxError, NginxResult};
+use super::global_config::{apply_global_patch, read_global_configuration, validate_global_patch};
+use super::logs::{
+    file_identity, list_sources, load_rotation_policy, read_page, rotate_managed_source,
+    save_rotation_policy, ResolvedLogSource,
+};
 use super::process::{run_command, run_nginx, ProcessOutput};
 use super::registry::NginxRegistry;
 use super::release::{is_stale, CachedRelease, ReleaseUpdateService};
@@ -20,7 +32,7 @@ use super::upgrade::{
     backup_record, cleanup_backups, create_backup, extract_release, replace_binary, restore_binary,
     verify_signature,
 };
-use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use semver::Version;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -30,6 +42,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use sysinfo::{Pid, ProcessesToUpdate, System};
 use tauri::ipc::Channel;
 use uuid::Uuid;
 
@@ -47,6 +60,18 @@ struct InspectionToken {
     binary: PathBuf,
     config: Option<PathBuf>,
     expires_at: Instant,
+}
+
+struct LogCursorToken {
+    source_id: String,
+    offset: u64,
+    expires_at: Instant,
+}
+
+struct LogTailSubscription {
+    id: u64,
+    shutdown: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
 }
 
 #[derive(Clone)]
@@ -99,12 +124,16 @@ pub struct NginxManager {
     service_discoveries: Mutex<HashMap<String, ServiceDiscoveryToken>>,
     service_inspections: Mutex<HashMap<String, ServiceInspectionToken>>,
     operation_locks: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    log_cursors: Mutex<HashMap<String, LogCursorToken>>,
+    log_subscription: Mutex<Option<LogTailSubscription>>,
+    next_log_subscription_id: AtomicU64,
     operation_history: Mutex<OperationHistory>,
     release_updates: ReleaseUpdateService,
     status_subscribers: Arc<Mutex<HashMap<u64, Channel<NginxStatusEvent>>>>,
     next_subscription_id: AtomicU64,
     status_generation: Arc<AtomicU64>,
     status_sequence: Arc<AtomicU64>,
+    runtime_system: Arc<Mutex<System>>,
     operation_phase: Arc<Mutex<Option<NginxOperationPhase>>>,
     monitor_shutdown: Arc<AtomicBool>,
     monitor_handle: Mutex<Option<JoinHandle<()>>>,
@@ -128,12 +157,16 @@ impl NginxManager {
             service_discoveries: Mutex::new(HashMap::new()),
             service_inspections: Mutex::new(HashMap::new()),
             operation_locks: Mutex::new(HashMap::new()),
+            log_cursors: Mutex::new(HashMap::new()),
+            log_subscription: Mutex::new(None),
+            next_log_subscription_id: AtomicU64::new(1),
             operation_history: Mutex::new(operation_history),
             release_updates,
             status_subscribers: Arc::new(Mutex::new(HashMap::new())),
             next_subscription_id: AtomicU64::new(1),
             status_generation: Arc::new(AtomicU64::new(1)),
             status_sequence: Arc::new(AtomicU64::new(0)),
+            runtime_system: Arc::new(Mutex::new(System::new())),
             operation_phase: Arc::new(Mutex::new(None)),
             monitor_shutdown: Arc::new(AtomicBool::new(false)),
             monitor_handle: Mutex::new(None),
@@ -356,6 +389,304 @@ impl NginxManager {
         }
     }
 
+    pub fn config_graph(&self, instance_id: &str) -> NginxResult<NginxConfigGraph> {
+        build_config_graph(&self.configuration(instance_id)?)
+    }
+
+    pub fn config_node(
+        &self,
+        instance_id: &str,
+        node_id: &str,
+    ) -> NginxResult<NginxConfigNodeDetail> {
+        read_config_node(&self.configuration(instance_id)?, node_id)
+    }
+
+    pub fn validate_configuration(
+        &self,
+        instance_id: &str,
+    ) -> NginxResult<NginxConfigValidationResult> {
+        let record = self.get_record(instance_id)?;
+        let configuration = self.configuration(instance_id)?;
+        let graph = build_config_graph(&configuration)?;
+        let parser_valid = !graph
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == "error");
+        let config_path = record.config_path.as_deref().ok_or_else(|| {
+            NginxError::new(
+                "NGINX_CONFIG_NOT_FOUND",
+                "the instance has no authorized config path",
+            )
+        })?;
+        let output = run_command(
+            Path::new(&record.binary_path),
+            &["-t", "-c", config_path, "-p", &record.root_path],
+            Some(Path::new(&record.root_path)),
+            10,
+        );
+        let (native_valid, native_error_code) = match output {
+            Ok(output) if output.success => (true, None),
+            Ok(_) => (
+                false,
+                Some("NGINX_CONFIG_NATIVE_VALIDATION_FAILED".to_owned()),
+            ),
+            Err(error) => (false, Some(error.code.to_owned())),
+        };
+        Ok(NginxConfigValidationResult {
+            revision: graph.revision,
+            parser_valid,
+            native_valid,
+            native_error_code,
+            diagnostics: graph.diagnostics,
+        })
+    }
+
+    pub fn global_configuration(&self, instance_id: &str) -> NginxResult<NginxGlobalConfiguration> {
+        read_global_configuration(&self.configuration(instance_id)?)
+    }
+
+    pub fn validate_global_configuration_patch(
+        &self,
+        input: ValidateNginxGlobalConfigurationPatchInput,
+    ) -> NginxResult<NginxGlobalConfigPatchValidation> {
+        let record = self.get_record(&input.instance_id)?;
+        if !refresh_instance(record.clone()).capabilities.can_edit {
+            return Err(NginxError::new(
+                "NGINX_CONFIG_WRITE_NOT_AUTHORIZED",
+                "the instance is not authorized for configuration writes",
+            ));
+        }
+        validate_global_patch(&record, &input.expected_revision, &input.patch)
+    }
+
+    pub fn apply_global_configuration_patch(
+        &self,
+        input: ApplyNginxGlobalConfigurationPatchInput,
+    ) -> NginxResult<NginxGlobalConfigApplyResult> {
+        let record = self.get_record(&input.instance_id)?;
+        let capabilities = refresh_instance(record.clone()).capabilities;
+        if !capabilities.can_edit {
+            return Err(NginxError::new(
+                "NGINX_CONFIG_WRITE_NOT_AUTHORIZED",
+                "the instance is not authorized for configuration writes",
+            ));
+        }
+        if input.mode != NginxGlobalConfigApplyMode::Save && !capabilities.can_control {
+            return Err(NginxError::new(
+                "NGINX_CONTROL_NOT_AUTHORIZED",
+                "the instance cannot reload or restart after saving",
+            ));
+        }
+        let transaction_lock = self
+            .operation_locks
+            .lock()
+            .unwrap()
+            .entry(record.id.clone())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone();
+        let _transaction = OperationGuard::try_acquire(transaction_lock)?;
+        apply_global_patch(
+            &record,
+            &self.data_directory,
+            &input.expected_revision,
+            &input.patch,
+            input.mode,
+        )
+    }
+
+    pub fn log_sources(&self, instance_id: &str) -> NginxResult<Vec<NginxLogSource>> {
+        let record = self.get_record(instance_id)?;
+        Ok(list_sources(&record, &self.data_directory)?
+            .into_iter()
+            .map(|source| source.dto)
+            .collect())
+    }
+
+    pub fn read_log_page(
+        &self,
+        instance_id: &str,
+        source_id: &str,
+        cursor: Option<&str>,
+    ) -> NginxResult<NginxLogPage> {
+        let source = self.resolve_log_source(instance_id, source_id)?;
+        let offset = if let Some(cursor) = cursor {
+            let token = self
+                .log_cursors
+                .lock()
+                .unwrap()
+                .remove(cursor)
+                .ok_or_else(|| {
+                    NginxError::new(
+                        "NGINX_LOG_CURSOR_INVALID",
+                        "the log cursor is invalid or expired",
+                    )
+                })?;
+            if token.expires_at <= Instant::now() || token.source_id != source_id {
+                return Err(NginxError::new(
+                    "NGINX_LOG_CURSOR_INVALID",
+                    "the cursor cannot cross log sources",
+                ));
+            }
+            token.offset
+        } else {
+            0
+        };
+        let (lines, next_offset, has_more) = read_page(&source.path, offset)?;
+        let next_cursor = has_more.then(|| {
+            let id = Uuid::new_v4().to_string();
+            self.log_cursors.lock().unwrap().insert(
+                id.clone(),
+                LogCursorToken {
+                    source_id: source_id.to_owned(),
+                    offset: next_offset,
+                    expires_at: Instant::now() + TOKEN_TTL,
+                },
+            );
+            id
+        });
+        Ok(NginxLogPage {
+            source_id: source_id.to_owned(),
+            lines,
+            next_cursor,
+        })
+    }
+
+    pub fn subscribe_log(
+        &self,
+        instance_id: &str,
+        source_id: &str,
+        channel: Channel<NginxLogEvent>,
+    ) -> NginxResult<NginxLogSubscription> {
+        let source = self.resolve_log_source(instance_id, source_id)?;
+        let mut slot = self.log_subscription.lock().unwrap();
+        if slot.is_some() {
+            return Err(NginxError::new(
+                "NGINX_LOG_SUBSCRIPTION_ACTIVE",
+                "only one log source may be followed",
+            ));
+        }
+        let subscription_id = self.next_log_subscription_id.fetch_add(1, Ordering::AcqRel);
+        let generation = subscription_id;
+        let initial_event = NginxLogEvent {
+            generation,
+            sequence: 0,
+            source_id: source_id.to_owned(),
+            lines: Vec::new(),
+            reset_reason: None,
+        };
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let thread_shutdown = Arc::clone(&shutdown);
+        let thread_source_id = source_id.to_owned();
+        let handle = thread::spawn(move || {
+            let mut offset = fs::metadata(&source.path)
+                .map(|value| value.len())
+                .unwrap_or_default();
+            let mut identity = file_identity(&source.path);
+            let mut sequence = 0u64;
+            while !thread_shutdown.load(Ordering::Acquire) {
+                thread::park_timeout(Duration::from_millis(500));
+                if thread_shutdown.load(Ordering::Acquire) {
+                    break;
+                }
+                let next_identity = file_identity(&source.path);
+                let length = fs::metadata(&source.path)
+                    .map(|value| value.len())
+                    .unwrap_or_default();
+                let reset_reason = if identity.is_some() && next_identity != identity {
+                    offset = 0;
+                    Some("rotate".to_owned())
+                } else if length < offset {
+                    offset = 0;
+                    Some("truncate".to_owned())
+                } else {
+                    None
+                };
+                identity = next_identity;
+                let (lines, next, _) = read_page(&source.path, offset).unwrap_or_default();
+                offset = next;
+                if lines.is_empty() && reset_reason.is_none() {
+                    continue;
+                }
+                sequence += 1;
+                let _ = channel.send(NginxLogEvent {
+                    generation,
+                    sequence,
+                    source_id: thread_source_id.clone(),
+                    lines,
+                    reset_reason,
+                });
+            }
+        });
+        *slot = Some(LogTailSubscription {
+            id: subscription_id,
+            shutdown,
+            handle,
+        });
+        Ok(NginxLogSubscription {
+            subscription_id,
+            initial_event,
+        })
+    }
+
+    pub fn unsubscribe_log(&self, subscription_id: u64) {
+        let subscription = self.log_subscription.lock().unwrap().take();
+        if let Some(subscription) = subscription.filter(|item| item.id == subscription_id) {
+            subscription.shutdown.store(true, Ordering::Release);
+            subscription.handle.thread().unpark();
+            let _ = subscription.handle.join();
+        }
+    }
+
+    fn resolve_log_source(
+        &self,
+        instance_id: &str,
+        source_id: &str,
+    ) -> NginxResult<ResolvedLogSource> {
+        let record = self.get_record(instance_id)?;
+        list_sources(&record, &self.data_directory)?
+            .into_iter()
+            .find(|source| source.dto.id == source_id && source.dto.availability == "available")
+            .ok_or_else(|| {
+                NginxError::new(
+                    "NGINX_LOG_SOURCE_NOT_FOUND",
+                    "the derived log source is unavailable",
+                )
+            })
+    }
+
+    pub fn log_rotation_policy(&self, instance_id: &str) -> NginxResult<NginxLogRotationPolicy> {
+        self.get_record(instance_id)?;
+        Ok(load_rotation_policy(&self.data_directory))
+    }
+
+    pub fn update_log_rotation_policy(
+        &self,
+        instance_id: &str,
+        policy: &NginxLogRotationPolicy,
+    ) -> NginxResult<NginxLogRotationPolicy> {
+        self.get_record(instance_id)?;
+        save_rotation_policy(&self.data_directory, policy)?;
+        Ok(policy.clone())
+    }
+
+    pub fn rotate_logs(
+        &self,
+        instance_id: &str,
+        source_id: &str,
+    ) -> NginxResult<NginxLogRotationResult> {
+        let record = self.get_record(instance_id)?;
+        let transaction_lock = self
+            .operation_locks
+            .lock()
+            .unwrap()
+            .entry(record.id.clone())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone();
+        let _transaction = OperationGuard::try_acquire(transaction_lock)?;
+        let source = self.resolve_log_source(instance_id, source_id)?;
+        rotate_managed_source(&source, &load_rotation_policy(&self.data_directory))
+    }
+
     pub fn control(&self, input: ControlNginxInstanceInput) -> NginxResult<NginxOperationRecord> {
         let record = self.get_record(&input.instance_id)?;
         if !refresh_instance(record.clone()).capabilities.can_control {
@@ -442,6 +773,22 @@ impl NginxManager {
             .lock()
             .unwrap()
             .list(input.instance_id.as_deref(), input.limit)
+    }
+
+    pub fn runtime_details(&self, instance_id: &str) -> NginxResult<NginxRuntimeDetails> {
+        let record = self.get_record(instance_id)?;
+        if record.lifecycle_state != NginxLifecycleState::Available {
+            return Err(NginxError::new(
+                "NGINX_INSTANCE_NOT_READABLE",
+                "the registered nginx executable is not available",
+            ));
+        }
+        let status = detect_runtime_status(&record);
+        Ok(collect_runtime_details(
+            &record,
+            status,
+            &mut self.runtime_system.lock().unwrap(),
+        ))
     }
 
     pub async fn upgrade(
@@ -814,6 +1161,11 @@ impl NginxManager {
     }
 
     pub fn shutdown(&self) {
+        if let Some(subscription) = self.log_subscription.lock().unwrap().take() {
+            subscription.shutdown.store(true, Ordering::Release);
+            subscription.handle.thread().unpark();
+            let _ = subscription.handle.join();
+        }
         self.monitor_shutdown.store(true, Ordering::Release);
         if let Some(handle) = self.monitor_handle.lock().unwrap().take() {
             handle.thread().unpark();
@@ -999,6 +1351,7 @@ impl NginxManager {
             &self.status_generation,
             &self.status_sequence,
             &self.operation_phase,
+            &self.runtime_system,
             full_refresh,
         )
     }
@@ -1022,6 +1375,7 @@ impl NginxManager {
         let generation = Arc::clone(&self.status_generation);
         let sequence = Arc::clone(&self.status_sequence);
         let operation_phase = Arc::clone(&self.operation_phase);
+        let runtime_system = Arc::clone(&self.runtime_system);
         let shutdown = Arc::clone(&self.monitor_shutdown);
         *handle = Some(thread::spawn(move || {
             let mut previous_signature = String::new();
@@ -1033,6 +1387,7 @@ impl NginxManager {
                     &generation,
                     &sequence,
                     &operation_phase,
+                    &runtime_system,
                     full_refresh,
                 );
                 let signature = status_signature(&event);
@@ -1076,6 +1431,7 @@ fn build_status_event(
     generation: &AtomicU64,
     sequence: &AtomicU64,
     operation_phase: &Arc<Mutex<Option<NginxOperationPhase>>>,
+    runtime_system: &Arc<Mutex<System>>,
     full_refresh: bool,
 ) -> NginxStatusEvent {
     let instance = {
@@ -1092,11 +1448,19 @@ fn build_status_event(
             })
         }
     };
+    let runtime_details = instance.as_ref().map(|value| {
+        collect_runtime_details(
+            &value.record,
+            value.runtime_status,
+            &mut runtime_system.lock().unwrap(),
+        )
+    });
     NginxStatusEvent {
         generation: generation.load(Ordering::Acquire),
         sequence: sequence.fetch_add(1, Ordering::AcqRel) + 1,
         observed_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         instance,
+        runtime_details,
         operation_phase: *operation_phase.lock().unwrap(),
     }
 }
@@ -1104,7 +1468,7 @@ fn build_status_event(
 fn status_signature(event: &NginxStatusEvent) -> String {
     let instance = event.instance.as_ref();
     format!(
-        "{}|{}|{:?}|{:?}|{:?}|{}",
+        "{}|{}|{:?}|{:?}|{:?}|{}|{:?}|{:?}",
         event.generation,
         instance
             .map(|value| value.record.id.as_str())
@@ -1115,7 +1479,112 @@ fn status_signature(event: &NginxStatusEvent) -> String {
         instance
             .map(|value| value.record.version.as_str())
             .unwrap_or_default(),
+        event
+            .runtime_details
+            .as_ref()
+            .map(|value| value.total_cpu_usage),
+        event
+            .runtime_details
+            .as_ref()
+            .map(|value| value.total_memory_bytes),
     )
+}
+
+fn collect_runtime_details(
+    record: &NginxInstanceRecord,
+    status: NginxRuntimeStatus,
+    system: &mut System,
+) -> NginxRuntimeDetails {
+    let master_pid = verified_master_pid(record);
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    let expected = Path::new(&record.binary_path);
+    let mut processes = system
+        .processes()
+        .iter()
+        .filter_map(|(pid, process)| {
+            let executable = process.exe()?;
+            if !paths_identical(executable, expected) {
+                return None;
+            }
+            let started_at = DateTime::<Utc>::from_timestamp(process.start_time() as i64, 0)
+                .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true));
+            Some(NginxRuntimeProcess {
+                pid: pid.as_u32(),
+                parent_pid: process.parent().map(|value| value.as_u32()),
+                role: if master_pid.is_some_and(|master| master == *pid) {
+                    NginxProcessRole::Master
+                } else {
+                    NginxProcessRole::Worker
+                },
+                cpu_usage: process.cpu_usage(),
+                memory_bytes: process.memory(),
+                started_at,
+                uptime_seconds: process.run_time(),
+                executable_verified: true,
+            })
+        })
+        .collect::<Vec<_>>();
+    processes.sort_by_key(|process| (process.role != NginxProcessRole::Master, process.pid));
+    let started_at = processes
+        .iter()
+        .filter_map(|process| process.started_at.clone())
+        .min();
+    let uptime_seconds = processes.iter().map(|process| process.uptime_seconds).max();
+    NginxRuntimeDetails {
+        instance_id: record.id.clone(),
+        observed_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        status,
+        master_pid: master_pid.map(|value| value.as_u32()),
+        worker_count: processes
+            .iter()
+            .filter(|process| process.role == NginxProcessRole::Worker)
+            .count(),
+        total_cpu_usage: processes.iter().map(|process| process.cpu_usage).sum(),
+        total_memory_bytes: processes.iter().map(|process| process.memory_bytes).sum(),
+        started_at,
+        uptime_seconds,
+        processes,
+        process_metrics: NginxRuntimeMetricAvailability::Available,
+        listeners: Vec::new(),
+        listener_metrics: NginxRuntimeMetricAvailability::Unavailable,
+        connection_metrics: NginxRuntimeMetricAvailability::Unavailable,
+    }
+}
+
+fn verified_master_pid(record: &NginxInstanceRecord) -> Option<Pid> {
+    if !matches!(
+        record.control_backend,
+        NginxControlBackend::Portable | NginxControlBackend::None
+    ) {
+        return None;
+    }
+    let pid_path = record
+        .configure_arguments
+        .iter()
+        .find_map(|argument| argument.strip_prefix("--pid-path="))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("logs/nginx.pid"));
+    let pid_path = if pid_path.is_absolute() {
+        pid_path
+    } else {
+        Path::new(&record.root_path).join(pid_path)
+    };
+    let canonical = pid_path.canonicalize().ok()?;
+    if !record
+        .authorized_roots
+        .iter()
+        .any(|root| canonical.starts_with(Path::new(root)))
+        || reject_reparse_points(&canonical).is_err()
+        || fs::metadata(&canonical).ok()?.len() > 64
+    {
+        return None;
+    }
+    let pid = fs::read_to_string(canonical)
+        .ok()?
+        .trim()
+        .parse::<usize>()
+        .ok()?;
+    Some(Pid::from(pid))
 }
 
 fn locate_binary(root: &Path) -> NginxResult<PathBuf> {
@@ -1873,6 +2342,32 @@ mod tests {
         assert_eq!(
             executable_identity_status(&registered_binary, &different_binary),
             NginxRuntimeStatus::Stopped
+        );
+    }
+
+    #[test]
+    fn runtime_details_never_infer_listener_or_connection_metrics() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let binary = directory
+            .path()
+            .join(if cfg!(windows) { "nginx.exe" } else { "nginx" });
+        fs::write(&binary, b"fixture").expect("write fixture");
+        let fixture = record(
+            directory.path(),
+            &binary,
+            fingerprint(&binary).expect("fingerprint"),
+        );
+        let details =
+            collect_runtime_details(&fixture, NginxRuntimeStatus::Stopped, &mut System::new());
+
+        assert!(details.listeners.is_empty());
+        assert_eq!(
+            details.listener_metrics,
+            NginxRuntimeMetricAvailability::Unavailable
+        );
+        assert_eq!(
+            details.connection_metrics,
+            NginxRuntimeMetricAvailability::Unavailable
         );
     }
 }

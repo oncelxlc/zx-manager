@@ -1,4 +1,4 @@
-mod network_monitor;
+mod legacy_cleanup;
 mod nginx_manager;
 mod startup;
 mod system_information;
@@ -22,9 +22,7 @@ pub fn run() {
         .manage(system_information::SystemInformationCollector::default())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
-            app.manage(network_monitor::NetworkMonitorManager::new(
-                app_data_dir.join("network-usage.sqlite3"),
-            ));
+            legacy_cleanup::cleanup_retired_data(&app_data_dir);
             app.manage(nginx_manager::NginxManager::new(
                 app_data_dir.join("nginx"),
             )?);
@@ -35,15 +33,6 @@ pub fn run() {
             startup::complete_startup,
             system_information::get_system_summary,
             system_information::get_system_information,
-            network_monitor::commands::get_network_monitor_capabilities,
-            network_monitor::commands::get_network_monitor_status,
-            network_monitor::commands::prepare_network_monitor,
-            network_monitor::commands::subscribe_network_realtime,
-            network_monitor::commands::unsubscribe_network_realtime,
-            network_monitor::commands::query_network_usage,
-            network_monitor::commands::set_network_monitor_enabled,
-            network_monitor::commands::set_network_monitor_sample_interval,
-            network_monitor::commands::clear_network_usage,
             nginx_manager::commands::select_nginx_directory,
             nginx_manager::commands::inspect_nginx_directory,
             nginx_manager::commands::register_nginx_instance,
@@ -57,9 +46,23 @@ pub fn run() {
             nginx_manager::commands::get_nginx_release_status,
             nginx_manager::commands::check_nginx_updates,
             nginx_manager::commands::get_nginx_configuration,
+            nginx_manager::commands::read_nginx_config_graph,
+            nginx_manager::commands::read_nginx_config_node,
+            nginx_manager::commands::validate_nginx_configuration,
+            nginx_manager::commands::get_nginx_global_configuration,
+            nginx_manager::commands::validate_nginx_global_configuration_patch,
+            nginx_manager::commands::apply_nginx_global_configuration_patch,
+            nginx_manager::commands::list_nginx_log_sources,
+            nginx_manager::commands::read_nginx_log_page,
+            nginx_manager::commands::subscribe_nginx_log,
+            nginx_manager::commands::unsubscribe_nginx_log,
+            nginx_manager::commands::get_nginx_log_rotation_policy,
+            nginx_manager::commands::update_nginx_log_rotation_policy,
+            nginx_manager::commands::rotate_nginx_logs,
             nginx_manager::commands::control_nginx_instance,
             nginx_manager::commands::upgrade_nginx_instance,
             nginx_manager::commands::get_nginx_operation_history,
+            nginx_manager::commands::get_nginx_runtime_details,
             nginx_manager::commands::list_nginx_system_services,
             nginx_manager::commands::inspect_nginx_system_service,
             nginx_manager::commands::register_nginx_system_service
@@ -80,16 +83,7 @@ pub fn run() {
                 app_handle.exit(0);
             }
         }
-        tauri::RunEvent::Exit => {
-            app_handle
-                .state::<network_monitor::NetworkMonitorManager>()
-                .shutdown();
-            app_handle.state::<nginx_manager::NginxManager>().shutdown();
-        }
+        tauri::RunEvent::Exit => app_handle.state::<nginx_manager::NginxManager>().shutdown(),
         _ => {}
     });
-}
-
-pub fn try_run_network_monitor_helper() -> bool {
-    network_monitor::try_run_helper_from_args()
 }

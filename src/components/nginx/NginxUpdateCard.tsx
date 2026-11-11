@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { RefreshCwIcon, ShieldCheckIcon } from "lucide-react";
+import { RefreshCwIcon, ShieldCheckIcon, TriangleAlertIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -103,7 +103,11 @@ export function NginxUpdateCard() {
         <CardTitle className="flex items-center gap-2">
           {t("updates.title")}
           {status && status.updateAvailableCount > 0 ? (
-            <Badge variant="warning">
+            <Badge
+              aria-label={t("updates.availableBadge", { count: status.updateAvailableCount })}
+              variant="warning"
+            >
+              <TriangleAlertIcon />
               {t("updates.availableBadge", { count: status.updateAvailableCount })}
             </Badge>
           ) : null}
@@ -130,10 +134,6 @@ export function NginxUpdateCard() {
           <span>{status?.latestRelease?.version ?? t("updates.unavailable")}</span>
         </div>
         <div className="flex flex-wrap justify-between gap-2">
-          <span className="text-muted-foreground">{t("updates.checkedAt")}</span>
-          <span>{loading ? t("updates.loadingCache") : checkedAt}</span>
-        </div>
-        <div className="flex flex-wrap justify-between gap-2">
           <span className="text-muted-foreground">{t("upgrade.currentVersion")}</span>
           <span>{instance?.version ?? t("updates.unavailable")}</span>
         </div>
@@ -141,12 +141,6 @@ export function NginxUpdateCard() {
           <span className="text-muted-foreground">{t("upgrade.support")}</span>
           <span>{supportReason}</span>
         </div>
-        {lastUpgradeResult?.backupId ? (
-          <div className="flex flex-wrap justify-between gap-2">
-            <span className="text-muted-foreground">{t("upgrade.lastBackup")}</span>
-            <span className="font-mono text-xs">{lastUpgradeResult.backupId}</span>
-          </div>
-        ) : null}
         {error && !status ? (
           <p className="text-destructive">{t(`errors.${error.code}`)}</p>
         ) : null}
@@ -160,6 +154,8 @@ export function NginxUpdateCard() {
       </CardContent>
       {instance && targetVersion ? (
         <NginxUpgradeDialog
+          cacheSource={t(`updates.sources.${status?.source ?? "none"}`)}
+          checkedAt={loading ? t("updates.loadingCache") : checkedAt}
           currentVersion={instance.version}
           onConfirm={() => void runUpgrade()}
           onOpenChange={setConfirmUpgrade}
@@ -167,6 +163,7 @@ export function NginxUpdateCard() {
           progress={upgradeProgress}
           result={lastUpgradeResult}
           running={operationStatus === "loading"}
+          supportReason={supportReason}
           targetVersion={targetVersion}
         />
       ) : null}

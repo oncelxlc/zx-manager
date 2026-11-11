@@ -2,6 +2,20 @@ import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
 
 import type {
   NginxCommandError,
+  NginxConfigGraph,
+  NginxConfigNodeDetail,
+  NginxConfigValidationResult,
+  NginxGlobalConfigApplyMode,
+  NginxGlobalConfigApplyResult,
+  NginxGlobalConfigPatchValidation,
+  NginxGlobalConfiguration,
+  NginxGlobalConfigurationPatch,
+  NginxLogEvent,
+  NginxLogPage,
+  NginxLogSource,
+  NginxLogSubscription,
+  NginxLogRotationPolicy,
+  NginxLogRotationResult,
   NginxConfiguration,
   NginxControlAction,
   NginxDirectorySelection,
@@ -10,6 +24,7 @@ import type {
   NginxReleaseStatus,
   NginxOperationRecord,
   NginxRegistryState,
+  NginxRuntimeDetails,
   NginxStatusEvent,
   NginxStatusSubscription,
   NginxUpgradeProgress,
@@ -101,6 +116,125 @@ export function getNginxConfiguration(
 ): Promise<NginxConfiguration> {
   assertNginxDesktop();
   return invoke("get_nginx_configuration", { instanceId });
+}
+
+export function readNginxConfigGraph(
+  instanceId: string,
+): Promise<NginxConfigGraph> {
+  assertNginxDesktop();
+  return invoke("read_nginx_config_graph", { instanceId });
+}
+
+export function readNginxConfigNode(
+  instanceId: string,
+  nodeId: string,
+): Promise<NginxConfigNodeDetail> {
+  assertNginxDesktop();
+  return invoke("read_nginx_config_node", { instanceId, nodeId });
+}
+
+export function validateNginxConfiguration(
+  instanceId: string,
+): Promise<NginxConfigValidationResult> {
+  assertNginxDesktop();
+  return invoke("validate_nginx_configuration", { instanceId });
+}
+
+export function getNginxGlobalConfiguration(
+  instanceId: string,
+): Promise<NginxGlobalConfiguration> {
+  assertNginxDesktop();
+  return invoke("get_nginx_global_configuration", { instanceId });
+}
+
+export function validateNginxGlobalConfigurationPatch(
+  instanceId: string,
+  expectedRevision: string,
+  patch: NginxGlobalConfigurationPatch,
+): Promise<NginxGlobalConfigPatchValidation> {
+  assertNginxDesktop();
+  return invoke("validate_nginx_global_configuration_patch", {
+    input: { instanceId, expectedRevision, patch },
+  });
+}
+
+export function applyNginxGlobalConfigurationPatch(
+  instanceId: string,
+  expectedRevision: string,
+  patch: NginxGlobalConfigurationPatch,
+  mode: NginxGlobalConfigApplyMode,
+): Promise<NginxGlobalConfigApplyResult> {
+  assertNginxDesktop();
+  return invoke("apply_nginx_global_configuration_patch", {
+    input: { instanceId, expectedRevision, patch, mode },
+  });
+}
+
+export function listNginxLogSources(instanceId: string): Promise<NginxLogSource[]> {
+  assertNginxDesktop();
+  return invoke("list_nginx_log_sources", { instanceId });
+}
+
+export function readNginxLogPage(
+  instanceId: string,
+  sourceId: string,
+  cursor: string | null,
+): Promise<NginxLogPage> {
+  assertNginxDesktop();
+  return invoke("read_nginx_log_page", { input: { instanceId, sourceId, cursor } });
+}
+
+export async function subscribeNginxLog(
+  instanceId: string,
+  sourceId: string,
+  onMessage: (event: NginxLogEvent) => void,
+) {
+  assertNginxDesktop();
+  const channel = new Channel<NginxLogEvent>();
+  channel.onmessage = onMessage;
+  const subscription = await invoke<NginxLogSubscription>("subscribe_nginx_log", {
+    instanceId,
+    sourceId,
+    channel,
+  });
+  let cleaned = false;
+  return {
+    subscription,
+    cleanup: async () => {
+      if (cleaned) return;
+      cleaned = true;
+      channel.onmessage = () => undefined;
+      await invoke("unsubscribe_nginx_log", { subscriptionId: subscription.subscriptionId });
+    },
+  };
+}
+
+export function getNginxLogRotationPolicy(instanceId: string): Promise<NginxLogRotationPolicy> {
+  assertNginxDesktop();
+  return invoke("get_nginx_log_rotation_policy", { instanceId });
+}
+
+export function updateNginxLogRotationPolicy(
+  instanceId: string,
+  policy: NginxLogRotationPolicy,
+): Promise<NginxLogRotationPolicy> {
+  assertNginxDesktop();
+  return invoke("update_nginx_log_rotation_policy", { input: { instanceId, policy } });
+}
+
+export function rotateNginxLogs(
+  instanceId: string,
+  sourceId: string,
+): Promise<NginxLogRotationResult> {
+  assertNginxDesktop();
+  return invoke("rotate_nginx_logs", { input: { instanceId, sourceId } });
+}
+
+export function getNginxRuntimeDetails(
+  instanceId: string,
+): Promise<NginxRuntimeDetails> {
+  assertNginxDesktop();
+  return invoke("get_nginx_runtime_details", { instanceId });
 }
 
 export function controlNginxInstance(

@@ -195,6 +195,8 @@ pub struct CheckNginxUpdatesInput {
 #[serde(rename_all = "camelCase")]
 pub struct NginxSourceLocation {
     pub source_id: String,
+    pub byte_start: usize,
+    pub byte_end: usize,
     pub line: usize,
     pub column: usize,
     pub end_line: usize,
@@ -216,6 +218,7 @@ pub struct NginxDirective {
 pub struct NginxConfigSource {
     pub id: String,
     pub display_path: String,
+    pub include_chain: Vec<String>,
     pub text: String,
     pub directives: Vec<NginxDirective>,
 }
@@ -282,6 +285,226 @@ pub struct NginxConfiguration {
     pub error_logs: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigRevision {
+    pub value: String,
+    pub modified_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxGlobalConfigurationPatch {
+    pub worker_processes: Option<String>,
+    pub worker_rlimit_nofile: Option<String>,
+    pub pid: Option<String>,
+    pub error_log: Option<String>,
+    pub top_level_includes: Vec<String>,
+    pub worker_connections: Option<String>,
+    pub multi_accept: Option<String>,
+    pub accept_mutex: Option<String>,
+    pub accept_mutex_delay: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxGlobalConfiguration {
+    pub instance_id: String,
+    pub revision: NginxConfigRevision,
+    #[serde(flatten)]
+    pub values: NginxGlobalConfigurationPatch,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidateNginxGlobalConfigurationPatchInput {
+    pub instance_id: String,
+    pub expected_revision: String,
+    pub patch: NginxGlobalConfigurationPatch,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NginxGlobalConfigApplyMode {
+    Save,
+    Reload,
+    Restart,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyNginxGlobalConfigurationPatchInput {
+    pub instance_id: String,
+    pub expected_revision: String,
+    pub patch: NginxGlobalConfigurationPatch,
+    pub mode: NginxGlobalConfigApplyMode,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxGlobalConfigFieldError {
+    pub field: String,
+    pub code: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxGlobalConfigPatchValidation {
+    pub current_revision: NginxConfigRevision,
+    pub proposed_revision: Option<NginxConfigRevision>,
+    pub field_errors: Vec<NginxGlobalConfigFieldError>,
+    pub parser_valid: bool,
+    pub native_valid: bool,
+    pub native_error_code: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxGlobalConfigApplyResult {
+    pub revision: NginxConfigRevision,
+    pub mode: NginxGlobalConfigApplyMode,
+    pub success: bool,
+    pub rolled_back: bool,
+    pub rollback_succeeded: Option<bool>,
+    pub error_code: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogSource {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    pub display_path: Option<String>,
+    pub availability: String,
+    pub managed: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogLine {
+    pub offset: u64,
+    pub text: String,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogPage {
+    pub source_id: String,
+    pub lines: Vec<NginxLogLine>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadNginxLogPageInput {
+    pub instance_id: String,
+    pub source_id: String,
+    pub cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogEvent {
+    pub generation: u64,
+    pub sequence: u64,
+    pub source_id: String,
+    pub lines: Vec<NginxLogLine>,
+    pub reset_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogSubscription {
+    pub subscription_id: u64,
+    pub initial_event: NginxLogEvent,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogRotationPolicy {
+    pub retention_months: u16,
+    pub max_archives: u16,
+    pub automatic_scheduling: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateNginxLogRotationPolicyInput {
+    pub instance_id: String,
+    pub policy: NginxLogRotationPolicy,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RotateNginxLogsInput {
+    pub instance_id: String,
+    pub source_id: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxLogRotationResult {
+    pub source_id: String,
+    pub rotated: bool,
+    pub archive_name: Option<String>,
+    pub error_code: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigGraphSource {
+    pub id: String,
+    pub display_path: String,
+    pub include_chain: Vec<String>,
+    pub node_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigGraphNode {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub arguments: Vec<String>,
+    pub label: String,
+    pub source_id: String,
+    pub include_chain: Vec<String>,
+    pub location: NginxSourceLocation,
+    pub child_ids: Vec<String>,
+    pub reference_ids: Vec<String>,
+    pub known: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigGraph {
+    pub instance_id: String,
+    pub entry_source_id: String,
+    pub revision: NginxConfigRevision,
+    pub sources: Vec<NginxConfigGraphSource>,
+    pub nodes: Vec<NginxConfigGraphNode>,
+    pub diagnostics: Vec<NginxConfigDiagnostic>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigNodeDetail {
+    pub node: NginxConfigGraphNode,
+    pub raw: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxConfigValidationResult {
+    pub revision: NginxConfigRevision,
+    pub parser_valid: bool,
+    pub native_valid: bool,
+    pub native_error_code: Option<String>,
+    pub diagnostics: Vec<NginxConfigDiagnostic>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum NginxControlAction {
@@ -337,6 +560,52 @@ pub struct NginxOperationRecord {
     pub stderr: String,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NginxProcessRole {
+    Master,
+    Worker,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NginxRuntimeMetricAvailability {
+    Available,
+    Unavailable,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxRuntimeProcess {
+    pub pid: u32,
+    pub parent_pid: Option<u32>,
+    pub role: NginxProcessRole,
+    pub cpu_usage: f32,
+    pub memory_bytes: u64,
+    pub started_at: Option<String>,
+    pub uptime_seconds: u64,
+    pub executable_verified: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NginxRuntimeDetails {
+    pub instance_id: String,
+    pub observed_at: String,
+    pub status: NginxRuntimeStatus,
+    pub master_pid: Option<u32>,
+    pub worker_count: usize,
+    pub total_cpu_usage: f32,
+    pub total_memory_bytes: u64,
+    pub started_at: Option<String>,
+    pub uptime_seconds: Option<u64>,
+    pub processes: Vec<NginxRuntimeProcess>,
+    pub process_metrics: NginxRuntimeMetricAvailability,
+    pub listeners: Vec<String>,
+    pub listener_metrics: NginxRuntimeMetricAvailability,
+    pub connection_metrics: NginxRuntimeMetricAvailability,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NginxStatusEvent {
@@ -344,6 +613,7 @@ pub struct NginxStatusEvent {
     pub sequence: u64,
     pub observed_at: String,
     pub instance: Option<NginxInstance>,
+    pub runtime_details: Option<NginxRuntimeDetails>,
     pub operation_phase: Option<NginxOperationPhase>,
 }
 

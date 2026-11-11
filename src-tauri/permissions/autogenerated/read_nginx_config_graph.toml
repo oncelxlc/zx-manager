@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-read-nginx-config-graph"
+description = "Enables the read_nginx_config_graph command without any pre-configured scope."
+commands.allow = ["read_nginx_config_graph"]
+
+[[permission]]
+identifier = "deny-read-nginx-config-graph"
+description = "Denies the read_nginx_config_graph command without any pre-configured scope."
+commands.deny = ["read_nginx_config_graph"]

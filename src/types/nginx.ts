@@ -94,6 +94,8 @@ export interface NginxReleaseStatus {
 
 export interface NginxSourceLocation {
   sourceId: string;
+  byteStart: number;
+  byteEnd: number;
   line: number;
   column: number;
   endLine: number;
@@ -111,6 +113,7 @@ export interface NginxDirective {
 export interface NginxConfigSource {
   id: string;
   displayPath: string;
+  includeChain: string[];
   text: string;
   directives: NginxDirective[];
 }
@@ -165,6 +168,143 @@ export interface NginxConfiguration {
   errorLogs: string[];
 }
 
+export interface NginxConfigRevision {
+  value: string;
+  modifiedAt: string | null;
+}
+
+export interface NginxConfigGraphSource {
+  id: string;
+  displayPath: string;
+  includeChain: string[];
+  nodeCount: number;
+}
+
+export interface NginxConfigGraphNode {
+  id: string;
+  kind: string;
+  name: string;
+  arguments: string[];
+  label: string;
+  sourceId: string;
+  includeChain: string[];
+  location: NginxSourceLocation;
+  childIds: string[];
+  referenceIds: string[];
+  known: boolean;
+}
+
+export interface NginxConfigGraph {
+  instanceId: string;
+  entrySourceId: string;
+  revision: NginxConfigRevision;
+  sources: NginxConfigGraphSource[];
+  nodes: NginxConfigGraphNode[];
+  diagnostics: NginxConfigDiagnostic[];
+}
+
+export interface NginxConfigNodeDetail {
+  node: NginxConfigGraphNode;
+  raw: string;
+}
+
+export interface NginxConfigValidationResult {
+  revision: NginxConfigRevision;
+  parserValid: boolean;
+  nativeValid: boolean;
+  nativeErrorCode: string | null;
+  diagnostics: NginxConfigDiagnostic[];
+}
+
+export interface NginxGlobalConfigurationPatch {
+  workerProcesses: string | null;
+  workerRlimitNofile: string | null;
+  pid: string | null;
+  errorLog: string | null;
+  topLevelIncludes: string[];
+  workerConnections: string | null;
+  multiAccept: string | null;
+  acceptMutex: string | null;
+  acceptMutexDelay: string | null;
+}
+
+export interface NginxGlobalConfiguration extends NginxGlobalConfigurationPatch {
+  instanceId: string;
+  revision: NginxConfigRevision;
+}
+
+export type NginxGlobalConfigApplyMode = "save" | "reload" | "restart";
+
+export interface NginxGlobalConfigFieldError {
+  field: keyof NginxGlobalConfigurationPatch;
+  code: string;
+}
+
+export interface NginxGlobalConfigPatchValidation {
+  currentRevision: NginxConfigRevision;
+  proposedRevision: NginxConfigRevision | null;
+  fieldErrors: NginxGlobalConfigFieldError[];
+  parserValid: boolean;
+  nativeValid: boolean;
+  nativeErrorCode: string | null;
+}
+
+export interface NginxGlobalConfigApplyResult {
+  revision: NginxConfigRevision;
+  mode: NginxGlobalConfigApplyMode;
+  success: boolean;
+  rolledBack: boolean;
+  rollbackSucceeded: boolean | null;
+  errorCode: string | null;
+}
+
+export interface NginxLogSource {
+  id: string;
+  kind: "config-access" | "config-error" | "zxmanager-event";
+  label: string;
+  displayPath: string | null;
+  availability: "available" | "missing";
+  managed: boolean;
+}
+
+export interface NginxLogLine {
+  offset: number;
+  text: string;
+  truncated: boolean;
+}
+
+export interface NginxLogPage {
+  sourceId: string;
+  lines: NginxLogLine[];
+  nextCursor: string | null;
+}
+
+export interface NginxLogEvent {
+  generation: number;
+  sequence: number;
+  sourceId: string;
+  lines: NginxLogLine[];
+  resetReason: "rotate" | "truncate" | null;
+}
+
+export interface NginxLogSubscription {
+  subscriptionId: number;
+  initialEvent: NginxLogEvent;
+}
+
+export interface NginxLogRotationPolicy {
+  retentionMonths: number;
+  maxArchives: number;
+  automaticScheduling: false;
+}
+
+export interface NginxLogRotationResult {
+  sourceId: string;
+  rotated: boolean;
+  archiveName: string | null;
+  errorCode: string | null;
+}
+
 export type NginxControlAction = "start" | "stop" | "reload" | "restart";
 
 export interface NginxOperationRecord {
@@ -180,6 +320,37 @@ export interface NginxOperationRecord {
   errorCode: string | null;
   stdout: string;
   stderr: string;
+}
+
+export type NginxProcessRole = "master" | "worker";
+export type NginxRuntimeMetricAvailability = "available" | "unavailable";
+
+export interface NginxRuntimeProcess {
+  pid: number;
+  parentPid: number | null;
+  role: NginxProcessRole;
+  cpuUsage: number;
+  memoryBytes: number;
+  startedAt: string | null;
+  uptimeSeconds: number;
+  executableVerified: boolean;
+}
+
+export interface NginxRuntimeDetails {
+  instanceId: string;
+  observedAt: string;
+  status: NginxRuntimeStatus;
+  masterPid: number | null;
+  workerCount: number;
+  totalCpuUsage: number;
+  totalMemoryBytes: number;
+  startedAt: string | null;
+  uptimeSeconds: number | null;
+  processes: NginxRuntimeProcess[];
+  processMetrics: NginxRuntimeMetricAvailability;
+  listeners: string[];
+  listenerMetrics: NginxRuntimeMetricAvailability;
+  connectionMetrics: NginxRuntimeMetricAvailability;
 }
 
 export type NginxOperationPhase =
@@ -199,6 +370,7 @@ export interface NginxStatusEvent {
   sequence: number;
   observedAt: string;
   instance: NginxInstance | null;
+  runtimeDetails: NginxRuntimeDetails | null;
   operationPhase: NginxOperationPhase | null;
 }
 

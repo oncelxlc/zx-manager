@@ -1,10 +1,8 @@
-import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { FileCodeIcon, FileTextIcon, NetworkIcon, ServerIcon } from "lucide-react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardAction,
@@ -16,19 +14,12 @@ import {
 import { useMainLayoutHeader } from "src/layouts/MainLayout";
 import { useNginxStore } from "src/stores/nginx-store";
 import { NginxUpdateCard } from "src/components/nginx/NginxUpdateCard";
-import { NginxMigrationAlert } from "src/components/nginx/NginxMigrationAlert";
+import { NginxInstanceGate } from "src/components/nginx/instance/NginxInstanceGate";
+import { NginxRuntimeBadge } from "src/components/nginx/NginxRuntimeBadge";
 
 export function NginxManagementPage() {
   const { t } = useTranslation("nginx");
-  const registryState = useNginxStore((state) => state.registryState);
   const instance = useNginxStore((state) => state.instance);
-  const operationStatus = useNginxStore((state) => state.operationStatus);
-  const loadRegistry = useNginxStore((state) => state.loadRegistry);
-  const resolveMigration = useNginxStore((state) => state.resolveMigration);
-
-  useEffect(() => {
-    void loadRegistry();
-  }, [loadRegistry]);
 
   useMainLayoutHeader({ title: t("management.title") });
 
@@ -43,18 +34,11 @@ export function NginxManagementPage() {
         </p>
       </div>
 
-      {registryState?.status === "migrationRequired" ? (
-        <NginxMigrationAlert
-          candidates={registryState.migrationCandidates}
-          loading={operationStatus === "loading"}
-          onResolve={(id) => void resolveMigration(id)}
-        />
-      ) : null}
-
-      <div className="grid gap-4 md:grid-cols-2">
+      <NginxInstanceGate>
+        <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <ServerIcon className="size-5 text-muted-foreground" />
+            <ServerIcon className="text-muted-foreground" />
             <CardTitle>{t("management.instancesTitle")}</CardTitle>
             <CardDescription>
               {instance
@@ -73,16 +57,14 @@ export function NginxManagementPage() {
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
             {instance ? (
-              <Badge variant={instance.runtimeStatus === "running" ? "success" : "secondary"}>
-                {t(`runtime.${instance.runtimeStatus}`)}
-              </Badge>
+              <NginxRuntimeBadge status={instance.runtimeStatus} />
             ) : t("management.registryBoundary")}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <FileTextIcon className="size-5 text-muted-foreground" />
+            <FileTextIcon className="text-muted-foreground" />
             <CardTitle>{t("management.logsTitle")}</CardTitle>
             <CardDescription>{t("management.logsDescription")}</CardDescription>
             <CardAction>
@@ -102,7 +84,7 @@ export function NginxManagementPage() {
 
         <Card>
           <CardHeader>
-            <NetworkIcon className="size-5 text-muted-foreground" />
+            <NetworkIcon className="text-muted-foreground" />
             <CardTitle>{t("management.sitesTitle")}</CardTitle>
             <CardDescription>{t("management.sitesDescription")}</CardDescription>
             <CardAction>
@@ -122,7 +104,7 @@ export function NginxManagementPage() {
 
         <Card>
           <CardHeader>
-            <FileCodeIcon className="size-5 text-muted-foreground" />
+            <FileCodeIcon className="text-muted-foreground" />
             <CardTitle>{t("management.configurationTitle")}</CardTitle>
             <CardDescription>{t("management.configurationDescription")}</CardDescription>
             <CardAction>
@@ -139,8 +121,9 @@ export function NginxManagementPage() {
             {t("management.sourceBoundary")}
           </CardContent>
         </Card>
-      </div>
-      <NginxUpdateCard />
+        </div>
+        <NginxUpdateCard />
+      </NginxInstanceGate>
     </div>
   );
 }

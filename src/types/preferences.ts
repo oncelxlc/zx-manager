@@ -8,13 +8,13 @@ export type ThemeMode = (typeof themeModes)[number];
 
 export type ResolvedTheme = Exclude<ThemeMode, "system">;
 
-export const networkMonitorSampleIntervals = [1, 3, 5, 10] as const;
-
-export type NetworkMonitorSampleInterval =
-  (typeof networkMonitorSampleIntervals)[number];
-
 export const nginxReleaseChannels = ["stable", "mainline"] as const;
 export type NginxReleaseChannel = (typeof nginxReleaseChannels)[number];
+
+export interface NginxConfigCustomGroup {
+  id: string;
+  name: string;
+}
 
 export interface NginxPreferences {
   releaseChannel: NginxReleaseChannel;
@@ -22,6 +22,8 @@ export interface NginxPreferences {
   backupRetentionCount: number;
   logFollow: boolean;
   logBufferLines: number;
+  configCustomGroups: NginxConfigCustomGroup[];
+  configNodeGroups: Record<string, string>;
 }
 
 export const defaultNginxPreferences: NginxPreferences = {
@@ -30,14 +32,13 @@ export const defaultNginxPreferences: NginxPreferences = {
   backupRetentionCount: 5,
   logFollow: true,
   logBufferLines: 20_000,
+  configCustomGroups: [],
+  configNodeGroups: {},
 };
 
 export interface UserPreferences {
   locale: SupportedLocale;
   theme: ThemeMode;
-  networkMonitorConfigured: boolean;
-  networkMonitorStartOnLaunch: boolean;
-  networkMonitorSampleIntervalSeconds: NetworkMonitorSampleInterval;
   nginx: NginxPreferences;
 }
 
@@ -49,18 +50,36 @@ export function isThemeMode(value: unknown): value is ThemeMode {
   return typeof value === "string" && themeModes.includes(value as ThemeMode);
 }
 
-export function isNetworkMonitorSampleInterval(
-  value: unknown,
-): value is NetworkMonitorSampleInterval {
-  return typeof value === "number"
-    && networkMonitorSampleIntervals.includes(
-      value as NetworkMonitorSampleInterval,
-    );
-}
-
 export function normalizeNginxPreferences(value: unknown): NginxPreferences {
   const candidate = typeof value === "object" && value !== null
     ? value as Partial<NginxPreferences>
+    : {};
+  const configCustomGroups = Array.isArray(candidate.configCustomGroups)
+    ? candidate.configCustomGroups
+      .filter((group): group is NginxConfigCustomGroup => (
+        typeof group === "object"
+        && group !== null
+        && typeof group.id === "string"
+        && /^[a-zA-Z0-9_-]{1,64}$/.test(group.id)
+        && typeof group.name === "string"
+        && group.name.trim().length >= 1
+        && group.name.trim().length <= 80
+      ))
+      .slice(0, 100)
+      .map((group) => ({ id: group.id, name: group.name.trim() }))
+    : [];
+  const groupIds = new Set(configCustomGroups.map((group) => group.id));
+  const configNodeGroups = typeof candidate.configNodeGroups === "object"
+    && candidate.configNodeGroups !== null
+    ? Object.fromEntries(
+      Object.entries(candidate.configNodeGroups)
+        .filter(([nodeId, groupId]) => (
+          /^[a-f0-9]{64}$/i.test(nodeId)
+          && typeof groupId === "string"
+          && groupIds.has(groupId)
+        ))
+        .slice(0, 10_000),
+    )
     : {};
   return {
     releaseChannel:
@@ -93,5 +112,7 @@ export function normalizeNginxPreferences(value: unknown): NginxPreferences {
       && candidate.logBufferLines <= 100_000
         ? candidate.logBufferLines
         : defaultNginxPreferences.logBufferLines,
+    configCustomGroups,
+    configNodeGroups,
   };
 }

@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-subscribe-nginx-log"
+description = "Enables subscribe_nginx_log."
+commands.allow = ["subscribe_nginx_log"]
