@@ -37,8 +37,13 @@ fn migration_keeps_old_bytes_and_supplies_missing_defaults() {
     assert!(!config.startup.show_on_start);
     assert_eq!(config.animation, IslandConfig::default().animation);
     assert_eq!(fs::read(dir.0.join("island.json.bak")).unwrap(), old);
-    assert_eq!(store.save(&config, 4).unwrap().revision, 5);
-    assert!(store.save(&config, 4).is_err());
+    assert_eq!(store.save(&config, 4).unwrap().revision, 4);
+    let changed = IslandConfig {
+        enabled: false,
+        ..config
+    };
+    assert_eq!(store.save(&changed, 4).unwrap().revision, 5);
+    assert!(store.save(&changed, 4).is_err());
     assert_eq!(store.load().unwrap().revision, 5);
 }
 
@@ -51,9 +56,28 @@ fn v1_settings_keep_revision_and_gain_private_notification_defaults() {
     assert_eq!(config.schema_version, SCHEMA_VERSION);
     assert_eq!(config.revision, 9);
     assert!(!config.enabled);
-    assert!(!config.notifications.show_preview);
-    assert_eq!(config.notifications.preview_timeout_seconds, 8);
+    assert!(config.notifications.enabled);
     assert_eq!(fs::read(dir.0.join("island.json.bak")).unwrap(), old);
+}
+
+#[test]
+fn v2_removes_retired_fields_and_preserves_opt_outs_and_placement() {
+    let dir = Directory::new();
+    let old = br##"{"schemaVersion":2,"revision":7,"hotkeys":{"toggle":"Ctrl+Alt+I"},"startup":{"closeToTray":false},"interaction":{"collapseDelayMs":400},"notifications":{"enabled":true,"qqEnabled":false,"showPreview":true},"placement":{"offsetX":72},"appearance":{"background":"#123456"}}"##;
+    fs::write(dir.0.join("island.json"), old).unwrap();
+    let config = ConfigStore::new(dir.0.clone()).load().unwrap();
+    assert_eq!(config.revision, 7);
+    assert!(!config.notifications.enabled);
+    assert_eq!(config.placement.offset_x, 72.0);
+    assert_eq!(config.appearance.background, "#123456");
+    assert_eq!(fs::read(dir.0.join("island.json.bak")).unwrap(), old);
+    let saved: Value =
+        serde_json::from_slice(&fs::read(dir.0.join("island.json")).unwrap()).unwrap();
+    assert_eq!(
+        saved["notifications"],
+        serde_json::json!({"enabled": false})
+    );
+    assert!(saved.get("hotkeys").is_none());
 }
 
 #[test]
@@ -64,7 +88,15 @@ fn concurrent_writers_cannot_commit_the_same_revision_twice() {
         let save = || {
             let store = ConfigStore::new(dir.0.clone());
             barrier.wait();
-            store.save(&IslandConfig::default(), 0).is_ok()
+            store
+                .save(
+                    &IslandConfig {
+                        enabled: false,
+                        ..Default::default()
+                    },
+                    0,
+                )
+                .is_ok()
         };
         let first = scope.spawn(save);
         let second = scope.spawn(save);

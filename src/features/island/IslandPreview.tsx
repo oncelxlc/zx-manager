@@ -40,8 +40,11 @@ export function IslandPreview({ config, desktop, report }: {
       if (request !== generation.current) return;
       const { expandMs, collapseMs, edgeMs } = config.animation;
       const steps: [PreviewState, number][] = [
-        ["expanded", expandMs + 450], ["pinned", 450], ["compact", collapseMs + 300], ["edgePeek", edgeMs + 400],
+        ["expanded", expandMs + 800], ["compact", collapseMs + 300],
       ];
+      if (config.edge.autoHide && (config.edge.mode === "peek" || config.edge.mode === "fullHide")) {
+        steps.push([config.edge.mode === "peek" ? "edgePeek" : "hidden", edgeMs + 400]);
+      }
       function next(index: number) {
         if (request !== generation.current) return;
         if (index === steps.length) { cancel(); return; }
@@ -55,18 +58,20 @@ export function IslandPreview({ config, desktop, report }: {
     }
   }
   const { appearance, animation, placement } = config;
-  const expanded = state === "expanded" || state === "pinned";
+  const expanded = state === "expanded";
   const vertical = placement.orientation === "vertical";
   const width = expanded ? appearance.expandedWidth : appearance.compactWidth;
   const height = state === "edgePeek" ? config.edge.peekSize : expanded ? appearance.expandedHeight : appearance.compactHeight;
   const duration = !animation.enabled || animation.reducedMotion || animation.performance === "performance" ? 0
-    : state === "edgePeek" || previous === "edgePeek" ? animation.edgeMs : expanded ? animation.expandMs : animation.collapseMs;
+    : state === "edgePeek" || previous === "edgePeek" || state === "hidden" || previous === "hidden"
+      ? animation.edgeMs : expanded ? animation.expandMs : animation.collapseMs;
   const offset = state !== "edgePeek" ? "none" : vertical
     ? "translateX(calc(-50cqw + 50%))" : "translateY(calc(-50cqh + 50%))";
   return (
     <section aria-label="动画预览" {...stylex.props(s.preview)}>
       <div aria-hidden="true" {...stylex.props(s.canvas)}>
-        <div {...stylex.props(s.frame(vertical ? height : width, vertical ? width : height, duration, motionEasing(animation.preset, expanded, animation.customCurve), offset))}>
+        <div {...stylex.props(s.frame(vertical ? height : width, vertical ? width : height, duration,
+          motionEasing(animation.preset, expanded, animation.customCurve), offset), state === "hidden" && s.hidden)}>
           <PreviewContent config={config} state={state} />
         </div>
       </div>
@@ -82,10 +87,11 @@ export function IslandPreview({ config, desktop, report }: {
 const s = stylex.create({
   preview: { marginBlock: 18, display: "grid", justifyItems: "start", gap: 10 },
   canvas: { display: "grid", placeItems: "center", width: "100%", height: 200, padding: 12, overflow: "hidden", containerType: "size",
-    borderRadius: 12, border: "1px solid #d6ded9", backgroundColor: "#e8eeeb" },
+    borderRadius: 12, borderWidth: 1, borderStyle: "solid", borderColor: "#d6ded9", backgroundColor: "#e8eeeb" },
   frame: (w: number, h: number, ms: number, easing: string, transform: string) => ({
     width: `${w}px`, height: `${h}px`, maxWidth: "100%", maxHeight: "100%", minWidth: 0, minHeight: 0,
-    transitionProperty: "width, height, transform", transitionTimingFunction: easing, transform,
+    transitionProperty: "width, height, transform, opacity", transitionTimingFunction: easing, transform,
     transitionDuration: { default: `${ms}ms`, "@media (prefers-reduced-motion: reduce)": "0ms" },
   }),
+  hidden: { opacity: 0 },
 });

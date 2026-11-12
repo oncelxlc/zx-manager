@@ -19,7 +19,7 @@ use windows_sys::Win32::{
 
 const TENCENT: &str = "Tencent Technology (Shenzhen) Company Limited";
 
-pub(super) fn verified_client(path: &Path, source: Source) -> bool {
+pub(in crate::island::notifications) fn verified_client(path: &Path, source: Source) -> bool {
     let Some(Component::Prefix(prefix)) = path.components().next() else {
         return false;
     };

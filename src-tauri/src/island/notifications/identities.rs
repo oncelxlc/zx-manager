@@ -1,4 +1,5 @@
 mod publisher;
+pub(super) use publisher::verified_client;
 
 use super::Source;
 use std::{
@@ -27,18 +28,16 @@ pub(super) struct Sources {
 }
 
 impl Sources {
-    pub(super) fn refresh(&mut self, observed: &Observed) {
+    pub(super) fn refresh(&mut self, observed: &Observed) -> bool {
         if let Some(previous) = self.refreshed {
-            let age = previous.elapsed();
-            if age < Duration::from_secs(30)
-                || (age < Duration::from_secs(300) && observed == &self.observed)
-            {
-                return;
+            if previous.elapsed() < Duration::from_secs(300) && observed == &self.observed {
+                return false;
             }
         }
         self.refreshed = Some(Instant::now());
         self.observed.clone_from(observed);
         self.verified = resolve(observed, registrations, publisher::verified_client);
+        true
     }
 
     pub(super) fn lookup(&self, id: &str) -> Option<Source> {

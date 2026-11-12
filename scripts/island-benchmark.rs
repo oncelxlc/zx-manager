@@ -142,11 +142,15 @@ pub(super) fn trace(event: Event, state: IslandState) {
     }
 }
 
-fn click(handle: &ManagerHandle, expected: IslandState) -> Result<(), String> {
+fn change_state(handle: &ManagerHandle, expected: IslandState) -> Result<(), String> {
     tauri::async_runtime::block_on(handle.request(move |manager| {
         let previous = manager.machine.state;
         DRIVING.set(true);
-        let transition = manager.transition(Event::Click);
+        let transition = if expected == IslandState::Expanded {
+            manager.transition(Event::PointerEnter).and_then(|_| manager.transition(Event::Click))
+        } else {
+            manager.transition(Event::PointerLeave)
+        };
         DRIVING.set(false);
         transition?;
         if manager.machine.state != expected || manager.last_error.is_some() {
@@ -243,7 +247,7 @@ fn visual(handle: &ManagerHandle, path: &Path) -> Result<(), String> {
                 (IslandState::Compact, "compact"),
             ] {
                 let ticks = ticks()?;
-                click(handle, expected)?;
+                change_state(handle, expected)?;
                 writeln!(inputs, "{phase},{label},{ticks}").unwrap();
                 thread::sleep(Duration::from_millis(ms));
             }
@@ -260,11 +264,13 @@ fn visual(handle: &ManagerHandle, path: &Path) -> Result<(), String> {
     ] {
         tauri::async_runtime::block_on(handle.request(move |m| {
             match expected {
-                IslandState::Expanded => m.transition(Event::Click)?,
+                IslandState::Expanded => {
+                    m.transition(Event::PointerEnter)?;
+                    m.transition(Event::Click)?;
+                }
                 IslandState::Pinned => m.transition(Event::Pin)?,
                 IslandState::EdgePeek => {
                     m.transition(Event::Unpin)?;
-                    m.transition(Event::Click)?;
                     m.transition(Event::PointerLeave)?;
                     m.transition(Event::HideTimeout)?;
                 }
@@ -304,7 +310,6 @@ fn management_smoke(handle: &ManagerHandle) -> Result<(), String> {
     let revision = tauri::async_runtime::block_on(handle.request(|m| {
         let mut draft = m.read_config()?;
         draft.appearance.background = "#304254".into();
-        draft.hotkeys.show = "Ctrl+Alt+Shift+F24".into();
         draft.edge.mode = EdgeMode::Peek;
         draft.edge.auto_hide = true;
         draft.edge.hide_delay_ms = 60000;
@@ -327,12 +332,10 @@ fn management_smoke(handle: &ManagerHandle) -> Result<(), String> {
     }))?;
     check_ready(handle)?;
     tauri::async_runtime::block_on(handle.request(move |m| {
-        let mut saved = m.read_config()?;
+        let saved = m.read_config()?;
         if saved.revision != revision || saved.appearance.background != "#304254" {
             return Err("saved appearance did not survive restart".into());
         }
-        saved.hotkeys.show.clear();
-        m.save(saved)?;
         Ok(())
     }))
 }
@@ -372,7 +375,7 @@ fn run(handle: &ManagerHandle, path: &Path) -> Result<(), String> {
                 (compact_ms, IslandState::Compact),
             ] {
                 let started = Instant::now();
-                click(handle, expected)?;
+                change_state(handle, expected)?;
                 dispatch.push(started.elapsed().as_micros() as u64);
                 thread::sleep(Duration::from_millis(duration));
             }

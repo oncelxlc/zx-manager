@@ -1,55 +1,38 @@
 use crate::island::{
     config::IslandConfig,
     geometry::Rect,
-    notifications::{NotificationSnapshot, Permission, Source},
+    notifications::{AppIcon, NotificationSnapshot, Source, WindowEntry},
     state::IslandState,
 };
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MessageAction {
-    Source(Source),
     Window(u64),
-    Settings,
+    OpenInstances(Source),
     NextPage,
-    Pin(bool),
-    Hide,
 }
 
 // Local DIP coordinates are shared by Direct2D, the pointer and MSAA.
 #[derive(Clone, PartialEq)]
 pub(crate) struct Item {
     pub bounds: Rect,
-    pub action: MessageAction,
+    pub action: Option<MessageAction>,
     pub name: String,
     pub text: String,
     pub source: Option<Source>,
+    pub icon: Option<Arc<AppIcon>>,
     pub reminder: bool,
-    pub selected: bool,
 }
 
 impl Item {
-    fn new(bounds: Rect, action: MessageAction, text: &str, name: &str) -> Self {
-        Self {
-            bounds,
-            action,
-            name: name.into(),
-            text: text.into(),
-            source: None,
-            reminder: false,
-            selected: false,
-        }
-    }
-
-    pub fn screen_bounds(&self, visible: Rect, target_dips: (i32, i32)) -> Rect {
-        let x = |n: i32| {
-            visible.x
-                + (f64::from(n) * f64::from(visible.width) / f64::from(target_dips.0)).round()
-                    as i32
+    pub fn screen_bounds(&self, visible: Rect, size: (i32, i32)) -> Rect {
+        let x = |n| {
+            visible.x + (f64::from(n) * f64::from(visible.width) / f64::from(size.0)).round() as i32
         };
-        let y = |n: i32| {
+        let y = |n| {
             visible.y
-                + (f64::from(n) * f64::from(visible.height) / f64::from(target_dips.1)).round()
-                    as i32
+                + (f64::from(n) * f64::from(visible.height) / f64::from(size.1)).round() as i32
         };
         let r = self.bounds;
         rect(
@@ -61,7 +44,7 @@ impl Item {
     }
 }
 
-pub(super) fn rect(x: i32, y: i32, width: i32, height: i32) -> Rect {
+fn rect(x: i32, y: i32, width: i32, height: i32) -> Rect {
     Rect {
         x,
         y,
@@ -71,83 +54,43 @@ pub(super) fn rect(x: i32, y: i32, width: i32, height: i32) -> Rect {
 }
 
 #[derive(Clone, PartialEq)]
-pub(crate) struct Caption {
-    pub bounds: Rect,
-    pub text: String,
-    pub primary: bool,
-}
-
-#[derive(Clone, PartialEq)]
 pub(crate) struct Panel {
     pub size: (i32, i32),
     pub items: Vec<Item>,
-    pub captions: Vec<Caption>,
-    pub contains_preview: bool,
-    pub pulse: Option<(Source, u8)>,
+    pub ring: Option<Rect>,
+    pub time: Option<(Rect, String)>,
+    pub subtitle: Option<(Rect, String)>,
+    pub status: String,
 }
 
 #[derive(Default)]
 pub(crate) struct Messages {
-    pub snapshot: Option<NotificationSnapshot>,
-    pub selected_source: Option<Source>,
-    pub selected_window: Option<u64>,
+    pub snapshot: NotificationSnapshot,
     pub page: usize,
+    pub focus_source: Option<Source>,
 }
 
 impl Panel {
-    fn caption(&mut self, bounds: Rect, text: &str, primary: bool) {
-        self.captions.push(Caption {
-            bounds,
-            text: text.into(),
-            primary,
-        });
-    }
-
-    fn source(
-        &mut self,
-        bounds: Rect,
-        source: Source,
-        snapshot: &NotificationSnapshot,
-        selected_source: Option<Source>,
-    ) {
-        let mut windows = snapshot
-            .windows
-            .iter()
-            .filter(|window| window.source == source);
-        let first = windows.next();
-        let unread = snapshot.reminders.iter().any(|r| r.source == source);
-        let status = if unread {
-            "有系统提醒"
-        } else if first.is_some() {
-            "有可用窗口"
+    fn instance_item(bounds: Rect, entry: &WindowEntry, reminder: bool, text: String) -> Item {
+        let mut name = if entry.can_activate {
+            format!("激活 {}", entry.label)
         } else {
-            "未发现可用窗口"
+            format!("{}，暂无可激活窗口", entry.label)
         };
-        // Compact controls carry their window ID even if hover has already expanded the island.
-        let (action, name) = match (selected_source, first, windows.next()) {
-            (None, Some(window), None) => (
-                MessageAction::Window(window.id),
-                format!("激活 {}，{status}", window.label),
-            ),
-            _ => (
-                MessageAction::Source(source),
-                format!("{}，{status}", source.label()),
-            ),
-        };
-        let mut item = Item::new(bounds, action, "", &name);
-        item.source = Some(source);
-        item.reminder = unread;
-        item.selected = selected_source == Some(source);
-        self.items.push(item);
-    }
-
-    fn settings(&mut self, bounds: Rect, short: bool) {
-        self.items.push(Item::new(
+        if reminder {
+            name.push_str("，该应用有系统提醒");
+        }
+        Item {
             bounds,
-            MessageAction::Settings,
-            if short { "···" } else { "通知设置" },
-            "打开通知设置和窗口列表",
-        ));
+            action: entry
+                .can_activate
+                .then_some(MessageAction::Window(entry.id)),
+            name,
+            text,
+            source: Some(entry.source),
+            icon: entry.icon.clone(),
+            reminder,
+        }
     }
 
     pub fn build(
@@ -156,243 +99,181 @@ impl Panel {
         state: IslandState,
         target: Rect,
         scale: f64,
+        time: &str,
+        date: &str,
     ) -> Option<Self> {
-        let snapshot = messages.snapshot.as_ref()?;
-        let config = &cfg.notifications;
-        if !config.enabled
-            || !matches!(
-                state,
-                IslandState::Compact | IslandState::Expanded | IslandState::Pinned
-            )
-        {
+        if !matches!(
+            state,
+            IslandState::Compact | IslandState::Expanded | IslandState::Pinned
+        ) {
             return None;
         }
-        let sources: Vec<_> = [
-            (Source::Wechat, config.wechat_enabled),
-            (Source::Qq, config.qq_enabled),
-        ]
-        .into_iter()
-        .filter_map(|(s, enabled)| enabled.then_some(s))
-        .collect();
-        let (w, h) = (
-            ((f64::from(target.width) / scale).round() as i32).max(1),
-            ((f64::from(target.height) / scale).round() as i32).max(1),
-        );
+        let w = (f64::from(target.width) / scale).round().max(1.0) as i32;
+        let h = (f64::from(target.height) / scale).round().max(1.0) as i32;
+        let snapshot = &messages.snapshot;
+        let windows = if cfg.notifications.enabled {
+            snapshot.windows.as_slice()
+        } else {
+            &[]
+        };
+        let reminded = |s| snapshot.reminders.iter().any(|r| r.source == s);
+        let sources: Vec<_> = [Source::Wechat, Source::Qq]
+            .into_iter()
+            .filter(|s| windows.iter().any(|w| w.source == *s))
+            .collect();
+        let groups: Vec<_> = sources
+            .iter()
+            .filter(|s| reminded(**s))
+            .map(|s| s.label())
+            .collect();
+        let group_status = groups.join("、");
+        let status = if group_status.is_empty() {
+            time.into()
+        } else {
+            format!("{time}，{group_status}有系统提醒")
+        };
         let mut panel = Self {
             size: (w, h),
-            items: Vec::new(),
-            captions: Vec::new(),
-            contains_preview: false,
-            pulse: None,
+            items: vec![],
+            ring: None,
+            time: None,
+            subtitle: None,
+            status,
         };
-        if sources.is_empty() {
-            return None;
-        }
         if state == IslandState::Compact {
             let vertical = h > w;
-            let (long, short) = if vertical { (h, w) } else { (w, h) };
-            let side = short.clamp(16, 30);
-            let icons = side * sources.len() as i32;
-            if long < icons + 4 {
-                // A single target stays usable even at the legacy minimum of 24 DIP.
-                let source = snapshot
-                    .reminders
-                    .iter()
-                    .find(|r| sources.contains(&r.source))
-                    .map(|r| r.source)
-                    .unwrap_or(sources[0]);
-                if sources.len() == 1 {
-                    panel.source(
-                        rect((w - side) / 2, (h - side) / 2, side, side),
-                        source,
-                        snapshot,
-                        None,
-                    );
+            let long = w.max(h);
+            let side = w.min(h).min(28);
+            let along = |offset, length, cross| {
+                if vertical {
+                    rect((w - cross) / 2, offset, cross, length)
                 } else {
-                    panel.settings(rect(0, 0, w, h), true);
-                    panel.items[0].reminder = snapshot
-                        .reminders
-                        .iter()
-                        .any(|r| sources.contains(&r.source));
+                    rect(offset, (h - cross) / 2, length, cross)
                 }
-                return Some(panel);
-            }
-            let brand = !vertical && long >= icons + 68;
-            if brand {
-                panel.caption(rect(12, 0, w - icons - 20, h), "zx-once", true);
-            }
-            let start = if brand {
-                w - icons - 8
-            } else {
-                (long - icons) / 2
             };
-            for (index, source) in sources.into_iter().enumerate() {
-                let pos = start + side * index as i32;
-                let bounds = if vertical {
-                    rect((w - side) / 2, pos, side, side)
-                } else {
-                    rect(pos, (h - side) / 2, side, side)
+            let clock = if vertical { 24 } else { 50 };
+            let ring = 16.min(side);
+            let icon_space = side * sources.len() as i32;
+            let has_clock = long >= ring + clock + icon_space + 10;
+            let has_ring = has_clock || long >= ring + icon_space + 4 || sources.is_empty();
+            let reserved = if has_clock {
+                ring + 6 + clock
+            } else if has_ring {
+                ring
+            } else {
+                0
+            };
+            let count = ((long - reserved).max(0) / side) as usize;
+            let shown = count.min(sources.len());
+            let start = (long - reserved - side * shown as i32) / 2;
+            if has_ring {
+                panel.ring = Some(along(start, ring, ring));
+            }
+            if has_clock {
+                panel.time = Some((
+                    along(start + ring + 6, clock, if vertical { w } else { h }),
+                    time.into(),
+                ));
+            }
+            for (index, source) in sources.into_iter().take(shown).enumerate() {
+                let mut instances = windows.iter().filter(|w| w.source == source);
+                let Some(entry) = instances.next() else {
+                    continue;
                 };
-                panel.source(bounds, source, snapshot, None);
+                let bounds = along(start + reserved + index as i32 * side, side, side);
+                let mut item = Self::instance_item(bounds, entry, reminded(source), String::new());
+                if instances.next().is_some() {
+                    item.action = Some(MessageAction::OpenInstances(source));
+                    item.name = format!(
+                        "选择{}实例{}",
+                        source.label(),
+                        if item.reminder {
+                            "，该应用有系统提醒"
+                        } else {
+                            ""
+                        }
+                    );
+                }
+                panel.items.push(item);
             }
             return Some(panel);
         }
-        if w < 120 || h < 102 {
-            panel.settings(rect(4, (h - 32) / 2, w - 8, 32), w < 86);
-            return Some(panel);
-        }
-        let selected = messages
-            .selected_source
-            .filter(|s| sources.contains(s))
-            .or_else(|| {
-                snapshot
-                    .reminders
-                    .iter()
-                    .find(|r| sources.contains(&r.source))
-                    .map(|r| r.source)
-            })
-            .unwrap_or(sources[0]);
-        let wide = w >= 250;
-        let has_list = config.account_list_enabled && if wide { h >= 112 } else { h >= 238 };
-        let split = if wide && has_list {
-            (w * 55 / 100).clamp(132, 230)
-        } else {
-            w
-        };
-        panel.caption(rect(12, 7, split - 22, 22), "通知与消息", true);
-        for (index, s) in sources.iter().enumerate() {
-            panel.source(
-                rect(10 + index as i32 * 34, 32, 30, 28),
-                *s,
-                snapshot,
-                Some(selected),
-            );
-        }
-        if !has_list {
-            let width = (w - 84).clamp(30, 68);
-            let text = if width >= 54 {
-                "窗口列表"
+
+        let pad = 10.min(w / 8).min(h / 8);
+        let inner = (w - pad * 2).max(1);
+        if windows.is_empty() {
+            let center = h / 2;
+            let width = 76.min(inner);
+            let x = (w - width) / 2;
+            if width >= 66 {
+                panel.ring = Some(rect(x, center - 14, 16, 16));
+                panel.time = Some((rect(x + 18, center - 20, width - 18, 28), time.into()));
             } else {
-                "窗口"
-            };
-            panel.items.push(Item::new(
-                rect(w - width - 6, 32, width, 28),
-                MessageAction::Settings,
-                text,
-                "打开窗口列表",
-            ));
-        }
-        let win_count = snapshot
-            .windows
-            .iter()
-            .filter(|entry| entry.source == selected)
-            .count();
-        let reminder = snapshot.reminders.iter().find(|r| r.source == selected);
-        let status = if reminder.is_some() {
-            "有系统提醒"
-        } else if win_count == 0 {
-            "未发现窗口"
-        } else if snapshot.permission == Permission::Allowed {
-            "暂无新提醒"
-        } else {
-            "系统提醒不可用"
-        };
-        let summary = format!("{} · {status}", selected.label());
-        let bottom = h - 36;
-        if bottom >= 81 {
-            panel.caption(rect(12, 62, split - 20, 20), &summary, false);
-        }
-        let preview = reminder
-            .and_then(|r| r.preview.as_deref())
-            .filter(|s| cfg.notifications.show_preview && !s.is_empty());
-        if bottom >= 108 {
-            let selected_label = snapshot
-                .windows
-                .iter()
-                .find(|entry| {
-                    Some(entry.id) == messages.selected_window && entry.source == selected
-                })
-                .map(|entry| entry.label.as_str());
-            if let Some(text) = preview.or(selected_label) {
-                panel.caption(rect(12, 84, split - 23, 22), text, false);
-                panel.contains_preview = preview.is_some();
+                panel.time = Some((rect(0, (center - 20).max(0), w, 28.min(h)), time.into()));
             }
-        }
-        let mut x = 10;
-        let pinned = state == IslandState::Pinned;
-        if cfg.interaction.pin_enabled {
-            let mut item = Item::new(
-                rect(x, bottom, 44, 28),
-                MessageAction::Pin(!pinned),
-                if pinned { "已固定" } else { "固定" },
-                if pinned {
-                    "取消固定"
-                } else {
-                    "固定岛屿"
-                },
-            );
-            item.selected = pinned;
-            panel.items.push(item);
-            x += 48;
-        }
-        panel.items.push(Item::new(
-            rect(x, bottom, 44, 28),
-            MessageAction::Hide,
-            "隐藏",
-            "隐藏岛屿",
-        ));
-        if !has_list {
+            if h >= 48 {
+                panel.subtitle = Some((
+                    rect(pad, center + 7, inner, 22.min(h - center - 7)),
+                    date.into(),
+                ));
+            }
             return Some(panel);
         }
-        let (list_x, list_y, list_w, end) = if wide {
-            (split, 8, w - split - 10, h - 8)
-        } else {
-            (10, 112, w - 20, bottom - 4)
-        };
-        panel.caption(rect(list_x + 3, list_y, list_w - 4, 20), "窗口", true);
-        let start = list_y + 25;
-        if win_count == 0 {
-            panel.caption(
-                rect(list_x + 3, start, list_w - 4, 24),
-                "暂无可用窗口",
-                false,
-            );
-            return Some(panel);
+        let header = if h >= 96 && w >= 100 { 34 } else { 0 };
+        if header > 0 {
+            panel.ring = Some(rect(pad + 4, pad + 6, 16, 16));
+            panel.time = Some((rect(pad + 22, pad, 50, 28), time.into()));
+            let detail = if groups.is_empty() {
+                date.into()
+            } else {
+                format!("{group_status}有系统提醒")
+            };
+            panel.subtitle = Some((rect(pad + 76, pad, (inner - 76).max(1), 28), detail));
         }
-        let max_rows = ((end - start) / 30).max(1) as usize;
-        let paged = win_count > max_rows;
-        let rows = if paged {
-            max_rows.saturating_sub(1).max(1)
-        } else {
-            max_rows
-        };
-        let pages = win_count.div_ceil(rows);
+        let top = pad + header;
+        let available = (h - top - pad).max(1);
+        let columns: usize = if inner >= 284 { 2 } else { 1 };
+        let full_rows = (available / 34).max(1) as usize;
+        let paged = windows.len() > full_rows * columns;
+        let pager = if paged { 23.min(available / 2) } else { 0 };
+        let body = available - pager;
+        let rows = (body / 34).max(1) as usize;
+        let capacity = rows * columns;
+        let pages = windows.len().div_ceil(capacity);
         let page = messages.page % pages;
-        for (index, entry) in snapshot
-            .windows
+        let row_h = 34.min(body);
+        let cell = inner / columns as i32;
+        let selected = |w: &&WindowEntry| Some(w.source) == messages.focus_source;
+        let ordered = windows
             .iter()
-            .filter(|w| w.source == selected)
-            .skip(page * rows)
-            .take(rows)
-            .enumerate()
-        {
-            let mut item = Item::new(
-                rect(list_x, start + index as i32 * 30, list_w, 28),
-                MessageAction::Window(entry.id),
-                &entry.label,
-                &format!("激活 {}", entry.label),
-            );
-            item.source = Some(entry.source);
-            item.selected = Some(entry.id) == messages.selected_window;
-            panel.items.push(item);
+            .filter(selected)
+            .chain(windows.iter().filter(|w| !selected(w)));
+        for (index, entry) in ordered.skip(page * capacity).take(capacity).enumerate() {
+            let x = pad + (index % columns) as i32 * cell;
+            let y = top + (index / columns) as i32 * row_h;
+            let label = if cell < 68 {
+                entry.id.to_string()
+            } else {
+                entry.label.clone()
+            };
+            panel.items.push(Self::instance_item(
+                rect(x, y, cell, row_h),
+                entry,
+                false,
+                label,
+            ));
         }
         if paged {
-            panel.items.push(Item::new(
-                rect(list_x, end - 26, list_w, 26),
-                MessageAction::NextPage,
-                &format!("{} / {}  ›", page + 1, pages),
-                "下一页窗口",
-            ));
+            let label = format!("{} / {}  ›", page + 1, pages);
+            panel.items.push(Item {
+                bounds: rect(pad, h - pad - pager, inner, pager),
+                action: Some(MessageAction::NextPage),
+                name: format!("下一页，当前第 {} 页，共 {pages} 页", page + 1),
+                text: label,
+                source: None,
+                icon: None,
+                reminder: false,
+            });
         }
         Some(panel)
     }
@@ -401,97 +282,78 @@ impl Panel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::island::notifications::{Reminder, WindowEntry};
-
-    #[test]
-    fn compact_single_window_target_survives_hover_expansion() {
-        use crate::island::state::{Event, Machine};
-
-        let cfg = IslandConfig::default();
-        let messages = Messages {
-            snapshot: Some(NotificationSnapshot {
-                windows: [(11, Source::Wechat), (12, Source::Wechat), (20, Source::Qq)]
-                    .into_iter()
-                    .map(|(id, source)| WindowEntry {
-                        id,
-                        source,
-                        label: format!("{} {id}", source.label()),
-                    })
-                    .collect(),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let mut machine = Machine::new(&cfg);
-        let compact =
-            Panel::build(&messages, &cfg, machine.state, rect(0, 0, 156, 44), 1.0).unwrap();
-        machine.apply(Event::PointerEnter, &cfg);
-        assert_eq!(machine.state, IslandState::Expanded);
-        let expanded =
-            Panel::build(&messages, &cfg, machine.state, rect(0, 0, 328, 168), 1.0).unwrap();
-        let icon = |panel: &Panel, source| {
-            panel
-                .items
-                .iter()
-                .find(|i| i.source == Some(source) && i.text.is_empty())
-                .unwrap()
-                .action
-        };
-        assert_eq!(icon(&compact, Source::Qq), MessageAction::Window(20));
-        assert_eq!(
-            icon(&compact, Source::Wechat),
-            MessageAction::Source(Source::Wechat)
-        );
-        assert_eq!(
-            icon(&expanded, Source::Qq),
-            MessageAction::Source(Source::Qq)
-        );
+    use crate::island::notifications::Reminder;
+    fn entry(id: u64, source: Source) -> WindowEntry {
+        WindowEntry {
+            id,
+            source,
+            label: format!("{} {id}", source.label()),
+            can_activate: true,
+            icon: None,
+        }
     }
-
+    fn panel(messages: &Messages, state: IslandState, w: i32, h: i32) -> Panel {
+        Panel::build(
+            messages,
+            &IslandConfig::default(),
+            state,
+            rect(-w, 0, w, h),
+            1.0,
+            "09:03",
+            "11月12日",
+        )
+        .unwrap()
+    }
     #[test]
-    fn source_reminder_never_marks_a_window_and_every_page_fits() {
-        let cfg = IslandConfig::default();
-        let mut messages = Messages {
-            snapshot: Some(NotificationSnapshot {
-                windows: (1..=9)
-                    .map(|id| WindowEntry {
-                        id,
-                        source: Source::Wechat,
-                        label: format!("微信 {id}"),
-                    })
-                    .collect(),
-                reminders: vec![Reminder {
-                    source: Source::Wechat,
-                    preview: None,
-                    latest_id: 5,
-                    created_ticks: 50,
-                }],
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let target = rect(-328, 0, 328, 168);
-        let mut exposed = std::collections::HashSet::new();
-        for page in 0..3 {
-            messages.page = page;
-            let panel = Panel::build(&messages, &cfg, IslandState::Expanded, target, 1.0).unwrap();
-            let pager = panel
-                .items
-                .iter()
-                .find(|r| r.action == MessageAction::NextPage)
-                .unwrap();
-            assert!(panel
-                .items
-                .iter()
-                .any(|r| r.action == MessageAction::Source(Source::Wechat) && r.reminder));
-            for item in &panel.items {
-                if let MessageAction::Window(id) = item.action {
-                    assert!(!item.reminder);
-                    assert!(item.bounds.y + item.bounds.height <= pager.bounds.y);
-                    assert!(exposed.insert(id));
+    fn no_running_instance_keeps_only_status_and_clock() {
+        let p = panel(&Messages::default(), IslandState::Compact, 156, 44);
+        assert!(p.items.is_empty());
+        assert!(p.ring.is_some() && p.time.is_some());
+    }
+    #[test]
+    fn ambiguous_toast_only_marks_the_group_and_each_instance_has_its_own_action() {
+        let mut messages = Messages::default();
+        messages.snapshot.windows = (1..=9).map(|id| entry(id, Source::Wechat)).collect();
+        messages.snapshot.reminders.push(Reminder {
+            source: Source::Wechat,
+            latest_id: 1,
+            created_ticks: 1,
+        });
+        messages.snapshot.windows.push(entry(10, Source::Qq));
+        let compact = panel(&messages, IslandState::Compact, 156, 44);
+        assert_eq!(compact.items.len(), 2);
+        assert_eq!(
+            compact.items[0].action,
+            Some(MessageAction::OpenInstances(Source::Wechat))
+        );
+        assert!(compact.items[0].reminder);
+        assert_eq!(compact.items[1].action, Some(MessageAction::Window(10)));
+        messages.snapshot.windows.pop();
+        for (w, h) in [(328, 168), (48, 48), (168, 328)] {
+            let mut seen = std::collections::HashSet::new();
+            for index in 0..9 {
+                messages.page = index;
+                let p = panel(&messages, IslandState::Expanded, w, h);
+                assert!(p.status.contains("微信有系统提醒"));
+                for item in p.items {
+                    assert!(
+                        !item.reminder
+                            && item.bounds.height > 0
+                            && item.bounds.y + item.bounds.height <= h
+                    );
+                    if let Some(MessageAction::Window(id)) = item.action {
+                        seen.insert(id);
+                    }
+                }
+                if seen.len() == 9 {
+                    break;
                 }
             }
+            assert_eq!(seen.len(), 9);
         }
-        assert_eq!(exposed.len(), 9);
+        messages.snapshot.windows.truncate(1);
+        let p = panel(&messages, IslandState::Compact, 156, 44);
+        assert!(p.items[0].reminder);
+        assert_eq!(p.items[0].action, Some(MessageAction::Window(1)));
     }
 }

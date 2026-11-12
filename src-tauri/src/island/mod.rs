@@ -13,7 +13,11 @@ pub(crate) mod surface;
 use commands::*;
 use manager::ManagerHandle;
 use state::Event;
-use tauri::{menu::MenuBuilder, tray::TrayIconBuilder, AppHandle, Manager, WindowEvent};
+use tauri::{
+    menu::MenuBuilder,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Manager, WindowEvent,
+};
 
 pub fn install(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder
@@ -28,15 +32,22 @@ pub fn install(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry
             if window.label() != "main" {
                 return;
             }
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if let Some(handle) = window.try_state::<ManagerHandle>() {
-                    if handle.post(|manager| manager.close_main()).is_ok() {
-                        api.prevent_close();
-                    }
+            let Some(handle) = window.try_state::<ManagerHandle>() else {
+                return;
+            };
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = handle.post(|manager| manager.close_main());
                 }
+                WindowEvent::Destroyed => {
+                    let _ = handle.post(|manager| manager.main_destroyed());
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
+            main_window_restore,
             island_get_config,
             island_update_config,
             island_set_enabled,
@@ -71,6 +82,22 @@ fn install_tray(app: &AppHandle) -> tauri::Result<()> {
     let mut tray = TrayIconBuilder::with_id("island-tray")
         .tooltip("zx-once")
         .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+            ) {
+                let _ = tray
+                    .app_handle()
+                    .state::<ManagerHandle>()
+                    .post(|manager| manager.open_main(false));
+            }
+        })
         .on_menu_event(|app, item| {
             let handle = app.state::<ManagerHandle>();
             match item.id().as_ref() {

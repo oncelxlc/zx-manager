@@ -6,12 +6,7 @@ impl IslandManager {
         if self.load_error.is_some() {
             self.restart()?;
         } else if current != self.config {
-            if current.active_hotkeys() != self.config.active_hotkeys() {
-                if let Err(error) = self.set_hotkeys(&current) {
-                    self.report(error);
-                }
-            }
-            self.adopt(current)?;
+            self.update_config(current, false)?;
         }
         self.config()
     }
@@ -25,63 +20,65 @@ impl IslandManager {
         if draft == previous {
             return Ok(previous);
         }
-        let keys_changed = draft.active_hotkeys() != previous.active_hotkeys();
-        let startup_changed = draft.startup.launch_at_login != previous.startup.launch_at_login;
-        let mut startup_applied = false;
-        let saved = (|| {
-            if keys_changed {
-                self.set_hotkeys(&draft)?;
-            }
-            if startup_changed {
-                native::set_autostart(draft.startup.launch_at_login)?;
-                startup_applied = true;
-            }
-            self.store.save(&draft, previous.revision)
-        })();
-        match saved {
-            Ok(saved) => {
-                self.adopt(saved.clone())
-                    .map_err(|error| format!("配置已保存，但应用到运行窗口时出错：{error}"))?;
-                Ok(saved)
-            }
-            Err(error) => {
-                if keys_changed {
-                    if let Err(rollback) = self.set_hotkeys(&previous) {
-                        self.report(rollback);
-                    }
-                }
-                if startup_applied {
-                    if let Err(rollback) = native::set_autostart(previous.startup.launch_at_login) {
-                        self.report(rollback);
-                    }
-                }
-                Err(error)
-            }
-        }
+        self.update_config(draft, true)
     }
 
-    fn set_hotkeys(&self, config: &IslandConfig) -> Result<()> {
-        match &self.window {
-            Some(native) => native.configure_hotkeys(config.active_hotkeys()),
-            None if !config.enabled => Ok(()),
-            None => Err("系统快捷键尚未就绪，请重启灵动岛".into()),
+    fn update_config(&mut self, next: IslandConfig, persist: bool) -> Result<IslandConfig> {
+        let startup_changed =
+            persist && next.startup.launch_at_login != self.config.startup.launch_at_login;
+        if startup_changed {
+            native::set_autostart(next.startup.launch_at_login)?;
         }
-    }
-
-    fn adopt(&mut self, config: IslandConfig) -> Result<()> {
-        let moved = self.config.placement != config.placement;
+        let previous = std::mem::replace(&mut self.config, next);
+        let moved = previous.placement != self.config.placement;
+        let redraw = moved
+            || previous.enabled != self.config.enabled
+            || previous.edge != self.config.edge
+            || previous.interaction != self.config.interaction
+            || previous.animation != self.config.animation
+            || previous.appearance != self.config.appearance
+            || previous.notifications != self.config.notifications;
+        let machine = self.machine.clone();
+        let position = self.session_position.clone();
+        let timer = self.timer;
         if moved {
             self.session_position = None;
         }
-        self.config = config;
-        self.app
-            .emit("island://config-changed", &self.config)
-            .map_err(|e| e.to_string())?;
-        if moved {
-            self.position_changed()?;
+        let result = (|| {
+            if redraw {
+                self.transition(Event::ConfigUpdated)?;
+            }
+            if persist {
+                self.config = self.store.save(&self.config, previous.revision)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.config = previous;
+            self.machine = machine;
+            self.session_position = position;
+            self.timer = timer;
+            if redraw {
+                if let Err(rollback) = self.refresh() {
+                    self.report(rollback);
+                }
+            }
+            if startup_changed {
+                if let Err(rollback) = native::set_autostart(self.config.startup.launch_at_login) {
+                    self.report(rollback);
+                }
+            }
+            return Err(error);
         }
-        self.transition(Event::ConfigUpdated)
-            .inspect_err(|error| self.report(error.clone()))
+        if moved {
+            if let Err(error) = self.position_changed() {
+                self.report(error);
+            }
+        }
+        if let Err(error) = self.app.emit("island://config-changed", &self.config) {
+            self.report(format!("无法发布配置更新：{error}"));
+        }
+        Ok(self.config.clone())
     }
 
     pub fn set_position(

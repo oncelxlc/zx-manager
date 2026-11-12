@@ -1,18 +1,17 @@
 use super::{MessageAction, Panel};
-use crate::island::notifications::Source;
+use crate::island::notifications::AppIcon;
 use crate::island::{
     config::{IslandConfig, Theme},
     geometry::Rect,
-    state::{Event, IslandState},
+    state::IslandState,
 };
+use std::sync::{Arc, Weak};
 use windows::{
     core::{w, Result},
     Win32::Graphics::{
-        Direct2D::{
-            Common::{D2D1_COLOR_F, D2D_RECT_F},
-            *,
-        },
+        Direct2D::{Common::*, *},
         DirectWrite::*,
+        Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM,
     },
 };
 use windows_numerics::Vector2;
@@ -20,7 +19,6 @@ use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 
 #[derive(PartialEq)]
 pub(super) struct ImageKey {
-    pub hovered: Option<Event>,
     pub panel: Option<Panel>,
     pub message_hover: Option<MessageAction>,
     pub size: (i32, i32),
@@ -30,9 +28,7 @@ pub(super) struct ImageKey {
     background: D2D1_COLOR_F,
     border: D2D1_COLOR_F,
     ink: D2D1_COLOR_F,
-    light: bool,
     shadow: bool,
-    pin_enabled: bool,
     peek_size: f32,
 }
 
@@ -62,9 +58,6 @@ impl ImageKey {
         }
     }
 
-    pub fn expanded(&self) -> bool {
-        matches!(self.state, IslandState::Expanded | IslandState::Pinned)
-    }
     pub fn new(cfg: &IslandConfig, state: IslandState, rect: Rect, scale: f64) -> Self {
         let a = &cfg.appearance;
         let light = match a.theme {
@@ -79,7 +72,7 @@ impl ImageKey {
             }
         };
         let rgb = parse_rgb(&a.background);
-        let auto = a.theme == Theme::System && rgb == 0x202326;
+        let auto = a.theme == Theme::System && matches!(rgb, 0x202326 | 0x101214);
         let background = color(if auto && light { 0xf5f5f4 } else { rgb }, a.opacity as f32);
         let linear = |v: f32| {
             if v <= 0.04045 {
@@ -102,7 +95,6 @@ impl ImageKey {
             1.0,
         );
         Self {
-            hovered: None,
             panel: None,
             message_hover: None,
             size: (rect.width, rect.height),
@@ -112,10 +104,7 @@ impl ImageKey {
             background,
             border: color(parse_rgb(&a.border), 1.0),
             ink,
-            light,
             shadow: a.shadow,
-            pin_enabled: matches!(state, IslandState::Expanded | IslandState::Pinned)
-                && cfg.interaction.pin_enabled,
             peek_size: if state == IslandState::EdgePeek {
                 cfg.edge.peek_size as f32
             } else {
@@ -123,82 +112,6 @@ impl ImageKey {
             },
         }
     }
-}
-
-struct Layout {
-    left: f32,
-    top: f32,
-    title: f32,
-    buttons_y: f32,
-}
-
-impl Layout {
-    fn new(w: f32, h: f32) -> Self {
-        let shortest = w.min(h);
-        let title = if h >= 84.0 {
-            (shortest * 0.16).clamp(14.0, 25.0)
-        } else {
-            0.0
-        };
-        let group = 16.0 + 8.0 + if title > 0.0 { title * 1.3 + 8.0 } else { 0.0 } + 32.0;
-        let top = (h - group) * 0.5;
-        Self {
-            left: (0.07 * shortest).clamp(4.0, 20.0) + 1.0,
-            top,
-            title,
-            buttons_y: top + group - 32.0,
-        }
-    }
-}
-
-pub fn action_rect(
-    cfg: &IslandConfig,
-    state: IslandState,
-    rect: Rect,
-    scale: f64,
-    action: Event,
-) -> Option<Rect> {
-    if !matches!(state, IslandState::Expanded | IslandState::Pinned) {
-        return None;
-    }
-    let s = scale as f32;
-    let layout = Layout::new(rect.width as f32 / s, rect.height as f32 / s);
-    let can_pin = cfg.interaction.pin_enabled;
-    let offset = match action {
-        Event::Pin if can_pin && state == IslandState::Expanded => 0.0,
-        Event::Unpin if can_pin && state == IslandState::Pinned => 0.0,
-        Event::Hide => {
-            if can_pin {
-                37.0
-            } else {
-                0.0
-            }
-        }
-        _ => return None,
-    };
-    let side = (32.0 * s).round() as i32;
-    Some(Rect {
-        x: rect.x + ((layout.left + offset) * s).round() as i32,
-        y: rect.y + (layout.buttons_y * s).round() as i32,
-        width: side,
-        height: side,
-    })
-}
-
-pub fn action_at(
-    cfg: &IslandConfig,
-    state: IslandState,
-    rect: Rect,
-    scale: f64,
-    x: i32,
-    y: i32,
-) -> Option<Event> {
-    [Event::Pin, Event::Unpin, Event::Hide]
-        .into_iter()
-        .find(|&action| {
-            action_rect(cfg, state, rect, scale, action)
-                .is_some_and(|r| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
-        })
 }
 
 fn round(x: f32, y: f32, w: f32, h: f32, r: f32) -> D2D1_ROUNDED_RECT {
@@ -219,12 +132,6 @@ fn point(x: f32, y: f32) -> Vector2 {
     Vector2 { X: x, Y: y }
 }
 
-struct Label {
-    layout: IDWriteTextLayout,
-    width: f32,
-    height: f32,
-}
-
 unsafe fn font(factory: &IDWriteFactory, size: f32, bold: bool) -> Result<IDWriteTextFormat> {
     let weight = if bold {
         DWRITE_FONT_WEIGHT_BOLD
@@ -242,35 +149,12 @@ unsafe fn font(factory: &IDWriteFactory, size: f32, bold: bool) -> Result<IDWrit
     )
 }
 
-impl Label {
-    unsafe fn new(factory: &IDWriteFactory, text: &str, size: f32, bold: bool) -> Result<Self> {
-        let fmt = font(factory, size, bold)?;
-        let layout = factory.CreateTextLayout(
-            &text.encode_utf16().collect::<Vec<_>>(),
-            &fmt,
-            300.0,
-            80.0,
-        )?;
-        let mut metrics = DWRITE_TEXT_METRICS::default();
-        layout.GetMetrics(&mut metrics)?;
-        Ok(Self {
-            layout,
-            width: metrics.width,
-            height: metrics.height,
-        })
-    }
-}
-
 pub(super) struct Painter {
     brush: ID2D1SolidColorBrush,
-    factory: IDWriteFactory,
-    compact: Label,
-    identity: Label,
-    title: Option<(f32, Label)>,
-    heading: IDWriteTextFormat,
+    icons: Vec<(Weak<AppIcon>, ID2D1Bitmap1)>,
+    clock: IDWriteTextFormat,
     detail: IDWriteTextFormat,
-    button: IDWriteTextFormat,
-    qq: IDWriteTextFormat,
+    centered: IDWriteTextFormat,
 }
 
 impl Painter {
@@ -292,14 +176,10 @@ impl Painter {
         };
         Ok(Self {
             brush: dc.CreateSolidColorBrush(&color(0xffffff, 1.0), None)?,
-            compact: Label::new(&factory, "zx-once", 16.0, false)?,
-            identity: Label::new(&factory, "zx-once", 12.0, false)?,
-            title: None,
-            heading: message_font(14.0, true, false)?,
-            detail: message_font(12.0, false, false)?,
-            button: message_font(12.0, false, true)?,
-            qq: message_font(10.0, true, true)?,
-            factory,
+            icons: Vec::new(),
+            clock: message_font(16.0, true, true)?,
+            detail: message_font(13.0, false, false)?,
+            centered: message_font(12.0, false, true)?,
         })
     }
 
@@ -323,7 +203,15 @@ impl Painter {
         }
         let outline = round(0.5, 0.5, w - 1.0, h - 1.0, key.radius);
         b.SetColor(&key.background);
-        dc.FillRoundedRectangle(&outline, b);
+        dc.FillRectangle(
+            &D2D_RECT_F {
+                left: 0.0,
+                top: 0.0,
+                right: w,
+                bottom: h,
+            },
+            b,
+        );
         if key.shadow {
             // The WebView inset shadow is approximated by nested antialiased strokes.
             for inset in 1..=6 {
@@ -354,137 +242,13 @@ impl Painter {
             bottom: h,
         };
         dc.PushAxisAlignedClip(&clip, D2D1_ANTIALIAS_MODE_ALIASED);
-        let painted = self.content(dc, key, w, h);
+        let painted = match &key.panel {
+            Some(panel) => self.messages(dc, key, panel),
+            None => Ok(()),
+        };
         dc.PopAxisAlignedClip();
         dc.SetTransform(&windows_numerics::Matrix3x2::identity());
         painted
-    }
-
-    unsafe fn content(
-        &mut self,
-        dc: &ID2D1DeviceContext,
-        key: &ImageKey,
-        w: f32,
-        h: f32,
-    ) -> Result<()> {
-        if let Some(panel) = &key.panel {
-            return self.messages(dc, key, panel);
-        }
-        let b = &self.brush;
-        b.SetColor(&key.ink);
-        let line = |x: f32, y: f32, path: &[(f32, f32)]| {
-            for pair in path.windows(2) {
-                dc.DrawLine(
-                    point(x + pair[0].0, y + pair[0].1),
-                    point(x + pair[1].0, y + pair[1].1),
-                    b,
-                    1.5,
-                    None,
-                );
-            }
-        };
-        let dot = |x: f32, y: f32| dc.FillRoundedRectangle(&round(x, y, 10.0, 10.0, 5.0), b);
-        let text = |label: &Label, x: f32, y: f32| {
-            dc.DrawTextLayout(point(x, y), &label.layout, b, D2D1_DRAW_TEXT_OPTIONS_CLIP)
-        };
-        if key.state == IslandState::Compact {
-            if w < 90.0 {
-                dot((w - 10.0) / 2.0, (h - 10.0) / 2.0);
-            } else if w < h {
-                let top = (h - 39.0 - self.compact.height) / 2.0;
-                dot((w - 10.0) / 2.0, top);
-                text(&self.compact, (w - self.compact.width) / 2.0, top + 18.0);
-                line(
-                    w / 2.0 - 5.0,
-                    top + 29.0 + self.compact.height,
-                    &[(0., 0.), (5., 5.), (10., 0.)],
-                );
-            } else {
-                let left = (w - 39.0 - self.compact.width) / 2.0;
-                dot(left, (h - 10.0) / 2.0);
-                text(&self.compact, left + 18.0, (h - self.compact.height) / 2.0);
-                line(
-                    left + 27.0 + self.compact.width,
-                    h / 2.0 - 2.0,
-                    &[(0., 0.), (5., 5.), (10., 0.)],
-                );
-            }
-            return Ok(());
-        }
-        let l = Layout::new(w, h);
-        dot(l.left, l.top + 3.0);
-        text(&self.identity, l.left + 17.0, l.top);
-        if l.title > 0.0 {
-            if self.title.as_ref().is_none_or(|(size, _)| *size != l.title) {
-                self.title = Some((l.title, Label::new(&self.factory, "灵动岛", l.title, true)?));
-            }
-            if let Some((_, label)) = &self.title {
-                text(label, l.left, l.top + 24.0);
-            }
-        }
-        line(w - 26.0, 16.0, &[(0., 6.), (6., 0.), (12., 6.)]);
-        let hover = |x| {
-            b.SetColor(&if key.light {
-                color(0, 0.067)
-            } else {
-                color(0xffffff, 0.133)
-            });
-            dc.FillRoundedRectangle(&round(x, l.buttons_y, 32.0, 32.0, 8.0), b);
-            b.SetColor(&key.ink);
-        };
-        if key.pin_enabled {
-            if key.state == IslandState::Pinned {
-                b.SetColor(&color(if key.light { 0xcdece3 } else { 0x275447 }, 1.0));
-                dc.FillRoundedRectangle(&round(l.left, l.buttons_y, 32.0, 32.0, 8.0), b);
-                b.SetColor(&key.ink);
-            } else if matches!(key.hovered, Some(Event::Pin)) {
-                hover(l.left);
-            }
-            let x = l.left + 8.0;
-            let y = l.buttons_y + 8.0;
-            line(
-                x,
-                y,
-                &[
-                    (3., 1.),
-                    (13., 1.),
-                    (11., 3.),
-                    (11., 8.),
-                    (14., 11.),
-                    (2., 11.),
-                    (5., 8.),
-                    (5., 3.),
-                    (3., 1.),
-                ],
-            );
-            line(x, y, &[(8., 11.), (8., 16.)]);
-        }
-        let hide_left = l.left + if key.pin_enabled { 37.0 } else { 0.0 };
-        if key.hovered == Some(Event::Hide) {
-            hover(hide_left);
-        }
-        let x = hide_left + 8.0;
-        let y = l.buttons_y + 8.0;
-        line(x, y, &[(1., 1.), (15., 15.)]);
-        line(
-            x,
-            y,
-            &[
-                (3., 4.),
-                (0.5, 8.),
-                (3.5, 11.),
-                (7., 13.),
-                (10., 13.),
-                (12., 12.),
-            ],
-        );
-        line(
-            x,
-            y,
-            &[(6., 3.5), (9., 3.), (12., 4.), (15.5, 8.), (13.5, 10.5)],
-        );
-        line(x, y, &[(6., 8.), (6.5, 9.5), (8.5, 10.)]);
-        Ok(())
     }
 
     unsafe fn message_text(
@@ -510,114 +274,180 @@ impl Painter {
         );
     }
 
+    unsafe fn bitmap(
+        &mut self,
+        dc: &ID2D1DeviceContext,
+        icon: &Arc<AppIcon>,
+    ) -> Result<ID2D1Bitmap1> {
+        let reference = Arc::downgrade(icon);
+        self.icons.retain(|(key, _)| key.strong_count() > 0);
+        if let Some((_, bitmap)) = self.icons.iter().find(|(key, _)| key.ptr_eq(&reference)) {
+            return Ok(bitmap.clone());
+        }
+        let properties = D2D1_BITMAP_PROPERTIES1 {
+            pixelFormat: D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+            },
+            dpiX: 96.0,
+            dpiY: 96.0,
+            ..Default::default()
+        };
+        let pitch = icon
+            .width
+            .checked_mul(4)
+            .filter(|p| *p > 0)
+            .ok_or(windows::Win32::Foundation::E_INVALIDARG)?;
+        if icon.height == 0
+            || (pitch as usize).checked_mul(icon.height as usize) != Some(icon.bgra.len())
+        {
+            return Err(windows::Win32::Foundation::E_INVALIDARG.into());
+        }
+        let bitmap = dc.CreateBitmap(
+            D2D_SIZE_U {
+                width: icon.width,
+                height: icon.height,
+            },
+            Some(icon.bgra.as_ptr().cast()),
+            pitch,
+            &properties,
+        )?;
+        self.icons.push((reference, bitmap.clone()));
+        Ok(bitmap)
+    }
+
+    unsafe fn reminder_dot(&self, dc: &ID2D1DeviceContext, key: &ImageKey, x: f32, y: f32) {
+        self.brush.SetColor(&key.background);
+        dc.FillRoundedRectangle(&round(x - 1.0, y - 1.0, 8.0, 8.0, 4.0), &self.brush);
+        self.brush.SetColor(&color(
+            if key.ink.r < 0.5 { 0xb32938 } else { 0xff7178 },
+            1.0,
+        ));
+        dc.FillRoundedRectangle(&round(x, y, 6.0, 6.0, 3.0), &self.brush);
+    }
+
     unsafe fn messages(
-        &self,
+        &mut self,
         dc: &ID2D1DeviceContext,
         key: &ImageKey,
         panel: &Panel,
     ) -> Result<()> {
-        let b = &self.brush;
-        for caption in &panel.captions {
-            b.SetColor(&key.ink);
-            self.message_text(
-                dc,
-                caption.bounds,
-                &caption.text,
-                if caption.primary {
-                    &self.heading
-                } else {
-                    &self.detail
-                },
+        if let Some(r) = panel.ring {
+            let (cx, cy) = (
+                (r.x as f32 + r.width as f32 / 2.0),
+                (r.y as f32 + r.height as f32 / 2.0),
             );
+            let radius = (r.width.min(r.height) as f32 / 2.0 - 1.0).max(0.0);
+            self.brush.SetColor(&color(
+                if key.ink.r < 0.5 { 0x177154 } else { 0x69ddb2 },
+                1.0,
+            ));
+            dc.DrawEllipse(
+                &D2D1_ELLIPSE {
+                    point: point(cx, cy),
+                    radiusX: radius,
+                    radiusY: radius,
+                },
+                &self.brush,
+                2.0,
+                None,
+            );
+            dc.FillEllipse(
+                &D2D1_ELLIPSE {
+                    point: point(cx, cy),
+                    radiusX: 2.0,
+                    radiusY: 2.0,
+                },
+                &self.brush,
+            );
+        }
+        self.brush.SetColor(&key.ink);
+        if let Some((bounds, time)) = &panel.time {
+            self.message_text(dc, *bounds, time, &self.clock);
+        }
+        if let Some((bounds, subtitle)) = &panel.subtitle {
+            let mut tone = key.ink;
+            tone.a = 0.76;
+            self.brush.SetColor(&tone);
+            self.message_text(dc, *bounds, subtitle, &self.centered);
         }
         for item in &panel.items {
             let r = item.bounds;
             let (x, y, w, h) = (r.x as f32, r.y as f32, r.width as f32, r.height as f32);
-            if item.selected || key.message_hover == Some(item.action) {
+            if item.action.is_some() && key.message_hover == item.action {
                 let mut tint = key.ink;
-                tint.a = if item.selected { 0.18 } else { 0.10 };
-                b.SetColor(&tint);
-                dc.FillRoundedRectangle(&round(x, y, w, h, 7.0), b);
+                tint.a = 0.12;
+                self.brush.SetColor(&tint);
+                dc.FillRoundedRectangle(&round(x, y, w, h, 8.0), &self.brush);
             }
-            if let Some(source) = item.source {
-                let side = 21.0_f32.min(w).min(h);
-                let left = if item.text.is_empty() {
-                    x + (w - side) * 0.5
-                } else {
-                    x + 5.0
-                };
-                let top = y + (h - side) * 0.5;
-                let fill = match source {
-                    Source::Wechat => 0x107c54,
-                    Source::Qq => 0x2262a4,
-                };
-                b.SetColor(&color(fill, 1.0));
-                dc.FillRoundedRectangle(&round(left, top, side, side, 6.0), b);
-                b.SetColor(&color(0xffffff, 1.0));
-                match source {
-                    Source::Wechat => {
-                        dc.DrawRoundedRectangle(
-                            &round(left + 3.0, top + 4.0, 11.0, 8.0, 4.0),
-                            b,
-                            1.4,
-                            None,
-                        );
-                        dc.FillRoundedRectangle(&round(left + 8.5, top + 9.5, 9.0, 6.5, 3.25), b);
-                        dc.DrawLine(
-                            point(left + 14.0, top + 15.0),
-                            point(left + 16.5, top + 17.0),
-                            b,
-                            1.5,
-                            None,
-                        );
-                    }
-                    Source::Qq => self.message_text(
-                        dc,
-                        Rect {
-                            x: left.round() as i32,
-                            y: top.round() as i32,
-                            width: side as i32,
-                            height: side as i32,
-                        },
-                        "QQ",
-                        &self.qq,
-                    ),
-                }
-                if !item.text.is_empty() {
-                    b.SetColor(&key.ink);
-                    self.message_text(
-                        dc,
-                        Rect {
-                            x: r.x + 31,
-                            width: r.width - 36,
-                            ..r
-                        },
-                        &item.text,
-                        &self.detail,
-                    );
-                }
+            self.brush.SetColor(&key.ink);
+            let Some(source) = item.source else {
+                self.message_text(dc, r, &item.text, &self.centered);
+                continue;
+            };
+            let narrow = r.width < 68 && !item.text.is_empty();
+            let side = (if narrow { 14.0_f32 } else { 20.0 }).min(w).min(h);
+            let left = if item.text.is_empty() {
+                x + (w - side) / 2.0
+            } else if narrow {
+                x + 1.0
             } else {
-                b.SetColor(&key.ink);
-                self.message_text(dc, r, &item.text, &self.button);
+                x + 5.0
+            };
+            let top = y + (h - side) / 2.0;
+            if let Some(icon) = &item.icon {
+                let bmp = self.bitmap(dc, icon)?;
+                let ratio = side / icon.width.max(icon.height) as f32;
+                let (iw, ih) = (icon.width as f32 * ratio, icon.height as f32 * ratio);
+                let (l, t) = (left + (side - iw) / 2.0, top + (side - ih) / 2.0);
+                let bounds = D2D_RECT_F {
+                    left: l,
+                    top: t,
+                    right: l + iw,
+                    bottom: t + ih,
+                };
+                dc.DrawBitmap(
+                    &bmp,
+                    Some(&bounds),
+                    1.0,
+                    D2D1_INTERPOLATION_MODE_LINEAR,
+                    None,
+                    None,
+                );
+            } else if item.text.is_empty() {
+                self.message_text(dc, r, source.label(), &self.centered);
+            }
+            if !item.text.is_empty() {
+                let inset = if item.icon.is_none() {
+                    3
+                } else if narrow {
+                    16
+                } else {
+                    32
+                };
+                let mut tone = key.ink;
+                if item.action.is_none() {
+                    tone.a = 0.70;
+                }
+                self.brush.SetColor(&tone);
+                self.message_text(
+                    dc,
+                    Rect {
+                        x: r.x + inset,
+                        width: r.width - inset - 3,
+                        ..r
+                    },
+                    &item.text,
+                    &self.detail,
+                );
             }
             if item.reminder {
-                let right = x + w * 0.5 + (w * 0.3).min(8.0);
-                let top = y + h * 0.5 - (h * 0.35).min(10.0);
-                let glow = panel
-                    .pulse
-                    .filter(|(s, _)| Some(*s) == item.source)
-                    .map_or(0.0, |(_, v)| f32::from(v) / 8.0);
-                let d = 6.5 + 2.5 * glow;
-                b.SetColor(&key.background);
-                dc.FillRoundedRectangle(
-                    &round(right - 1.5, top - 1.5, d + 3.0, d + 3.0, (d + 3.0) / 2.0),
-                    b,
-                );
-                b.SetColor(&color(
-                    if key.ink.r < 0.5 { 0xb32938 } else { 0xff7178 },
-                    1.0,
-                ));
-                dc.FillRoundedRectangle(&round(right, top, d, d, d / 2.0), b);
+                let right = if item.icon.is_none() && !item.text.is_empty() {
+                    x + w - 9.0
+                } else {
+                    left + side - 4.0
+                };
+                self.reminder_dot(dc, key, right, top - 1.0);
             }
         }
         Ok(())
@@ -627,9 +457,8 @@ impl Painter {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn cache_ignores_revision_and_screen_position_but_tracks_dpi_and_pinning() {
+    fn texture_cache_ignores_revision_and_screen_position_but_tracks_dpi() {
         let mut cfg = IslandConfig::default();
         let rect = Rect {
             x: -65,
@@ -641,30 +470,5 @@ mod tests {
         cfg.revision += 1;
         assert!(key == ImageKey::new(&cfg, IslandState::Expanded, Rect { x: 0, ..rect }, 1.0));
         assert!(key != ImageKey::new(&cfg, IslandState::Expanded, rect, 1.5));
-        cfg.interaction.pin_enabled = false;
-        assert!(key != ImageKey::new(&cfg, IslandState::Expanded, rect, 1.0));
-        assert_eq!(
-            action_at(
-                &cfg,
-                IslandState::Expanded,
-                rect,
-                1.0,
-                rect.x + 20,
-                rect.y + 111
-            ),
-            Some(Event::Hide)
-        );
-        cfg.interaction.pin_enabled = true;
-        assert_eq!(
-            action_at(
-                &cfg,
-                IslandState::Pinned,
-                rect,
-                1.0,
-                rect.x + 20,
-                rect.y + 111
-            ),
-            Some(Event::Unpin)
-        );
     }
 }

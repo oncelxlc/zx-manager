@@ -1,9 +1,5 @@
 use super::{Display, IslandConfig, IslandState, Rect, Result, Surface};
-use crate::island::{
-    config::{Anchor, ExpandDirection, PerformanceMode, Theme},
-    render::action_rect,
-    state::Event,
-};
+use crate::island::config::{Anchor, ExpandDirection, PerformanceMode, Theme};
 use std::{ptr::null_mut, thread, time::Duration};
 use windows::{
     core::Interface,
@@ -98,7 +94,6 @@ pub(super) fn verify(window: &Surface, screen: &Display) -> Result<()> {
             "#202326"
         }
         .into();
-        cfg.interaction.pin_enabled = pin;
         window.apply(&cfg, IslandState::Compact, screen)?;
         thread::sleep(Duration::from_millis(180));
         let compact = window.call(region)?;
@@ -132,22 +127,10 @@ pub(super) fn verify(window: &Surface, screen: &Display) -> Result<()> {
         let light = theme == Theme::Light || theme == Theme::System && system_light;
         let expected_bg = if light { 0xf5f5f4 } else { 0x202326 };
         let count = window.call(buttons)?;
-        if bg != expected_bg || count != if pin { 3 } else { 2 } {
+        if bg != expected_bg || count != 0 {
             return Err(format!("{theme:?} 实际背景 #{bg:06x}，按钮 {count}"));
         }
-        let mut accent = None;
-        if let Some(r) = action_rect(&cfg, state, actual, screen.scale_factor, Event::Unpin) {
-            let interior = POINT {
-                x: r.x + r.width / 8,
-                y: r.y + r.height / 2,
-            };
-            let color = window.call(move |hwnd| pixel(hwnd, interior))?;
-            if color != if light { 0xcdece3 } else { 0x275447 } {
-                return Err(format!("{theme:?} 固定按钮像素错误 #{color:06x}"));
-            }
-            accent = Some(format!("#{color:06x}"));
-        }
-        println!("appearance {direction:?} {theme:?} {compact:?} → {actual:?} RGB #{bg:06x}, buttons {count}, pin {accent:?}");
+        println!("appearance {direction:?} {theme:?} {compact:?} → {actual:?} RGB #{bg:06x}, buttons {count}");
     }
     Ok(())
 }

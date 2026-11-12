@@ -14,14 +14,11 @@ export interface RuntimeStatus {
   lastError: string | null;
 }
 
-export type NotificationSource = "wechat" | "qq";
 export type NotificationPermission = "disabled" | "unavailable" | "notRequested" | "denied" | "allowed" | "error";
 
 export interface NotificationStatus {
   sequence: number;
   permission: NotificationPermission;
-  windows: { id: number; label: string; source: NotificationSource }[];
-  reminders: NotificationSource[];
 }
 
 interface IslandEvents {
@@ -40,10 +37,8 @@ export const islandApi = {
   notifications: () => invoke<NotificationStatus>("island_get_notifications"),
   requestNotificationAccess: () => invoke<void>("island_request_notification_access"),
   openNotificationSettings: () => invoke<void>("island_open_notification_settings"),
-  activateNotificationWindow: (instanceId: number) => invoke<void>("island_activate_notification_window", { instanceId }),
   displays: () => invoke<IslandDisplay[]>("island_get_displays"),
   save: (config: IslandConfig) => invoke<IslandConfig>("island_update_config", { config }),
-  reset: (revision: number) => invoke<IslandConfig>("island_reset_config", { revision }),
   validatePreview: (config: IslandConfig) => invoke<void>("island_preview", { config }),
   show: () => invoke<void>("island_show"),
   hide: () => invoke<void>("island_hide"),

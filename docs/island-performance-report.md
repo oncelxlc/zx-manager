@@ -16,7 +16,7 @@ Native     设置/托盘 → 同一 Machine → 专用线程上的 Win32 HWND
 
 | 文件 | 内容 |
 | --- | --- |
-| `src-tauri/src/island/{displays,native}.rs`、`native/watch.rs` | 显示器选择、系统事件监听和快捷键 |
+| `src-tauri/src/island/{displays,native}.rs`、`native/watch.rs` | 显示器选择与系统事件监听 |
 | `src-tauri/src/island/surface.rs`、`surface/` | STA 消息线程、窗口生命周期、定位与命中、按钮与拖动、辅助功能、独立 PoC |
 | `src-tauri/src/island/render/{mod,device,paint,animation}.rs` | D3D11/D2D/DWrite/DXGI/DComp 设备、分状态纹理缓存、合成属性动画、诊断及恢复 |
 | `src-tauri/src/island/{config,commands,contract_tests,manager,mod}.rs`、`manager/settings.rs`、`src-tauri/src/lib.rs`、`src-tauri/permissions/island.toml` | 管理桥、配置扩展与旧版读取、IPC 权限测试、原生事件与拖动保存 |
@@ -57,7 +57,7 @@ pwsh -File scripts/island-benchmark.ps1 -VisualProbe src-tauri/target/debug/exam
 | 原生按钮 | Windows 通过 `AccessibleObjectFromWindow` 读出按钮名称，并通过默认动作触发取消固定。鼠标、辅助功能和设置页动作进入同一状态机 |
 | 方向与主题 | 主屏中央收起区域为 (1202, 754, 156, 44)。Quality 模式下四向展开均为 328 × 168，上、下、左、右的实际左上角依次为 (1116, 630)、(1116, 754)、(1030, 692)、(1202, 692)。暗色/浅色实窗背景分别取到 `#202326` / `#f5f5f4`，固定按钮底色分别为 `#275447` / `#cdece3`。跟随系统在该机器上取到暗色。禁用固定后 MSAA 按钮数从 3 降至 2 |
 | 拖动与多屏 | 拖动开始后可见矩形保持固定。真实副屏工作区原点为 (-2560, 0)，在该屏检查了收起、展开和边缘条。矩形中心落在屏外或显示器间空隙时的选屏、嵌套拖动消息泵中的管理读取和取消有独立回归用例 |
-| 配置和重启 | 原生版本的隔离基准检查配置落盘、颜色更新、重启后的 revision、快捷键重新注册与释放，同时校验当前进程仅有一个原生岛屿 HWND，Tauri 仅有主窗口。v1 不带曲线字段的配置保留既有效果 |
+| 配置和重启 | 原生版本的隔离基准检查配置落盘、颜色更新、重启后的 revision，同时校验当前进程仅有一个原生岛屿 HWND，Tauri 仅有主窗口。v1 不带曲线字段的配置保留既有效果 |
 | GPU 恢复和 DPI | 在隐藏 HWND 上受控释放 D3D/DComp 资源后，重新绑定设备并恢复当前画面。在同一台机器上输入 1.25、1.5 和 2.0 缩放参数，检查交换链 resize、重绘和重复应用的缓存命中。物理驱动重启及混合 DPI 换屏另列验收 |
 
 原生状态层第一次拆分时，尺寸和主色都能通过检查，文字却被背景盖住。根据实际内容像素和 DirectComposition 的子视觉排序规则，将内容明确置于背景之上，并把文字和固定提示纳入回归检查。仅对比窗口矩形会漏掉这个错误。[AddVisual 子视觉排序](https://learn.microsoft.com/en-us/windows/win32/api/dcomp/nf-dcomp-idcompositionvisual-addvisual)
@@ -93,7 +93,7 @@ pwsh -File scripts/island-benchmark.ps1 -VisualProbe src-tauri/target/debug/exam
 
 - `pnpm check` 通过。包含 TypeScript、组件行数检查、6 项 Vitest、3 项 Node 测试以及 Vite 生产构建。
 - `cargo fmt --check` 和 `cargo clippy --locked --all-targets --all-features -- -D warnings` 通过。沙箱内的增量缓存不能使用硬链接时，编译器改用文件复制。
-- `cargo test --locked` 的 26 项常规 Rust 测试全部通过。另以 `cargo test --locked --lib -- --ignored --test-threads=1 --nocapture` 在交互桌面运行其余 2 项。快捷键和系统钩子两轮注册与注销成功，图形设备在同一 HWND 上受控重建成功，本轮耗时 165.485 ms。
+- `cargo test --locked` 的 26 项常规 Rust 测试全部通过。另以 `cargo test --locked --lib -- --ignored --test-threads=1 --nocapture` 在交互桌面运行其余 2 项。系统钩子两轮注册与注销成功，图形设备在同一 HWND 上受控重建成功，本轮耗时 165.485 ms。
 - `cargo test --locked --all-targets --all-features` 还覆盖了桌面画面采样器的间隔统计、显隐稳态识别与捕获边框识别测试。
 
 ## 待实测的发布条件

@@ -31,10 +31,9 @@ pub enum Event {
     PointerLeave,
     Click,
     OpenNotifications,
-    OutsideClick,
+    WindowActivated,
     Pin,
     Unpin,
-    CollapseTimeout,
     HideTimeout,
     WakeTimeout,
     FullscreenEntered,
@@ -86,16 +85,12 @@ impl Machine {
     }
 
     fn pointer_timer(&self, config: &IslandConfig) -> TimerAction {
-        use Event::{CollapseTimeout, HideTimeout, WakeTimeout};
+        use Event::{HideTimeout, WakeTimeout};
         use IslandState::{Compact, EdgePeek, Expanded};
         match (self.inside, self.state) {
             (Some(true), EdgePeek) => TimerAction::After {
                 ms: config.edge.wake_delay_ms,
                 event: WakeTimeout,
-            },
-            (Some(false), Expanded) if config.interaction.auto_collapse => TimerAction::After {
-                ms: config.interaction.collapse_delay_ms,
-                event: CollapseTimeout,
             },
             (Some(false), Compact | Expanded)
                 if config.edge.auto_hide
@@ -119,6 +114,15 @@ impl Machine {
         self.resume = None;
         self.inside = None;
         TimerAction::Cancel
+    }
+
+    fn unpin(&mut self, config: &IslandConfig) {
+        self.state = if self.inside == Some(false) {
+            IslandState::Compact
+        } else {
+            IslandState::Expanded
+        };
+        self.suspend(config);
     }
 
     fn suspend(&mut self, config: &IslandConfig) -> TimerAction {
@@ -167,8 +171,7 @@ impl Machine {
                     self.set(Compact)
                 } else {
                     if self.state == Pinned && !config.interaction.pin_enabled {
-                        self.state = Expanded;
-                        self.suspend(config);
+                        self.unpin(config);
                     }
                     if policy_changed {
                         if self.state == Suspended && !self.fullscreen_policy {
@@ -204,20 +207,19 @@ impl Machine {
                     self.inside = Some(entering);
                     if entering && self.state == Compact && config.interaction.hover_expand {
                         self.state = Expanded;
+                    } else if !entering && self.state == Expanded {
+                        self.state = Compact;
                     }
                     self.pointer_timer(config)
                 }
             }
             Click if self.state == EdgePeek => self.set(Compact),
-            OpenNotifications if self.state == Compact => self.set(Expanded),
-            Click
-                if config.interaction.click_expand && matches!(self.state, Compact | Expanded) =>
-            {
-                self.state = if self.state == Expanded {
-                    Compact
-                } else {
-                    Expanded
-                };
+            OpenNotifications if self.state == Compact => {
+                self.state = Expanded;
+                TimerAction::Cancel
+            }
+            Click if config.interaction.click_expand && self.state == Compact => {
+                self.state = Expanded;
                 TimerAction::Cancel
             }
             Pin if config.interaction.pin_enabled && matches!(self.state, Compact | Expanded) => {
@@ -225,20 +227,10 @@ impl Machine {
                 TimerAction::Cancel
             }
             Unpin if self.state == Pinned => {
-                self.state = Expanded;
-                self.suspend(config);
+                self.unpin(config);
                 self.pointer_timer(config)
             }
-            OutsideClick if self.state == Expanded && config.interaction.outside_collapse => {
-                self.inside = Some(false);
-                self.state = Compact;
-                self.pointer_timer(config)
-            }
-            CollapseTimeout
-                if self.state == Expanded
-                    && self.inside == Some(false)
-                    && config.interaction.auto_collapse =>
-            {
+            WindowActivated if self.state == Expanded => {
                 self.state = Compact;
                 self.pointer_timer(config)
             }
@@ -257,7 +249,7 @@ impl Machine {
             }
             _ => TimerAction::Keep,
         };
-        // A keyboard or tray wake can reveal the island under a stationary pointer.
+        // A tray wake can reveal the island under a stationary pointer.
         let observe_pointer = matches!(self.state, Compact | Expanded)
             && (matches!(previous, Hidden | Disabled | Suspended)
                 || (previous == EdgePeek && matches!(event, Show | Toggle | ConfigUpdated)));

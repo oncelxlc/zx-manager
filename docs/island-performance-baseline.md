@@ -6,7 +6,7 @@
 
 ```text
 岛屿 WebView2 / React ── 指针进入、离开、点击、开始拖动 IPC ─┐
-托盘、全局快捷键、外部点击和前台窗口 WinEvent ─────────────┤
+托盘、外部点击和前台窗口 WinEvent ─────────────┤
                                                          ▼
            ManagerHandle 队列 → Machine → 一项可取消的业务定时
                                     │
@@ -22,7 +22,7 @@
 - `IslandShell.tsx` 使用 CSS 的 opacity、translate、scale 过渡；再次变为可见时用嵌套的两个 requestAnimationFrame 启动入场。状态/配置订阅引起 React 更新，源码没有逐帧 React setState 或逐帧 IPC。指针移动留在本地，只在拖动越过 5 px 阈值时发出一次命令。
 - 默认启用 14 px 内阴影，关闭模糊。启用模糊后会使用 CSS 的 12 px backdrop-filter 和 Windows Acrylic 效果，性能模式关闭材质。文本身份、状态点、折叠箭头、标题、固定/隐藏按钮以及边缘触发条构成现有内容。当前产品没有通知流或进度条。
 - `manager.rs` 的单一工作线程通过 recv 或 recv_timeout 等待下一事件，同时只保留一个展开/收起/唤醒业务截止时间。`native/watch.rs` 在展开且需要外部点击时启用鼠标钩子。按需订阅前台窗口/尺寸，合并重复重检消息。空闲时没有持续鼠标轮询。
-- 保留状态机、工作区与 DPI 几何、带 revision 和文件锁的 ConfigStore、托盘、快捷键及设置预览。迁移对象为岛屿 HWND、每帧窗口变形、WebView2 视觉元素和岛屿本地输入。每帧调整窗口可能导致附加布局/合成的判断来自代码审计；对这些成本分别作因果归因仍需 ETW。
+- 保留状态机、工作区与 DPI 几何、带 revision 和文件锁的 ConfigStore、托盘及设置预览。迁移对象为岛屿 HWND、每帧窗口变形、WebView2 视觉元素和岛屿本地输入。每帧调整窗口可能导致附加布局/合成的判断来自代码审计；对这些成本分别作因果归因仍需 ETW。
 
 ## 测试条件
 
@@ -33,7 +33,7 @@
 | 主屏（被测窗口，当前实测） | 2560 × 1600，60 Hz，96 DPI，原点 (0, 0) |
 | 扩展屏（当前实测） | 2560 × 1440，59 Hz（系统报告整数），96 DPI，原点 (-2560, 0) |
 | 构建与显示 | Cargo dev、构建后的前端，主窗口隐藏，岛屿位于主屏顶部中央；默认深色、Smooth、Balanced、展开 300 ms/收起 240 ms、模糊关闭 |
-| 外部干扰 | 使用独立配置及 WebView2 数据目录，关闭快捷键、鼠标悬浮自动展开、外部点击收起、全屏暂停及离开后的自动收起和边缘隐藏；测试驱动通过同一管理线程提交 Click；后续成对对照将两者均向右偏移 380 DIP，减少桌面输入干扰 |
+| 外部干扰 | 使用独立配置及 WebView2 数据目录，关闭鼠标悬浮自动展开、外部点击收起、全屏暂停及离开后的自动收起和边缘隐藏；测试驱动通过同一管理线程提交 Click；后续成对对照将两者均向右偏移 380 DIP，减少桌面输入干扰 |
 
 Win32 GetMonitorInfoW、EnumDisplaySettingsW 和 GetDpiForMonitor 用于核对拓扑与系统报告的刷新率。采样在窗口完成初始化并预热后开始。每次点击后检查状态与运行错误。测量区间包含有意设置的动作间隔。
 
@@ -64,7 +64,7 @@ cargo build --locked --manifest-path src-tauri/Cargo.toml --example island_frame
 pwsh -NoProfile -File ./scripts/island-benchmark.ps1 -VisualProbe ./src-tauri/target/debug/examples/island_frame_probe.exe
 ```
 
-脚本在 `src-tauri/target/island-bench-<id>` 生成临时编译副本，原生采样结果写入其中的 `native/` 目录。测试使用独立应用标识、配置和 WebView2 数据目录，隔离登录启动项写入。每阶段核对进程树、运行状态和错误，结束时验证外观配置保存、边缘唤醒、重启和快捷键释放。测试临时使用 Ctrl+Alt+Shift+F24。`-WarmIdle` 在预热 20 秒后采集三个 10 秒的收起空闲窗口，分别统计宿主和主界面 WebView2 的 CPU。
+脚本在 `src-tauri/target/island-bench-<id>` 生成临时编译副本，原生采样结果写入其中的 `native/` 目录。测试使用独立应用标识、配置和 WebView2 数据目录，隔离登录启动项写入。每阶段核对进程树、运行状态和错误，结束时验证外观配置保存、边缘唤醒和重启。`-WarmIdle` 在预热 20 秒后采集三个 10 秒的收起空闲窗口，分别统计宿主和主界面 WebView2 的 CPU。
 
 GPU 列来自 Windows 的 `GPU Engine(*)\Utilization Percentage`。每次读取两次、间隔 1 秒，只采用完全落在该阶段的后一份样本，过滤有效的应用树 PID 后按物理引擎合计，取该时刻最繁忙引擎的占用，报告阶段样本均值和样本数。无法取得适用计数器时记录 null。不同硬件的加速器数量、DWM 进程与 GPU 电源策略会影响指标。最终脚本仅计入当前测试宿主以及启动时间不早于宿主的 WebView2 子孙，剔除控制台、采样器与系统合成器。首轮旧版按整个测试进程树采集；同版后端之间请使用成对采样表。CPU 与内存查询仅申请 PROCESS_QUERY_LIMITED_INFORMATION。[GetProcessTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes)、[GetProcessMemoryInfo](https://learn.microsoft.com/en-us/windows/win32/api/psapi/nf-psapi-getprocessmemoryinfo)。
 

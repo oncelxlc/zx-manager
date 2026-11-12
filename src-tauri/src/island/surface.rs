@@ -41,10 +41,8 @@ pub(super) enum SurfaceEvent {
     PointerEnter,
     PointerLeave,
     Click,
-    OpenNotificationSource(Source),
     ActivateWindow(u64),
-    NotificationSettings,
-    Pin(bool),
+    OpenInstances(Source),
     Hide,
     DragStart,
     Error(String),
@@ -53,11 +51,8 @@ pub(super) enum SurfaceEvent {
 impl super::render::MessageAction {
     fn surface_event(self) -> Option<SurfaceEvent> {
         Some(match self {
-            Self::Source(s) => SurfaceEvent::OpenNotificationSource(s),
             Self::Window(id) => SurfaceEvent::ActivateWindow(id),
-            Self::Settings => SurfaceEvent::NotificationSettings,
-            Self::Pin(value) => SurfaceEvent::Pin(value),
-            Self::Hide => SurfaceEvent::Hide,
+            Self::OpenInstances(s) => SurfaceEvent::OpenInstances(s),
             Self::NextPage => return None,
         })
     }
@@ -73,13 +68,10 @@ enum DuringMove {
 }
 const WORK: u32 = WM_APP + 0x521;
 const RECOVER: u32 = WM_APP + 0x522;
-pub(super) const SESSION_GUARD: u32 = WM_APP + 0x524;
 const NEXT_PAGE: u32 = WM_APP + 0x525;
 
 struct Context {
     messages: RefCell<super::render::Messages>,
-    preview_allowed: Cell<bool>,
-    pulse: Cell<Option<(Source, std::time::Instant)>>,
     queue: Arc<Mutex<Queue>>,
     a11y: accessibility::Accessibility,
     renderer: RefCell<Option<Renderer>>,
@@ -197,14 +189,19 @@ impl Surface {
         })
     }
 
-    pub fn set_notifications(
-        &self,
-        snapshot: NotificationSnapshot,
-        selected_source: Option<Source>,
-        selected_window: Option<u64>,
-    ) -> Result<()> {
+    pub fn set_notifications(&self, snapshot: NotificationSnapshot) -> Result<()> {
         self.request(DuringMove::Dispatch, move |hwnd, ui| {
-            messages::update(ui, hwnd, snapshot, selected_source, selected_window)
+            messages::update(ui, hwnd, snapshot)
+        })
+    }
+
+    pub fn focus_source(&self, source: Source) -> Result<()> {
+        self.request(DuringMove::Dispatch, move |hwnd, ui| {
+            let mut model = ui.messages.borrow_mut();
+            model.focus_source = Some(source);
+            model.page = 0;
+            drop(model);
+            messages::redraw(ui, hwnd)
         })
     }
 
@@ -319,8 +316,6 @@ fn run(
         queue: work.clone(),
         a11y: accessibility::Accessibility::new(emit.clone()),
         messages: Default::default(),
-        preview_allowed: Cell::new(false),
-        pulse: Cell::new(None),
         renderer: RefCell::new(None),
         frame: RefCell::new(None),
         clock: hit_clock::HitClock::new()?,
@@ -435,17 +430,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             return result;
         }
         match msg {
-            SESSION_GUARD => {
-                ui.preview_allowed.set(wp != 0);
-                if wp == 0 {
-                    if let Err(e) =
-                        messages::clear_previews(ui).and_then(|()| messages::redraw(ui, hwnd))
-                    {
-                        (ui.emit)(SurfaceEvent::Error(e));
-                    }
-                }
-                return 0;
-            }
             NEXT_PAGE => {
                 let page = ui.messages.borrow().page;
                 ui.messages.borrow_mut().page = page.wrapping_add(1);
@@ -454,7 +438,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 }
                 return 0;
             }
-            WM_TIMER if wp == messages::PULSE_TIMER => {
+            WM_TIMER | WM_TIMECHANGE if msg == WM_TIMECHANGE || wp == messages::MINUTE_TIMER => {
                 if let Err(e) = messages::redraw(ui, hwnd) {
                     (ui.emit)(SurfaceEvent::Error(e));
                 }

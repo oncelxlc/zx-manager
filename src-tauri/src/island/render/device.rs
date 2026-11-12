@@ -2,7 +2,7 @@ use super::{
     animation::Timing,
     paint::{ImageKey, Painter},
 };
-use crate::island::config::{AnimationConfig, AnimationPreset, PerformanceMode};
+use crate::island::geometry::Rect;
 use windows::{
     core::{Error, Interface, Result},
     Win32::{
@@ -20,9 +20,7 @@ use windows::{
 pub(super) struct Texture {
     pub scale: IDCompositionScaleTransform,
     pub fade: IDCompositionEffectGroup,
-    content_scale: IDCompositionScaleTransform,
-    content: IDCompositionVisual,
-    pub(super) outer: IDCompositionVisual,
+    pub shell_fade: IDCompositionEffectGroup,
     surface: IDCompositionVisual,
     viewport: IDCompositionVisual,
     glyphs: IDCompositionVisual,
@@ -31,12 +29,6 @@ pub(super) struct Texture {
 }
 
 impl Texture {
-    pub unsafe fn reset_content(&self) -> Result<()> {
-        self.content.SetOffsetY2(0.0)?;
-        self.content_scale.SetScaleX2(1.0)?;
-        self.content_scale.SetScaleY2(1.0)
-    }
-
     unsafe fn layout(&self, key: &ImageKey) -> Result<()> {
         let (x, y) = key.content_origin();
         let (w, h) = (key.size.0 as f32, key.size.1 as f32);
@@ -46,67 +38,19 @@ impl Texture {
             right: w,
             bottom: h,
         };
-        self.outer.SetClip2(&clip)?;
         self.surface.SetClip2(&clip)?;
         self.viewport.SetClip2(&clip)?;
         self.glyphs.SetOffsetX2(-x as f32)?;
-        self.glyphs.SetOffsetY2(-y as f32)?;
-        self.content_scale.SetCenterX2(w / 2.0)?;
-        self.content_scale.SetCenterY2(h / 2.0)
-    }
-
-    pub unsafe fn animate_content(
-        &self,
-        device: &IDCompositionDevice,
-        timing: Timing,
-        anim: &AnimationConfig,
-        motion: bool,
-        from_alpha: f32,
-        to_alpha: f32,
-    ) -> Result<()> {
-        if self.key.content_origin() == (0, 0) || self.key.panel.is_some() {
-            // Notification controls follow the same outer transform as their hit targets.
-            return self.reset_content();
-        }
-        let amplitude = if motion { anim.amplitude as f32 } else { 0.0 };
-        let distance = if anim.preset == AnimationPreset::Subtle {
-            2.0
-        } else {
-            5.0
-        };
-        let offset =
-            amplitude * distance * self.key.scale * if self.key.expanded() { 1.0 } else { -1.0 };
-        timing.property(
-            device,
-            (1.0 - from_alpha) * offset,
-            (1.0 - to_alpha) * offset,
-            |v| self.content.SetOffsetY2(v),
-            |a| self.content.SetOffsetY(a),
-        )?;
-        let shrink = if self.key.expanded() && anim.performance == PerformanceMode::Quality {
-            0.03 * amplitude
-        } else {
-            0.0
-        };
-        timing.property(
-            device,
-            1.0 - (1.0 - from_alpha) * shrink,
-            1.0 - (1.0 - to_alpha) * shrink,
-            |v| {
-                self.content_scale.SetScaleX2(v)?;
-                self.content_scale.SetScaleY2(v)
-            },
-            |a| {
-                self.content_scale.SetScaleX(a)?;
-                self.content_scale.SetScaleY(a)
-            },
-        )
+        self.glyphs.SetOffsetY2(-y as f32)
     }
 }
 
 pub(super) struct Device {
     pub composition: IDCompositionDevice,
     pub root: IDCompositionVisual,
+    shells: IDCompositionVisual,
+    content: IDCompositionVisual,
+    clip: IDCompositionRectangleClip,
     _target: IDCompositionTarget,
     factory: IDXGIFactory2,
     d3d: ID3D11Device,
@@ -115,6 +59,56 @@ pub(super) struct Device {
 }
 
 impl Device {
+    pub unsafe fn animate_clip(
+        &self,
+        timing: Timing,
+        from: Rect,
+        to: Rect,
+        radii: [f64; 2],
+    ) -> Result<()> {
+        let d = &self.composition;
+        let c = &self.clip;
+        timing.property(
+            d,
+            from.width as f32,
+            to.width as f32,
+            |v| c.SetRight2(v),
+            |a| c.SetRight(a),
+        )?;
+        timing.property(
+            d,
+            from.height as f32,
+            to.height as f32,
+            |v| c.SetBottom2(v),
+            |a| c.SetBottom(a),
+        )?;
+        timing.property(
+            d,
+            radii[0] as f32,
+            radii[1] as f32,
+            |v| {
+                c.SetTopLeftRadiusX2(v)?;
+                c.SetTopLeftRadiusY2(v)?;
+                c.SetTopRightRadiusX2(v)?;
+                c.SetTopRightRadiusY2(v)?;
+                c.SetBottomLeftRadiusX2(v)?;
+                c.SetBottomLeftRadiusY2(v)?;
+                c.SetBottomRightRadiusX2(v)?;
+                c.SetBottomRightRadiusY2(v)
+            },
+            |a| {
+                c.SetTopLeftRadiusX(a)?;
+                c.SetTopLeftRadiusY(a)?;
+                c.SetTopRightRadiusX(a)?;
+                c.SetTopRightRadiusY(a)?;
+                c.SetBottomLeftRadiusX(a)?;
+                c.SetBottomLeftRadiusY(a)?;
+                c.SetBottomRightRadiusX(a)?;
+                c.SetBottomRightRadiusY(a)
+            },
+        )
+    }
+
     pub unsafe fn new(hwnd: HWND) -> Result<Self> {
         let mut device = None;
         D3D11CreateDevice(
@@ -138,10 +132,21 @@ impl Device {
         let composition: IDCompositionDevice = DCompositionCreateDevice(&dxgi)?;
         let target = composition.CreateTargetForHwnd(hwnd, true)?;
         let root = composition.CreateVisual()?;
+        let clip = composition.CreateRectangleClip()?;
+        clip.SetLeft2(0.0)?;
+        clip.SetTop2(0.0)?;
+        root.SetClip(&clip)?;
+        let shells = composition.CreateVisual()?;
+        let content = composition.CreateVisual()?;
+        root.AddVisual(&shells, true, None)?;
+        root.AddVisual(&content, true, &shells)?;
         target.SetRoot(&root)?;
         Ok(Self {
             composition,
             root,
+            shells,
+            content,
+            clip,
             _target: target,
             factory,
             d3d,
@@ -173,34 +178,29 @@ impl Device {
             .factory
             .CreateSwapChainForComposition(&self.d3d, &desc, None)?;
         self.paint(&swap, &key)?;
-        let visual = self.composition.CreateVisual()?;
         let scale = self.composition.CreateScaleTransform()?;
+        let shell_fade = self.composition.CreateEffectGroup()?;
         let fade = self.composition.CreateEffectGroup()?;
-        visual.SetEffect(&fade)?;
-        visual.SetTransform(&scale)?;
         let surface = self.composition.CreateVisual()?;
         surface.SetContent(&swap)?;
-        visual.AddVisual(&surface, true, None)?;
-        let content = self.composition.CreateVisual()?;
+        surface.SetTransform(&scale)?;
+        surface.SetEffect(&shell_fade)?;
+        self.shells.AddVisual(&surface, true, None)?;
         let viewport = self.composition.CreateVisual()?;
         let glyphs = self.composition.CreateVisual()?;
-        let content_scale = self.composition.CreateScaleTransform()?;
         if (x, y) != (0, 0) {
             glyphs.SetContent(&swap)?;
             viewport.AddVisual(&glyphs, true, None)?;
-            content.SetTransform(&content_scale)?;
-            content.AddVisual(&viewport, true, None)?;
-            visual.AddVisual(&content, true, &surface)?;
+            viewport.SetTransform(&scale)?;
+            viewport.SetEffect(&fade)?;
+            self.content.AddVisual(&viewport, true, None)?;
         }
-        self.root.AddVisual(&visual, true, None)?;
         let image = Texture {
             scale,
             fade,
+            shell_fade,
             swap,
             key,
-            content_scale,
-            content,
-            outer: visual,
             surface,
             viewport,
             glyphs,

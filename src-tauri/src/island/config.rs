@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 macro_rules! config_enum {
     ($name:ident { $($item:ident),+ }) => {
@@ -85,25 +84,16 @@ config_group!(IslandConfig {
     animation: AnimationConfig = AnimationConfig::default(),
     interaction: InteractionConfig = InteractionConfig::default(),
     notifications: NotificationConfig = NotificationConfig::default(),
-    hotkeys: HotkeyConfig = HotkeyConfig::default(),
 });
 
 config_group!(NotificationConfig {
     enabled: bool = true,
-    wechat_enabled: bool = true,
-    qq_enabled: bool = true,
-    windows_notifications_enabled: bool = true,
-    show_preview: bool = false,
-    preview_timeout_seconds: u32 = 8,
-    account_list_enabled: bool = true,
-    animate_new_message: bool = true,
 });
 
 config_group!(StartupConfig {
     launch_at_login: bool = false,
     show_on_start: bool = true,
     start_compact: bool = true,
-    close_to_tray: bool = true,
 });
 
 // All geometry in the config is in logical pixels, relative to the selected work area.
@@ -134,8 +124,8 @@ config_group!(AppearanceConfig {
     expanded_height: f64 = 168.0,
     radius: f64 = 24.0,
     opacity: f64 = 0.96,
-    background: String = "#202326".into(),
-    border: String = "#45494D".into(),
+    background: String = "#101214".into(),
+    border: String = "#34383C".into(),
     shadow: bool = true,
     blur: bool = false,
     theme: Theme = Theme::Dark,
@@ -158,9 +148,6 @@ config_group!(AnimationConfig {
 config_group!(InteractionConfig {
     hover_expand: bool = true,
     click_expand: bool = true,
-    outside_collapse: bool = true,
-    auto_collapse: bool = true,
-    collapse_delay_ms: u32 = 450,
     pin_enabled: bool = true,
     drag_enabled: bool = true,
 });
@@ -177,63 +164,13 @@ impl AnimationConfig {
     }
 }
 
-config_group!(HotkeyConfig {
-    toggle: String = "Ctrl+Alt+I".into(),
-    show: String = "Ctrl+Alt+S".into(),
-    hide: String = "Ctrl+Alt+H".into(),
-});
-
-// RegisterHotKey modifier bits and virtual-key codes, also used for conflict detection.
-pub fn parse_hotkey(value: &str) -> Result<Option<(u32, u32)>, String> {
-    if value.is_empty() {
-        return Ok(None);
-    }
-    let invalid = || format!("无效快捷键 {value}。请使用修饰键和一个字母、数字或 F1–F24。");
-    let mut parts = value.split('+').map(str::trim);
-    let key = parts.next_back().ok_or_else(invalid)?.to_ascii_uppercase();
-    let code = match key.as_bytes() {
-        [key] if key.is_ascii_alphanumeric() => u32::from(*key),
-        _ => key
-            .strip_prefix('F')
-            .and_then(|number| number.parse::<u32>().ok())
-            .filter(|number| (1..=24).contains(number))
-            .map(|number| 0x70 + number - 1)
-            .ok_or_else(invalid)?,
-    };
-    let mut mask = 0;
-    for part in parts {
-        let bit = match part.to_ascii_lowercase().as_str() {
-            "alt" => 1,
-            "ctrl" => 2,
-            "shift" => 4,
-            "win" => 8,
-            _ => return Err(invalid()),
-        };
-        if mask & bit != 0 {
-            return Err(invalid());
-        }
-        mask |= bit;
-    }
-    if mask == 0 {
-        return Err(invalid());
-    }
-    Ok(Some((mask, code)))
-}
-
 impl IslandConfig {
-    pub fn active_hotkeys(&self) -> Option<&HotkeyConfig> {
-        self.enabled.then_some(&self.hotkeys)
-    }
-
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != SCHEMA_VERSION {
             return Err(format!("不支持的配置版本 {}", self.schema_version));
         }
         if self.revision > (1 << 53) - 1 {
             return Err("配置版本计数超出客户端可表示的范围".into());
-        }
-        if !(1..=60).contains(&self.notifications.preview_timeout_seconds) {
-            return Err("通知预览时长必须在 1 至 60 秒之间".into());
         }
         if self.placement.display_id.as_ref().is_some_and(|id| {
             id.trim().is_empty() || id.len() > 512 || id.chars().any(char::is_control)
@@ -272,7 +209,6 @@ impl IslandConfig {
         for (name, value, max) in [
             ("hideDelayMs", self.edge.hide_delay_ms, 60000),
             ("wakeDelayMs", self.edge.wake_delay_ms, 60000),
-            ("collapseDelayMs", self.interaction.collapse_delay_ms, 60000),
             ("expandMs", self.animation.expand_ms, 2000),
             ("collapseMs", self.animation.collapse_ms, 2000),
             ("edgeMs", self.animation.edge_ms, 2000),
@@ -280,14 +216,6 @@ impl IslandConfig {
         ] {
             if value > max {
                 return Err(format!("{name} 不得超过 {max} 毫秒"));
-            }
-        }
-        let mut registered = HashSet::new();
-        for key in [&self.hotkeys.toggle, &self.hotkeys.show, &self.hotkeys.hide] {
-            if let Some(shortcut) = parse_hotkey(key)? {
-                if !registered.insert(shortcut) {
-                    return Err("显示、隐藏和切换快捷键不能重复".into());
-                }
             }
         }
         Ok(())
@@ -309,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_nonfinite_geometry_and_duplicate_key_combinations() {
+    fn rejects_nonfinite_geometry() {
         let mut config = IslandConfig::default();
         config.placement.offset_y = f64::NAN;
         assert!(config.validate().is_err());
@@ -317,18 +245,6 @@ mod tests {
         config.appearance.opacity = f64::INFINITY;
         assert!(config.validate().is_err());
         config.appearance.opacity = 1.0;
-        config.hotkeys.hide = "alt + CTRL + i".into();
-        assert!(config.validate().is_err());
-        config.hotkeys.hide.clear();
         assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn shortcuts_require_unique_modifiers_and_supported_keys() {
-        assert_eq!(parse_hotkey("Win+Shift+F24").unwrap(), Some((12, 0x87)));
-        assert_eq!(parse_hotkey("").unwrap(), None);
-        for value in ["I", "Ctrl+Ctrl+I", "Alt+F25", "Alt+", "Shift+É"] {
-            assert!(parse_hotkey(value).is_err());
-        }
     }
 }

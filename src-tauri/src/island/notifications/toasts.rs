@@ -1,22 +1,20 @@
-use super::{identities::Sources, windows::Registry, Permission, Reminder, Settings, Source};
-use crate::island::config::NotificationConfig;
+use super::{identities::Sources, windows::Registry, Permission, Reminder, Source};
 use std::{
-    mem::size_of,
-    ptr::null_mut,
-    sync::{mpsc::SyncSender, Mutex},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::SyncSender,
+    },
+    time::{Duration, Instant},
 };
 use windows::{
     Foundation::TypedEventHandler,
     UI::Notifications::{
-        KnownNotificationBindings,
         Management::{
             UserNotificationListener as Listener, UserNotificationListenerAccessStatus as Access,
         },
-        NotificationKinds, UserNotification,
+        NotificationKinds,
     },
 };
-use windows_sys::Win32::System::RemoteDesktop::*;
 
 impl From<Access> for Permission {
     fn from(status: Access) -> Self {
@@ -62,110 +60,10 @@ pub fn request_access(
     Ok(())
 }
 
-pub(super) fn now_ticks() -> i64 {
-    const EPOCH_TICKS: i64 = 116444736000000000;
-    EPOCH_TICKS
-        + (SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-            / 100) as i64
-}
-
-fn session_unlocked() -> bool {
-    unsafe {
-        let mut data = null_mut();
-        let mut len = 0;
-        if WTSQuerySessionInformationW(
-            WTS_CURRENT_SERVER_HANDLE,
-            WTS_CURRENT_SESSION,
-            WTSSessionInfoEx,
-            &mut data,
-            &mut len,
-        ) == 0
-        {
-            return false;
-        }
-        let unlocked = !data.is_null() && len as usize >= size_of::<WTSINFOEXW>() && {
-            let info = &*data.cast::<WTSINFOEXW>();
-            info.Level == 1
-                && info.Data.WTSInfoExLevel1.SessionState == WTSActive
-                && info.Data.WTSInfoExLevel1.SessionFlags == WTS_SESSIONSTATE_UNLOCK as i32
-        };
-        WTSFreeMemory(data.cast());
-        unlocked
-    }
-}
-
-fn sanitize(parts: &[String]) -> Option<String> {
-    let message = parts.join(" ");
-    let lower = message.to_lowercase();
-    // Hide the whole excerpt when digits span fields or separators, even when this over-masks a date.
-    if message.chars().filter(|ch| ch.is_numeric()).take(4).count() == 4
-        || [
-            "验证码",
-            "校验码",
-            "驗證碼",
-            "校驗碼",
-            "动态码",
-            "verification",
-            "passcode",
-            "security code",
-            "one-time",
-            "otp",
-        ]
-        .iter()
-        .any(|term| lower.contains(term))
-    {
-        return Some("敏感内容已隐藏".into());
-    }
-    let line: String = message
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .filter(|ch| {
-            !ch.is_control() && !matches!(*ch, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
-        })
-        .take(80)
-        .collect();
-    (!line.is_empty()).then_some(line)
-}
-
-fn preview(item: &UserNotification) -> Option<String> {
-    let binding = item
-        .Notification()
-        .ok()?
-        .Visual()
-        .ok()?
-        .GetBinding(&KnownNotificationBindings::ToastGeneric().ok()?)
-        .ok()?;
-    let texts = binding.GetTextElements().ok()?;
-    let size = texts.Size().ok()?;
-    if size > 8 {
-        return Some("通知内容已省略".into());
-    }
-    let mut parts = Vec::new();
-    for i in 0..size {
-        let text = texts.GetAt(i).ok()?.Text().ok()?;
-        if text.len() > 2048 {
-            return Some("通知内容已省略".into());
-        }
-        parts.push(text.to_string_lossy());
-    }
-    sanitize(&parts)
-}
-
 pub(super) struct Toasts {
     listener: Listener,
     token: Option<i64>,
     sources: Sources,
-}
-
-pub(super) struct ReadPolicy<'a> {
-    pub settings: &'a Mutex<Settings>,
-    pub epoch: u64,
-    pub cutoff: i64,
 }
 
 impl Toasts {
@@ -180,21 +78,22 @@ impl Toasts {
     pub(super) fn read(
         &mut self,
         registry: &Registry,
-        config: &NotificationConfig,
-        policy: ReadPolicy<'_>,
+        cached: Option<&[Reminder]>,
+        stop: &AtomicBool,
         wake: &SyncSender<()>,
-    ) -> (Permission, Vec<Reminder>, Option<Instant>) {
-        let permission = self
-            .listener
-            .GetAccessStatus()
-            .map(Permission::from)
-            .unwrap_or(Permission::Error);
-        if permission != Permission::Allowed {
+    ) -> (Permission, Vec<Reminder>) {
+        let permission = self.access();
+        if permission != Permission::Allowed || registry.empty() {
             self.unsubscribe();
             self.sources = Sources::default();
-            return (permission, vec![], None);
+            return (permission, vec![]);
         }
-        self.sources.refresh(&registry.identities);
+        let sources_changed = self.sources.refresh(&registry.identities);
+        if !sources_changed && self.token.is_some() {
+            if let Some(reminders) = cached {
+                return (permission, reminders.to_vec());
+            }
+        }
         if self.token.is_none() {
             let wake = wake.clone();
             self.token = self
@@ -205,35 +104,33 @@ impl Toasts {
                 }))
                 .ok();
         }
-        let result = self.collect(config, &policy);
-        let current = self
-            .listener
+        let result = self.collect(registry, stop);
+        let current = self.access();
+        match (current, result) {
+            (Permission::Allowed, Ok(reminders)) => (current, reminders),
+            (Permission::Allowed, Err(_)) => (Permission::Error, vec![]),
+            _ => (current, vec![]),
+        }
+    }
+
+    fn access(&self) -> Permission {
+        self.listener
             .GetAccessStatus()
             .map(Permission::from)
-            .unwrap_or(Permission::Error);
-        match (current, result) {
-            (Permission::Allowed, Ok((reminders, expiry))) => (current, reminders, expiry),
-            (Permission::Allowed, Err(_)) => (Permission::Error, vec![], None),
-            _ => (current, vec![], None),
-        }
+            .unwrap_or(Permission::Error)
     }
 
     fn collect(
         &self,
-        config: &NotificationConfig,
-        policy: &ReadPolicy<'_>,
-    ) -> windows_core::Result<(Vec<Reminder>, Option<Instant>)> {
+        registry: &Registry,
+        stop: &AtomicBool,
+    ) -> windows_core::Result<Vec<Reminder>> {
         let operation = self
             .listener
             .GetNotificationsAsync(NotificationKinds::Toast)?;
         let started = Instant::now();
-        // An unresponsive broker must not hold worker shutdown indefinitely.
         while operation.Status()? == windows_future::AsyncStatus::Started {
-            let cancelled = {
-                let state = policy.settings.lock().unwrap();
-                state.stop || state.epoch != policy.epoch
-            };
-            if cancelled || started.elapsed() > Duration::from_secs(2) {
+            if stop.load(Ordering::Acquire) || started.elapsed() > Duration::from_secs(2) {
                 let _ = operation.Cancel();
                 return Err(windows_core::Error::from_hresult(windows_core::HRESULT(
                     0x80004004u32 as i32,
@@ -242,7 +139,7 @@ impl Toasts {
             std::thread::sleep(Duration::from_millis(15));
         }
         let items = operation.GetResults()?;
-        let mut latest = [None, None];
+        let mut latest: [Option<Reminder>; 2] = [None, None];
         for index in 0..items.Size()? {
             let Ok(item) = items.GetAt(index) else {
                 continue;
@@ -253,52 +150,26 @@ impl Toasts {
             let Some(source) = self.sources.lookup(&app_id.to_string_lossy()) else {
                 continue;
             };
-            if !source.enabled(config) {
-                continue;
-            }
             let (Ok(id), Ok(created)) = (item.Id(), item.CreationTime()) else {
                 continue;
             };
+            let created = created.UniversalTime;
+            if !registry.accepts_reminder(source, created) {
+                continue;
+            }
             let slot = &mut latest[usize::from(source == Source::Qq)];
-            let key = (created.UniversalTime, id);
-            if slot.as_ref().is_none_or(|(old, _, _)| key > *old) {
-                *slot = Some((key, source, item));
-            }
-        }
-        let now = now_ticks();
-        let mut expiry: Option<Instant> = None;
-        let mut result = vec![];
-        for ((created, latest_id), source, item) in latest.into_iter().flatten() {
-            let remaining = created
-                .saturating_add(i64::from(config.preview_timeout_seconds) * 10_000_000)
-                .saturating_sub(now);
-            let mut excerpt = None;
-            if config.show_preview
-                && created >= policy.cutoff
-                && created <= now
-                && remaining > 0
-                && session_unlocked()
-                && self.listener.GetAccessStatus()? == Access::Allowed
+            if slot
+                .as_ref()
+                .is_none_or(|r| (created, id) > (r.created_ticks, r.latest_id))
             {
-                // Serialize the content read with a lock/hide/disable transition.
-                let state = policy.settings.lock().unwrap();
-                if !state.stop && state.epoch == policy.epoch && state.allow_preview {
-                    excerpt = preview(&item);
-                }
-                drop(state);
-                if excerpt.is_some() {
-                    let deadline = Instant::now() + Duration::from_nanos(remaining as u64 * 100);
-                    expiry = Some(expiry.map_or(deadline, |old| old.min(deadline)));
-                }
+                *slot = Some(Reminder {
+                    source,
+                    created_ticks: created,
+                    latest_id: id,
+                });
             }
-            result.push(Reminder {
-                source,
-                preview: excerpt,
-                latest_id,
-                created_ticks: created,
-            });
         }
-        Ok((result, expiry))
+        Ok(latest.into_iter().flatten().collect())
     }
 
     fn unsubscribe(&mut self) {
@@ -311,25 +182,5 @@ impl Toasts {
 impl Drop for Toasts {
     fn drop(&mut self) {
         self.unsubscribe();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn protects_codes_across_text_fields_and_truncation() {
-        for parts in [
-            vec!["验证码".into(), "ABCD".into()],
-            vec!["12".into(), "３ - ４".into()],
-            vec![format!("{} 123456", "x".repeat(90))],
-        ] {
-            assert_eq!(sanitize(&parts).as_deref(), Some("敏感内容已隐藏"));
-        }
-        assert_eq!(
-            sanitize(&["会议  开始".into()]).as_deref(),
-            Some("会议 开始")
-        );
     }
 }

@@ -13,8 +13,11 @@ const welcome = createSlice({
 
 export const { toggleDependencies } = welcome.actions;
 
-export function createAppStore() {
-  return configureStore({ reducer: { welcome: welcome.reducer, island: island.reducer } });
+export function createAppStore(dependenciesExpanded = true) {
+  return configureStore({
+    reducer: { welcome: welcome.reducer, island: island.reducer },
+    preloadedState: { welcome: { dependenciesExpanded } },
+  });
 }
 
 type AppStore = ReturnType<typeof createAppStore>;

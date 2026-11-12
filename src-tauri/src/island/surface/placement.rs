@@ -131,12 +131,18 @@ fn position(hwnd: HWND, host: Rect) -> Result<()> {
 
 pub(super) fn prepare_drag(ui: &Context, hwnd: HWND) -> Result<Rect> {
     let visible = outer_rect(ui, hwnd)?;
-    let radius = ui
+    let configured_radius = ui
         .frame
         .borrow()
         .as_ref()
         .map(|f| f.cfg.appearance.radius * f.scale)
         .ok_or("隐藏的岛屿无法拖动")?;
+    let radius = ui
+        .renderer
+        .borrow()
+        .as_ref()
+        .and_then(Renderer::visible_radius)
+        .unwrap_or(configured_radius);
     ui.clock.stop();
     ui.renderer
         .borrow_mut()
@@ -161,7 +167,6 @@ pub(super) fn apply(
     scale: f64,
 ) -> Result<()> {
     ui.dragging.set(false);
-    // A disabled or hidden-at-start island needs its message pump for wake hotkeys only.
     if ui.renderer.borrow().is_none() {
         ui.renderer.replace(Some(Renderer::new(hwnd)?));
     }
@@ -207,9 +212,6 @@ pub(super) fn apply(
         ui.clock.stop();
     }
     position(hwnd, host)?;
-    if !cfg.notifications.enabled || !cfg.notifications.show_preview {
-        super::messages::clear_previews(ui)?;
-    }
     {
         let mut renderer = ui.renderer.borrow_mut();
         let renderer = renderer.as_mut().ok_or("原生绘制设备不可用")?;
@@ -220,7 +222,6 @@ pub(super) fn apply(
             &cfg,
             state,
             renderer.visible_rect().unwrap_or(target),
-            scale,
             renderer.hit_panel(),
         ) {
             unsafe {
@@ -261,12 +262,13 @@ pub(super) fn update_mask(ui: &Context, hwnd: HWND) -> Result<()> {
     };
     let rect = r.visible_rect().unwrap_or(f.target);
     if r.panel.is_some() {
-        ui.a11y
-            .update_panel(&f.cfg, f.state, rect, f.scale, r.hit_panel());
+        ui.a11y.update_panel(&f.cfg, f.state, rect, r.hit_panel());
     }
-    let radius = f.cfg.appearance.radius * f.scale;
+    let radius = r
+        .visible_radius()
+        .unwrap_or(f.cfg.appearance.radius * f.scale);
     region(ui, hwnd, f.host, rect, radius)?;
-    if rect == f.target {
+    if !r.moving() {
         ui.clock.stop();
     } else {
         let schedule = if ui.clock.active() {
@@ -279,11 +281,22 @@ pub(super) fn update_mask(ui: &Context, hwnd: HWND) -> Result<()> {
             ui.clock.stop();
             r.freeze(f.target)?;
             r.apply(&f.cfg, f.state, f.target, f.host, f.scale, false)?;
-            region(ui, hwnd, f.host, f.target, radius)?;
+            region(
+                ui,
+                hwnd,
+                f.host,
+                f.target,
+                f.cfg.appearance.radius * f.scale,
+            )?;
             (ui.emit)(SurfaceEvent::Error(e));
         }
     }
     acrylic(ui, hwnd, !ui.clock.active() && material(f));
+    drop(renderer);
+    drop(frame);
+    if ui.input.inside.get() && !ui.dragging.get() {
+        super::input::refresh_hover(ui, hwnd);
+    }
     Ok(())
 }
 
@@ -295,14 +308,14 @@ pub(super) fn hide(ui: &Context, hwnd: HWND) -> Result<()> {
         ShowWindow(hwnd, SW_HIDE);
     }
     ui.clock.stop();
-    super::messages::stop_pulse(ui, hwnd);
-    super::messages::clear_previews(ui)?;
+    unsafe {
+        KillTimer(hwnd, super::messages::MINUTE_TIMER);
+    }
     ui.input.clear();
     ui.dragging.set(false);
     ui.a11y.clear();
     ui.frame.take();
     if let Some(r) = ui.renderer.borrow_mut().as_mut() {
-        r.set_hovered(None);
         r.hide()?;
     }
     Ok(())

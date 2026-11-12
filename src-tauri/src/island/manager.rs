@@ -1,3 +1,5 @@
+mod main_window;
+pub(super) use main_window::MainSnapshot;
 mod messages;
 mod settings;
 pub(super) use messages::NotificationStatus;
@@ -55,6 +57,7 @@ impl ManagerHandle {
                     timer: None,
                     drag_origin: None,
                     exiting: false,
+                    main_window: Default::default(),
                 };
                 if let Some(error) = manager.load_error.clone() {
                     manager.report(error);
@@ -122,6 +125,7 @@ pub(super) struct IslandManager {
     messages: messages::Messages,
     drag_origin: Option<(i32, i32)>,
     exiting: bool,
+    main_window: main_window::MainWindow,
 }
 
 impl IslandManager {
@@ -198,28 +202,11 @@ impl IslandManager {
     fn rebuild_window(&mut self) -> Result<()> {
         let config = self.store.load()?;
         self.close_window()?;
-        let worker = self.worker.clone();
-        let generation = self.generation;
-        let notify = move |event| {
-            let _ = worker.post(move |manager| {
-                if manager.generation == generation {
-                    manager.system_event(event)?;
-                }
-                Ok(())
-            });
-        };
-        let input = notify.clone();
-        let window = Surface::start(move |event| input(NativeEvent::Input(event)))?;
-        window.install_watch(notify)?;
         self.load_error = None;
         self.last_error = None;
         self.config = config;
         self.machine = Machine::new(&self.config);
         self.session_position = None;
-        if let Err(error) = window.configure_hotkeys(self.config.active_hotkeys()) {
-            self.report(error);
-        }
-        self.window = Some(window);
         let startup =
             native::sync_autostart(self.config.startup.launch_at_login).and_then(|enabled| {
                 if enabled != self.config.startup.launch_at_login {
@@ -246,6 +233,24 @@ impl IslandManager {
         Ok(())
     }
 
+    fn start_surface(&mut self) -> Result<()> {
+        let worker = self.worker.clone();
+        let generation = self.generation;
+        let notify = move |event| {
+            let _ = worker.post(move |manager| {
+                if manager.generation == generation {
+                    manager.system_event(event)?;
+                }
+                Ok(())
+            });
+        };
+        let input = notify.clone();
+        let window = Surface::start(move |event| input(NativeEvent::Input(event)))?;
+        window.install_watch(notify)?;
+        self.window = Some(window);
+        Ok(())
+    }
+
     fn observe_initial_pointer(&mut self) -> Result<()> {
         if matches!(
             self.machine.state,
@@ -266,6 +271,15 @@ impl IslandManager {
             .emit("island://state-changed", self.status())
             .map_err(|e| e.to_string())?;
         let state = self.machine.state;
+        if state == IslandState::Disabled {
+            if self.window.is_some() {
+                self.close_window()?;
+            }
+            return Ok(());
+        }
+        if self.window.is_none() {
+            self.start_surface()?;
+        }
         self.configure_messages()?;
         if let Some(window) = &self.window {
             if self.drag_origin.is_none() {
@@ -282,7 +296,6 @@ impl IslandManager {
             window.track(
                 self.config.edge.hide_on_fullscreen
                     && !matches!(state, IslandState::Disabled | IslandState::Hidden),
-                state == IslandState::Expanded && self.config.interaction.outside_collapse,
             )?;
         }
         Ok(())
@@ -292,7 +305,7 @@ impl IslandManager {
         if self.drag_origin.is_some()
             && matches!(
                 event,
-                Event::PointerEnter | Event::PointerLeave | Event::Click | Event::OutsideClick
+                Event::PointerEnter | Event::PointerLeave | Event::Click
             )
         {
             return Ok(());
@@ -326,33 +339,19 @@ impl IslandManager {
                 SurfaceEvent::PointerEnter => Event::PointerEnter,
                 SurfaceEvent::PointerLeave => Event::PointerLeave,
                 SurfaceEvent::Click => Event::Click,
-                SurfaceEvent::Pin(true) => Event::Pin,
-                SurfaceEvent::Pin(false) => Event::Unpin,
                 SurfaceEvent::Hide => Event::Hide,
-                SurfaceEvent::OpenNotificationSource(source) => {
-                    let result = self.open_source(source);
-                    if result.is_err() {
-                        self.open_message_settings()?;
+                SurfaceEvent::OpenInstances(source) => {
+                    if let Some(window) = &self.window {
+                        window.focus_source(source)?;
                     }
-                    return result;
+                    Event::OpenNotifications
                 }
-                SurfaceEvent::ActivateWindow(id) => {
-                    let result = self.activate_notification_window(id);
-                    if result.is_err() {
-                        self.open_message_settings()?;
-                    }
-                    return result;
-                }
-                SurfaceEvent::NotificationSettings => return self.open_message_settings(),
+                SurfaceEvent::ActivateWindow(id) => return self.activate_notification_window(id),
                 SurfaceEvent::DragStart => return self.drag(),
                 SurfaceEvent::Error(error) => return Err(error),
             },
-            NativeEvent::Show => Event::Show,
-            NativeEvent::Hide => Event::Hide,
-            NativeEvent::Toggle => Event::Toggle,
             NativeEvent::Fullscreen(true) => Event::FullscreenEntered,
             NativeEvent::Fullscreen(false) => Event::FullscreenExited,
-            NativeEvent::OutsideClick => Event::OutsideClick,
             NativeEvent::DisplayChanged => {
                 self.refresh_message_source();
                 self.app
@@ -361,54 +360,21 @@ impl IslandManager {
                 Event::DisplayChanged
             }
             NativeEvent::DragEnded => return self.finish_drag(),
-            NativeEvent::SessionLocked(locked) => {
-                self.messages.locked = locked;
-                return self.configure_messages();
-            }
             NativeEvent::Error(error) => return Err(error),
         };
         self.transition(event)
     }
 
-    pub fn close_main(&mut self) -> Result<()> {
-        if self.config.startup.close_to_tray {
-            if let Some(window) = self.app.get_webview_window("main") {
-                window.hide().map_err(|e| e.to_string())?;
-            }
-            Ok(())
-        } else {
-            self.exit()
-        }
-    }
-
-    pub fn open_main(&self, settings: bool) -> Result<()> {
-        self.open_route(if settings { "/settings/island" } else { "/" })
-    }
-
-    fn open_message_settings(&self) -> Result<()> {
-        self.open_route("/settings/island?group=notifications")
-    }
-
-    fn open_route(&self, route: &str) -> Result<()> {
-        let window = self.app.get_webview_window("main").ok_or("主窗口不可用")?;
-        window
-            .eval(format!("location.hash='{route}'"))
-            .and_then(|_| window.unminimize())
-            .and_then(|_| window.show())
-            .and_then(|_| window.set_focus())
-            .map_err(|e| e.to_string())
-    }
-
     fn close_window(&mut self) -> Result<()> {
         self.generation += 1;
-        self.stop_messages();
+        let messages = self.stop_messages();
         self.drag_origin = None;
         self.timer = None;
         if let Some(window) = self.window.take() {
             let hooks = window.uninstall_watch();
             hooks.and(window.shutdown())?;
         }
-        Ok(())
+        messages
     }
 
     pub fn exit(&mut self) -> Result<()> {

@@ -1,20 +1,35 @@
 use super::*;
 
 #[test]
-fn choosing_a_message_source_expands_once_and_respects_pin_and_hide() {
+fn clicks_keep_content_open_and_only_a_successful_window_jump_can_collapse_it() {
+    let config = IslandConfig::default();
+    let mut machine = Machine::new(&config);
+    for _ in 0..2 {
+        machine.apply(Event::Click, &config);
+        assert_eq!(machine.state, IslandState::Expanded);
+    }
+    machine.apply(Event::WindowActivated, &config);
+    assert_eq!(machine.state, IslandState::Compact);
+    machine.apply(Event::Pin, &config);
+    machine.apply(Event::WindowActivated, &config);
+    assert_eq!(machine.state, IslandState::Pinned);
+    machine.apply(Event::Hide, &config);
+    machine.apply(Event::WindowActivated, &config);
+    assert_eq!(machine.state, IslandState::Hidden);
+}
+
+#[test]
+fn instance_picker_opens_with_body_click_disabled_and_unpin_respects_the_pointer() {
     let mut config = IslandConfig::default();
     config.interaction.click_expand = false;
     let mut machine = Machine::new(&config);
-    for _ in 0..2 {
-        machine.apply(Event::OpenNotifications, &config);
-        assert_eq!(machine.state, IslandState::Expanded);
-    }
+    machine.apply(Event::OpenNotifications, &config);
+    assert_eq!(machine.state, IslandState::Expanded);
     machine.apply(Event::Pin, &config);
-    machine.apply(Event::OpenNotifications, &config);
+    machine.apply(Event::PointerLeave, &config);
     assert_eq!(machine.state, IslandState::Pinned);
-    machine.apply(Event::Hide, &config);
-    machine.apply(Event::OpenNotifications, &config);
-    assert_eq!(machine.state, IslandState::Hidden);
+    machine.apply(Event::Unpin, &config);
+    assert_eq!(machine.state, IslandState::Compact);
 }
 
 #[test]
@@ -24,10 +39,9 @@ fn disabled_hidden_and_pinned_ignore_automatic_events() {
     machine.apply(Event::Pin, &config);
     for event in [
         Event::PointerLeave,
-        Event::CollapseTimeout,
         Event::HideTimeout,
         Event::FullscreenEntered,
-        Event::OutsideClick,
+        Event::WindowActivated,
     ] {
         machine.apply(event, &config);
         assert_eq!(machine.state, IslandState::Pinned);
@@ -57,10 +71,11 @@ fn interrupted_hover_and_peek_wake_cancel_stale_timeouts() {
     assert_eq!(
         machine.apply(Event::PointerLeave, &config).timer,
         TimerAction::After {
-            ms: config.interaction.collapse_delay_ms,
-            event: Event::CollapseTimeout
+            ms: config.edge.hide_delay_ms,
+            event: Event::HideTimeout
         }
     );
+    assert_eq!(machine.state, IslandState::Compact);
     assert_eq!(
         machine.apply(Event::PointerLeave, &config).timer,
         TimerAction::Keep
@@ -69,11 +84,10 @@ fn interrupted_hover_and_peek_wake_cancel_stale_timeouts() {
         machine.apply(Event::PointerEnter, &config).timer,
         TimerAction::Cancel
     );
-    machine.apply(Event::CollapseTimeout, &config);
+    machine.apply(Event::HideTimeout, &config);
     assert_eq!(machine.state, IslandState::Expanded);
-    machine.apply(Event::PointerLeave, &config);
     assert_eq!(
-        machine.apply(Event::CollapseTimeout, &config).timer,
+        machine.apply(Event::PointerLeave, &config).timer,
         TimerAction::After {
             ms: config.edge.hide_delay_ms,
             event: Event::HideTimeout

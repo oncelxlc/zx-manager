@@ -4,6 +4,7 @@ import { Provider } from "react-redux";
 import { HashRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import App from "../../App";
+import { mainWindowSession } from "../../mainWindowSession";
 import { createAppStore } from "../../store";
 import defaults from "./defaults.json";
 import { islandApi } from "./islandApi";
@@ -26,7 +27,7 @@ function desktop() {
   vi.spyOn(islandApi, "config").mockResolvedValue(config);
   vi.spyOn(islandApi, "status").mockResolvedValue({ state: "compact", sequence: 1, lastError: null });
   vi.spyOn(islandApi, "displays").mockResolvedValue([]);
-  vi.spyOn(islandApi, "notifications").mockResolvedValue({ sequence: 1, permission: "notRequested", windows: [], reminders: [] });
+  vi.spyOn(islandApi, "notifications").mockResolvedValue({ sequence: 1, permission: "notRequested" });
 }
 
 it("keeps animation preview cancellable without saving the draft", async () => {
@@ -65,6 +66,37 @@ it("keeps an edited revision intact when another window saves", async () => {
   expect(screen.queryByText("有未保存的更改")).toBeNull();
 });
 
+it("restores the settings group and unsaved values from the tray session", async () => {
+  desktop();
+  mainWindowSession.draft = { ...config, edge: { ...config.edge, mode: "peek", hideDelayMs: 650 } };
+  open("#/settings/island?group=edge");
+  expect((await screen.findByLabelText<HTMLInputElement>("隐藏延迟（毫秒）")).valueAsNumber).toBe(650);
+  expect(screen.getByRole("button", { name: "边界隐藏" }).getAttribute("aria-current")).toBe("page");
+  fireEvent.click(screen.getByRole("button", { name: "放弃草稿" }));
+  expect(screen.queryByLabelText("隐藏延迟（毫秒）")).toBeNull();
+  expect(mainWindowSession.draft).toBeNull();
+});
+
+it("clears a captured tray draft when its save completed while the main window was closing", async () => {
+  desktop();
+  mainWindowSession.draft = { ...config, notifications: { enabled: false } };
+  vi.spyOn(islandApi, "config").mockResolvedValue({ ...mainWindowSession.draft, revision: 1 });
+  open("#/settings/island?group=notifications");
+  await screen.findByRole("checkbox", { name: "启用通知" });
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("button", { name: "保存设置" }).hasAttribute("disabled")).toBe(true);
+  expect(mainWindowSession.draft).toBeNull();
+});
+
+it("keeps the last serializable tray draft while a number field is empty", async () => {
+  desktop();
+  open("#/settings/island?group=animation");
+  const duration = await screen.findByLabelText("展开时长（毫秒）");
+  fireEvent.change(duration, { target: { value: "450" } });
+  fireEvent.change(duration, { target: { value: "" } });
+  expect(mainWindowSession.draft?.animation.expandMs).toBe(450);
+});
+
 it("runs the browser draft preview locally", async () => {
   vi.spyOn(islandApi, "isDesktop").mockReturnValue(false);
   const validate = vi.spyOn(islandApi, "validatePreview");
@@ -90,32 +122,63 @@ it("pins the native island from settings, ignoring older runtime snapshots", asy
   expect(store.getState().island.status?.state).toBe("expanded");
 });
 
-it("opens the notification deep link and previews a local sample without calling Windows", async () => {
+it("opens the notification deep link with a single switch and no desktop permission prompt in the browser", () => {
   vi.spyOn(islandApi, "isDesktop").mockReturnValue(false);
   const access = vi.spyOn(islandApi, "requestNotificationAccess");
-  const activate = vi.spyOn(islandApi, "activateNotificationWindow");
   open("#/settings/island?group=notifications");
-  expect(screen.getByRole("heading", { name: "通知与消息" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "模拟一条提醒" }));
-  fireEvent.click(screen.getByRole("button", { name: "展开通知示例" }));
-  expect(screen.getByText("微信 2")).toBeTruthy();
-  expect(screen.queryByText("敏感内容已隐藏")).toBeNull();
+  expect(screen.getByRole("heading", { name: "通知" })).toBeTruthy();
+  expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+  const enabled = screen.getByRole("checkbox", { name: "启用通知" });
+  fireEvent.click(enabled);
+  expect(screen.getByText("有未保存的更改")).toBeTruthy();
+  fireEvent.click(enabled);
+  expect(screen.queryByText("有未保存的更改")).toBeNull();
+  expect(screen.queryByRole("button", { name: "请求 Windows 通知访问" })).toBeNull();
   expect(access).not.toHaveBeenCalled();
-  expect(activate).not.toHaveBeenCalled();
 });
 
-it("uses a registered window id and keeps authorization separate from draft controls", async () => {
+it("keeps drafts across groups and retries a failed save as a single configuration update", async () => {
   desktop();
-  vi.spyOn(islandApi, "notifications").mockResolvedValue({
-    sequence: 2, permission: "denied", windows: [{ id: 7, source: "wechat", label: "微信 2" }], reminders: [],
-  });
+  vi.spyOn(islandApi, "notifications").mockResolvedValue({ sequence: 2, permission: "denied" });
+  const save = vi.spyOn(islandApi, "save").mockRejectedValueOnce("保存失败，磁盘空间不足")
+    .mockImplementationOnce(async draft => ({ ...draft, revision: 1 }));
   const access = vi.spyOn(islandApi, "requestNotificationAccess");
-  const activate = vi.spyOn(islandApi, "activateNotificationWindow").mockResolvedValue();
-  open("#/settings/island?group=notifications");
-  fireEvent.click(await screen.findByRole("checkbox", { name: "显示通知正文预览" }));
-  expect(screen.getByLabelText("摘要保留时长（秒）")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "打开 Windows 通知隐私设置" })).toBeTruthy();
+  const store = open("#/settings/island?group=notifications");
+  await screen.findByRole("button", { name: "打开 Windows 通知隐私设置" });
+  fireEvent.click(screen.getByRole("checkbox", { name: "启用通知" }));
+  fireEvent.click(screen.getByRole("button", { name: "鼠标交互" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "点击展开" }));
+  expect(save).not.toHaveBeenCalled();
   expect(access).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "切换到微信 2" }));
-  await waitFor(() => expect(activate).toHaveBeenCalledWith(7));
+  const submit = screen.getByRole("button", { name: "保存设置" });
+  fireEvent.click(submit);
+  expect((await screen.findByRole("alert")).textContent).toContain("磁盘空间不足");
+  expect(store.getState().island.config).toEqual(config);
+  fireEvent.click(submit);
+  await screen.findByText("设置已保存");
+  expect(save).toHaveBeenCalledTimes(2);
+  expect(save.mock.calls[0]).toEqual(save.mock.calls[1]);
+  expect(store.getState().island.config).toEqual({
+    ...config, revision: 1, interaction: { ...config.interaction, clickExpand: false }, notifications: { enabled: false },
+  });
+  expect(submit.hasAttribute("disabled")).toBe(true);
+});
+
+it("stages defaults at the saved revision and allows discarding them", async () => {
+  desktop();
+  const saved = { ...config, revision: 7, enabled: false };
+  vi.spyOn(islandApi, "config").mockResolvedValue(saved);
+  const save = vi.spyOn(islandApi, "save").mockImplementation(async value => ({ ...value, revision: 8 }));
+  open("#/settings/island");
+  const reset = await screen.findByRole("button", { name: "恢复默认设置" });
+  fireEvent.click(reset);
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "放弃草稿" }));
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "启用灵动岛" }).checked).toBe(false);
+  fireEvent.click(reset);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存");
+  expect(save).toHaveBeenCalledExactlyOnceWith({ ...config, revision: 7 });
+  fireEvent.click(reset);
+  expect(screen.queryByText("有未保存的更改")).toBeNull();
 });

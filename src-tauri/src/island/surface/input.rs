@@ -1,8 +1,5 @@
 use super::{error, placement, Context, IslandState, Rect, SurfaceEvent};
-use crate::island::{
-    render::{action_at, MessageAction},
-    state::Event,
-};
+use crate::island::render::MessageAction;
 use std::{cell::Cell, mem::size_of};
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, POINT},
@@ -19,14 +16,12 @@ use windows_sys::Win32::{
 #[derive(Clone, Copy, PartialEq)]
 enum Action {
     Body,
-    Pin(bool),
-    Hide,
     Message(MessageAction),
 }
 
 #[derive(Default)]
 pub(super) struct Pointer {
-    inside: Cell<bool>,
+    pub(super) inside: Cell<bool>,
     tracking: Cell<bool>,
     down: Cell<Option<(i32, i32, Action)>>,
 }
@@ -57,18 +52,15 @@ fn action(ui: &Context, hwnd: HWND, point: POINT) -> Option<Action> {
     let rect = placement::outer_rect(ui, hwnd).ok()?;
     let frame = ui.frame.try_borrow().ok()?;
     let f = frame.as_ref()?;
-    let target = f.target;
-    if !rounded(rect, f.cfg.appearance.radius * f.scale, point) {
+    let radius = ui
+        .renderer
+        .try_borrow()
+        .ok()
+        .and_then(|r| r.as_ref()?.visible_radius())
+        .unwrap_or(f.cfg.appearance.radius * f.scale);
+    if !rounded(rect, radius, point) {
         return None;
     }
-    let sample = POINT {
-        x: target.x
-            + (f64::from(point.x - rect.x) * f64::from(target.width) / f64::from(rect.width))
-                .floor() as i32,
-        y: target.y
-            + (f64::from(point.y - rect.y) * f64::from(target.height) / f64::from(rect.height))
-                .floor() as i32,
-    };
     if let Ok(renderer) = ui.renderer.try_borrow() {
         if let Some(panel) = renderer.as_ref().and_then(|r| r.hit_panel()) {
             let hit = panel.items.iter().find(|i| {
@@ -78,34 +70,24 @@ fn action(ui: &Context, hwnd: HWND, point: POINT) -> Option<Action> {
                     && point.y >= b.y
                     && point.y < b.y + b.height
             });
-            return Some(hit.map_or(Action::Body, |i| Action::Message(i.action)));
+            return Some(
+                hit.and_then(|i| i.action)
+                    .map_or(Action::Body, Action::Message),
+            );
         }
     }
-    Some(
-        match action_at(&f.cfg, f.state, target, f.scale, sample.x, sample.y) {
-            Some(Event::Pin) => Action::Pin(true),
-            Some(Event::Unpin) => Action::Pin(false),
-            Some(Event::Hide) => Action::Hide,
-            _ => Action::Body,
-        },
-    )
+    Some(Action::Body)
 }
 
 fn update_hover(ui: &Context, hwnd: HWND, hit: Option<Action>) {
     let inside = hit.is_some();
-    let control = match hit {
-        Some(Action::Pin(true)) => Some(Event::Pin),
-        Some(Action::Pin(false)) => Some(Event::Unpin),
-        Some(Action::Hide) => Some(Event::Hide),
-        _ => None,
-    };
     if ui.renderer.try_borrow_mut().ok().is_some_and(|mut r| {
         r.as_mut().is_some_and(|r| {
             let msg = match hit {
                 Some(Action::Message(a)) => Some(a),
                 _ => None,
             };
-            r.set_hovered(control) | r.hover_message(msg)
+            r.hover_message(msg)
         })
     }) {
         ui.redraw_pending.set(true);
@@ -132,6 +114,16 @@ fn update_hover(ui: &Context, hwnd: HWND, hit: Option<Action>) {
     }
 }
 
+pub(super) fn refresh_hover(ui: &Context, hwnd: HWND) {
+    let mut point = POINT::default();
+    let hit = if unsafe { GetCursorPos(&mut point) != 0 && WindowFromPoint(point) == hwnd } {
+        action(ui, hwnd, point)
+    } else {
+        None
+    };
+    update_hover(ui, hwnd, hit);
+}
+
 pub(super) unsafe fn message(ui: &Context, hwnd: HWND, msg: u32, lp: LPARAM) -> Option<LRESULT> {
     match msg {
         WM_CAPTURECHANGED | WM_CANCELMODE => {
@@ -140,11 +132,17 @@ pub(super) unsafe fn message(ui: &Context, hwnd: HWND, msg: u32, lp: LPARAM) -> 
         }
         WM_MOUSELEAVE => {
             ui.input.tracking.set(false);
-            update_hover(ui, hwnd, None);
+            refresh_hover(ui, hwnd);
             return Some(0);
         }
         WM_SETCURSOR if lp as u16 == HTCLIENT as u16 => {
-            SetCursor(LoadCursorW(std::ptr::null_mut(), IDC_HAND));
+            let mut point = POINT::default();
+            let clickable = GetCursorPos(&mut point) != 0
+                && matches!(action(ui, hwnd, point), Some(Action::Message(_)));
+            SetCursor(LoadCursorW(
+                std::ptr::null_mut(),
+                if clickable { IDC_HAND } else { IDC_ARROW },
+            ));
             return Some(1);
         }
         WM_NCHITTEST | WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONUP => (),
@@ -191,15 +189,25 @@ pub(super) unsafe fn message(ui: &Context, hwnd: HWND, msg: u32, lp: LPARAM) -> 
             if GetCapture() == hwnd {
                 ReleaseCapture();
             }
-            if let Some((_, _, action)) = down.filter(|(_, _, action)| hit == Some(*action)) {
+            if let Some((_, _, action)) = down.filter(|(x, y, action)| {
+                if hit == Some(*action) {
+                    return true;
+                }
+                // An expanding panel can move an icon underneath a stationary press.
+                matches!(
+                    action,
+                    Action::Message(MessageAction::Window(_) | MessageAction::OpenInstances(_))
+                ) && hit.is_some()
+                    && ui.frame.borrow().as_ref().is_some_and(|f| {
+                        f64::from(point.x - x).hypot(f64::from(point.y - y)) < 5.0 * f.scale
+                    })
+            }) {
                 if let Action::Message(MessageAction::NextPage) = action {
                     PostMessageW(hwnd, super::NEXT_PAGE, 0, 0);
                     return Some(0);
                 }
                 (ui.emit)(match action {
                     Action::Body => SurfaceEvent::Click,
-                    Action::Pin(pinned) => SurfaceEvent::Pin(pinned),
-                    Action::Hide => SurfaceEvent::Hide,
                     Action::Message(a) => a.surface_event()?,
                 });
             }

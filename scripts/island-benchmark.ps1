@@ -32,7 +32,7 @@ $frameProbe = 'let _frame_cost = crate::island::manager::benchmark::FrameCost::b
 Replace-Once "$project/src/island/surface.rs" $maskTick "$maskTick $frameProbe"
 Add-Content "$project/src/island/manager.rs" 'pub(super) mod benchmark;'
 Copy-Item "$PSScriptRoot/island-benchmark.rs" "$project/src/island/manager/benchmark.rs"
-Replace-Once "$project/Cargo.toml" '"Win32_Foundation",' '"Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_WindowsProgramming",'
+Replace-Once "$project/Cargo.toml" '"Win32_Foundation",' '"Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_WindowsProgramming",'
 Add-Content "$project/Cargo.toml" "`n[[bin]]`nname = `"$binary`"`npath = `"src/main.rs`""
 
 $settings = Get-Content "$project/tauri.conf.json" -Raw | ConvertFrom-Json
@@ -51,9 +51,6 @@ $config.placement.offsetX = 380.0
 $config.edge.autoHide = $false
 $config.edge.hideOnFullscreen = $false
 $config.interaction.hoverExpand = $false
-$config.interaction.outsideCollapse = $false
-$config.interaction.autoCollapse = $false
-$config.hotkeys.toggle = $config.hotkeys.show = $config.hotkeys.hide = ''
 
 function Read-Phase($directory) {
     $body = Get-Content -LiteralPath "$directory/phase.json" -Raw -ErrorAction SilentlyContinue

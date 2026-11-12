@@ -82,9 +82,34 @@ pub(super) struct Movement {
     pub from: Rect,
     pub to: Rect,
     pub timing: Timing,
+    pub radii: [f64; 2],
 }
 
 impl Movement {
+    pub fn radius_at(self, ticks: i64) -> f64 {
+        self.radii[0] + (self.radii[1] - self.radii[0]) * self.timing.progress(ticks)
+    }
+
+    pub fn remaining_ms(self, target: Rect, at: i64, duration: u32) -> u32 {
+        let distance = |r: Rect| {
+            [
+                r.x.abs_diff(target.x),
+                r.y.abs_diff(target.y),
+                r.width.abs_diff(target.width),
+                r.height.abs_diff(target.height),
+            ]
+            .into_iter()
+            .max()
+            .unwrap_or(0)
+        };
+        let total = distance(self.to);
+        if total == 0 {
+            return duration;
+        }
+        (f64::from(duration) * (f64::from(distance(self.at(at))) / f64::from(total)).min(1.0))
+            .round() as u32
+    }
+
     pub fn at(self, ticks: i64) -> Rect {
         self.from.interpolate(self.to, self.timing.progress(ticks))
     }
@@ -140,15 +165,24 @@ mod tests {
                 from: compact,
                 to: expanded,
                 timing: Timing::new(0, 1000, 300, &animation),
+                radii: [20.0, 24.0],
             };
             let current = forward.at(111);
             assert!(current.width > compact.width && current.width < expanded.width);
             let reverse = Movement {
                 from: current,
                 to: compact,
-                timing: Timing::new(111, 1000, 180, &animation),
+                timing: Timing::new(
+                    111,
+                    1000,
+                    forward.remaining_ms(compact, 111, 180),
+                    &animation,
+                ),
+                radii: [forward.radius_at(111), 20.0],
             };
             assert_eq!(reverse.at(111), current);
+            assert_eq!(reverse.radius_at(111), forward.radius_at(111));
+            assert!(forward.remaining_ms(compact, 111, 180) < 180);
             assert_eq!(reverse.at(300), compact);
         }
     }

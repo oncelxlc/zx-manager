@@ -1,10 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
-import { ChevronDown, ChevronUp, EyeOff, Pin } from "lucide-react";
-import defaults from "./defaults.json";
-import { lightSurface } from "./settingsStyles";
+import { isDefaultDarkSurface, lightSurface } from "./settingsStyles";
 import type { AnimationPreset, CustomCurve, IslandConfig } from "./types";
 
-export type PreviewState = "compact" | "expanded" | "pinned" | "edgePeek";
+export type PreviewState = "compact" | "expanded" | "edgePeek" | "hidden";
 export function motionEasing(preset: AnimationPreset, expanding: boolean, customCurve?: CustomCurve) {
   if (preset === "custom" && customCurve) {
     if (customCurve === "linear") return "linear";
@@ -16,35 +14,29 @@ export function motionEasing(preset: AnimationPreset, expanding: boolean, custom
 }
 
 export function PreviewContent({ config, state }: { config: IslandConfig; state: PreviewState }) {
-  const { appearance, animation, interaction, edge } = config;
-  const expanded = state === "expanded" || state === "pinned";
+  const { appearance, animation, edge } = config;
+  const expanded = state === "expanded";
   const peek = state === "edgePeek";
   const economical = animation.performance === "performance";
   const motion = animation.enabled && !animation.reducedMotion && !economical;
-  const contentMs = animation.enabled ? animation.reducedMotion ? Math.min(70, animation.contentMs) : animation.contentMs : 0;
+  const contentMs = motion ? animation.contentMs : 0;
   const easing = motion ? motionEasing(animation.preset, expanded, animation.customCurve) : "linear";
-  const offset = motion ? animation.amplitude * (animation.preset === "subtle" ? 2 : 5) : 0;
-  const scaleDelta = motion && animation.performance === "quality" ? 0.03 * animation.amplitude : 0;
-  const automaticColor = appearance.theme === "system" && appearance.background.toLowerCase() === defaults.appearance.background;
+  const automaticColor = appearance.theme === "system" && isDefaultDarkSurface(appearance.background);
   const background = automaticColor ? `light-dark(${lightSurface}, ${appearance.background})` : appearance.background;
   const foreground = automaticColor ? "light-dark(#181817, #fff)" : ink(appearance.background);
+  const accent = automaticColor ? "light-dark(#177154, #69ddb2)" : foreground === "#ffffff" ? "#69ddb2" : "#177154";
+  const now = new Date();
   return (
     <div {...stylex.props(s.shell, s.theme(appearance.theme),
       s.surface(background, appearance.border, appearance.radius, appearance.opacity, foreground),
       appearance.shadow && s.shadow, appearance.blur && !economical && s.blur, peek && s.peek)}>
-      {expanded && <ChevronUp size={16} {...stylex.props(s.chevron)} />}
-      <div {...stylex.props(s.compact, s.layer(expanded || peek ? 0 : 1, expanded ? -offset : 0, 1, contentMs, easing))}>
-        <span {...stylex.props(s.dot)} /><span {...stylex.props(s.compactLabel)}>zx-once</span>
-        <ChevronDown size={13} {...stylex.props(s.compactLabel)} />
+      <div {...stylex.props(s.face, s.clockLayer(peek ? 0 : 1, expanded ? -10 : 0, contentMs, easing))}>
+        <span {...stylex.props(s.ring(accent))}><span {...stylex.props(s.dot)} /></span>
+        <time {...stylex.props(s.clock)}>{now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</time>
       </div>
-      <div {...stylex.props(s.expanded, s.layer(expanded ? 1 : 0, expanded ? 0 : offset, expanded ? 1 : 1 - scaleDelta, contentMs, easing))}>
-        <div {...stylex.props(s.identity)}><span {...stylex.props(s.dot)} />zx-once</div>
-        <strong {...stylex.props(s.title)}>灵动岛</strong>
-        <div {...stylex.props(s.controls)}>
-          {interaction.pinEnabled && <span {...stylex.props(s.icon, state === "pinned" && s.pinned)}><Pin size={17} /></span>}
-          <span {...stylex.props(s.icon)}><EyeOff size={17} /></span>
-        </div>
-      </div>
+      <span {...stylex.props(s.date, s.clockLayer(expanded ? 1 : 0, expanded ? 0 : animation.amplitude * 4, contentMs, easing))}>
+        {now.toLocaleDateString("zh-CN", { month: "long", day: "numeric" })}
+      </span>
       {peek && <div {...stylex.props(s.stripArea)}><span {...stylex.props(s.strip(edge.peekSize))} /></div>}
     </div>
   );
@@ -79,21 +71,18 @@ const s = stylex.create({
     width: { default: "100%", "@container (aspect-ratio < 1)": `min(100%, ${size}px)` },
     height: { default: `min(100%, ${size}px)`, "@container (aspect-ratio < 1)": "100%" },
   }),
-  chevron: { position: "absolute", top: 12, right: 12 },
-  compact: { position: "absolute", inset: 0, display: "flex", alignItems: "center",
-    justifyContent: "center", gap: 8, flexDirection: { default: "row", "@container (aspect-ratio < 1)": "column" } },
-  compactLabel: { display: { default: "inline", "@container (width < 90px)": "none" } },
-  dot: { width: 10, height: 10, borderRadius: "50%", backgroundColor: "currentColor", flexShrink: 0 },
-  expanded: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", justifyContent: "center",
-    alignItems: "flex-start", gap: 8, padding: "clamp(4px, 7cqmin, 20px)" },
-  layer: (alpha: number, y: number, scale: number, ms: number, easing: string) => ({
-    opacity: alpha, transform: { default: `translateY(${y}px) scale(${scale})`, "@media (prefers-reduced-motion: reduce)": "none" },
+  face: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+    flexDirection: { default: "row", "@container (aspect-ratio < 1)": "column" } },
+  ring: (accent: string) => ({ display: "grid", placeItems: "center", flexShrink: 0, width: 16, height: 16, color: accent,
+    borderWidth: 2, borderStyle: "solid", borderColor: "currentColor", borderRadius: "50%" }),
+  dot: { width: 4, height: 4, borderRadius: "50%", backgroundColor: "currentColor" },
+  clock: { fontWeight: 600, fontVariantNumeric: "tabular-nums", fontSize: "clamp(11px, 10cqw, 22px)", lineHeight: 1,
+    display: { default: "inline", "@container (width < 32px)": "none" } },
+  date: { position: "absolute", top: "calc(50% + 12px)", insetInline: 0, textAlign: "center", fontSize: 12,
+    display: { default: "block", "@container (height < 84px)": "none" } },
+  clockLayer: (alpha: number, y: number, ms: number, easing: string) => ({
+    opacity: alpha, transform: `translateY(${y}px)`,
     transitionProperty: "opacity, transform", transitionTimingFunction: easing,
     transitionDuration: { default: `${ms}ms`, "@media (prefers-reduced-motion: reduce)": "0ms" },
   }),
-  identity: { display: "flex", alignItems: "center", gap: 7, fontSize: 12 },
-  title: { fontSize: "clamp(14px, 16cqmin, 25px)", display: { default: "block", "@container (height < 84px)": "none" } },
-  controls: { display: "flex", alignItems: "center", gap: 5 },
-  icon: { display: "grid", placeItems: "center", width: 32, height: 32, borderRadius: 8 },
-  pinned: { backgroundColor: "light-dark(#cdece3,#275447)", transitionProperty: "background-color", transitionDuration: "150ms" },
 });

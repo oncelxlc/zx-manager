@@ -2,8 +2,8 @@ use super::SurfaceEvent;
 use crate::island::{
     config::IslandConfig,
     geometry::Rect,
-    render::{action_rect, MessageAction, Panel},
-    state::{Event, IslandState},
+    render::{MessageAction, Panel},
+    state::IslandState,
 };
 use std::sync::{Arc, RwLock};
 use windows::{
@@ -21,7 +21,7 @@ use windows::{
     },
 };
 use windows_sys::Win32::UI::{
-    Controls::{STATE_SYSTEM_PRESSED, STATE_SYSTEM_UNAVAILABLE},
+    Controls::STATE_SYSTEM_UNAVAILABLE,
     WindowsAndMessaging::{STATE_SYSTEM_COLLAPSED, STATE_SYSTEM_EXPANDED},
 };
 
@@ -47,27 +47,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accessible_actions_follow_config_pin_and_hide() {
+    fn compact_body_opens_and_expanded_body_exposes_no_management_controls() {
         let a11y = Accessibility::new(Arc::new(|_| {}));
-        let mut cfg = IslandConfig::default();
+        let cfg = IslandConfig::default();
         let bounds = Rect {
             x: -328,
             y: 0,
             width: 328,
             height: 168,
         };
-        a11y.update(&cfg, IslandState::Pinned, bounds, 1.0);
-        let controls = a11y.controls.read().unwrap();
-        assert_eq!(controls[1].action, None);
-        assert_eq!(controls[2].action, Some(SurfaceEvent::Hide));
-        assert_eq!(controls[3].action, Some(SurfaceEvent::Pin(false)));
-        drop(controls);
-        cfg.interaction.pin_enabled = false;
-        a11y.update(&cfg, IslandState::Expanded, bounds, 1.0);
-        let controls = a11y.controls.read().unwrap();
-        assert_eq!(controls.len(), 3);
-        assert_eq!(controls[1].action, Some(SurfaceEvent::Click));
-        drop(controls);
+        a11y.update_panel(&cfg, IslandState::Compact, bounds, None);
+        assert_eq!(
+            a11y.controls.read().unwrap()[1].action,
+            Some(SurfaceEvent::Click)
+        );
+        a11y.update_panel(&cfg, IslandState::Expanded, bounds, None);
+        assert_eq!(a11y.controls.read().unwrap().len(), 1);
         a11y.clear();
         assert!(a11y.controls.read().unwrap().is_empty());
     }
@@ -81,100 +76,55 @@ impl Accessibility {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn update(
-        &self,
-        cfg: &IslandConfig,
-        state: IslandState,
-        rect: Rect,
-        scale: f64,
-    ) -> bool {
-        self.update_panel(cfg, state, rect, scale, None)
-    }
-
     pub(super) fn update_panel(
         &self,
         cfg: &IslandConfig,
         state: IslandState,
         rect: Rect,
-        scale: f64,
         panel: Option<&Panel>,
     ) -> bool {
         let mut nodes = Vec::with_capacity(4);
-        let name = match state {
-            IslandState::EdgePeek => "唤醒灵动岛",
-            IslandState::Compact => "展开灵动岛",
-            IslandState::Expanded | IslandState::Pinned => "收起灵动岛",
-            _ => return false,
-        };
-        let pinned = state == IslandState::Pinned;
+        let expanded = matches!(state, IslandState::Expanded | IslandState::Pinned);
+        let body_action = state == IslandState::EdgePeek
+            || (state == IslandState::Compact && cfg.interaction.click_expand);
         nodes.push(Control {
-            name: "灵动岛".into(),
+            name: panel.map_or_else(|| "灵动岛".into(), |p| format!("灵动岛，{}", p.status)),
             rect,
             action: None,
-            state: 0,
+            state: if expanded {
+                STATE_SYSTEM_EXPANDED
+            } else {
+                STATE_SYSTEM_COLLAPSED
+            },
             page: false,
         });
-        let clickable = state == IslandState::EdgePeek || (cfg.interaction.click_expand && !pinned);
-        let expanded = matches!(state, IslandState::Expanded | IslandState::Pinned);
-        let expanded_state = if expanded {
-            STATE_SYSTEM_EXPANDED
-        } else {
-            STATE_SYSTEM_COLLAPSED
-        };
-        nodes.push(Control {
-            name: name.into(),
-            rect,
-            action: clickable.then_some(SurfaceEvent::Click),
-            page: false,
-            state: expanded_state
-                | if clickable {
-                    0
+        if body_action {
+            nodes.push(Control {
+                name: if state == IslandState::EdgePeek {
+                    "唤醒灵动岛"
                 } else {
-                    STATE_SYSTEM_UNAVAILABLE
-                },
-        });
+                    "展开灵动岛"
+                }
+                .into(),
+                rect,
+                action: Some(SurfaceEvent::Click),
+                page: false,
+                state: STATE_SYSTEM_COLLAPSED,
+            });
+        }
         if let Some(panel) = panel {
             for item in &panel.items {
                 nodes.push(Control {
                     name: item.name.clone(),
                     rect: item.screen_bounds(rect, panel.size),
-                    action: item.action.surface_event(),
-                    page: item.action == MessageAction::NextPage,
-                    state: if item.selected {
-                        STATE_SYSTEM_PRESSED
+                    action: item.action.and_then(MessageAction::surface_event),
+                    page: item.action == Some(MessageAction::NextPage),
+                    state: if item.action.is_none() {
+                        STATE_SYSTEM_UNAVAILABLE
                     } else {
                         0
                     },
                 });
-            }
-        } else {
-            // Keep the hide child's ID stable when the pin button is disabled in settings.
-            for (event, name, action) in [
-                (Event::Hide, "隐藏岛屿", SurfaceEvent::Hide),
-                (
-                    if pinned { Event::Unpin } else { Event::Pin },
-                    if pinned {
-                        "取消固定"
-                    } else {
-                        "固定岛屿"
-                    },
-                    SurfaceEvent::Pin(!pinned),
-                ),
-            ] {
-                if let Some(bounds) = action_rect(cfg, state, rect, scale, event) {
-                    nodes.push(Control {
-                        name: name.into(),
-                        rect: bounds,
-                        action: Some(action),
-                        page: false,
-                        state: if event == Event::Unpin {
-                            STATE_SYSTEM_PRESSED
-                        } else {
-                            0
-                        },
-                    });
-                }
             }
         }
         let mut previous = self.controls.write().unwrap_or_else(|e| e.into_inner());

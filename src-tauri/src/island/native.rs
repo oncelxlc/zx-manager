@@ -1,6 +1,5 @@
 mod startup;
 mod watch;
-use super::config::{parse_hotkey, HotkeyConfig};
 use super::surface::{Surface, SurfaceEvent};
 use std::{ffi::OsString, io};
 use winreg::{
@@ -11,12 +10,7 @@ use winreg::{
 #[derive(Clone, Debug)]
 pub enum NativeEvent {
     Input(SurfaceEvent),
-    Toggle,
-    Show,
-    Hide,
-    OutsideClick,
     Fullscreen(bool),
-    SessionLocked(bool),
     DisplayChanged,
     DragEnded,
     Error(String),
@@ -34,20 +28,8 @@ impl Surface {
         self.call(move |hwnd| watch::install(hwnd, callback))
     }
 
-    pub fn configure_hotkeys(&self, keys: Option<&HotkeyConfig>) -> Result<(), String> {
-        let bindings = match keys {
-            Some(keys) => [
-                parse_hotkey(&keys.toggle)?,
-                parse_hotkey(&keys.show)?,
-                parse_hotkey(&keys.hide)?,
-            ],
-            None => [None; 3],
-        };
-        self.call(move |hwnd| watch::hotkeys(hwnd, bindings))
-    }
-
-    pub fn track(&self, fullscreen: bool, outside: bool) -> Result<(), String> {
-        self.call(move |hwnd| watch::track(hwnd, fullscreen, outside))
+    pub fn track(&self, fullscreen: bool) -> Result<(), String> {
+        self.call(move |hwnd| watch::track(hwnd, fullscreen))
     }
 
     pub fn pointer_inside(&self) -> Result<bool, String> {

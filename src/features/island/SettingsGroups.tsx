@@ -1,12 +1,12 @@
 import type { IslandDisplay } from "./islandApi";
 import defaults from "./defaults.json";
-import { lightSurface } from "./settingsStyles";
+import { isDefaultDarkSurface, lightSurface } from "./settingsStyles";
 import type { IslandConfig } from "./types";
-import { Amount, Check, Choice, TextField } from "./SettingsFields";
+import { Amount, Check, Choice, ColorField } from "./SettingsFields";
 
 export const groups = {
   overview: "总览", startup: "启动管理", placement: "位置与方向", edge: "边界隐藏",
-  notifications: "通知与消息", appearance: "外观", animation: "动画效果", interaction: "交互与快捷键",
+  notifications: "通知", appearance: "外观", animation: "动画效果", interaction: "鼠标交互",
 } as const;
 export type Group = keyof typeof groups;
 
@@ -20,7 +20,7 @@ interface Props {
 }
 
 export function SettingsGroups({ group, config, displays, update }: Props) {
-  const { startup, placement, edge, appearance, animation, interaction, hotkeys } = config;
+  const { startup, placement, edge, appearance, animation, interaction } = config;
   switch (group) {
     case "notifications":
     case "overview": return null;
@@ -28,7 +28,6 @@ export function SettingsGroups({ group, config, displays, update }: Props) {
       <Check label="登录 Windows 时启动" value={startup.launchAtLogin} change={launchAtLogin => update(group, { launchAtLogin })} />
       <Check label="应用启动时显示岛屿" value={startup.showOnStart} change={showOnStart => update(group, { showOnStart })} />
       <Check label="启动时收起" value={startup.startCompact} change={startCompact => update(group, { startCompact })} />
-      <Check label="关闭主窗口后留在托盘" value={startup.closeToTray} change={closeToTray => update(group, { closeToTray })} />
     </>;
     case "placement": {
       const options: [string, string][] = [["", "跟随主显示器"], ...displays.map((d): [string, string] => [d.id, d.primary ? `${d.name}（主显示器）` : d.name])];
@@ -52,26 +51,30 @@ export function SettingsGroups({ group, config, displays, update }: Props) {
         <Check label="记住拖动后的位置" value={placement.rememberPosition} change={rememberPosition => update(group, { rememberPosition })} />
       </>;
     }
-    case "edge": return <>
-      <Choice label="边界模式" value={edge.mode} change={mode => update(group, { mode })} options={[
-        ["disabled", "始终完整显示"], ["compact", "离开后收起"], ["peek", "仅露出边缘条"], ["fullHide", "完全隐藏"],
-      ]} />
-      {edge.mode === "fullHide" && <p>完全隐藏后，可从托盘或使用全局快捷键唤醒。</p>}
-      <Check label="指针离开后自动隐藏" value={edge.autoHide} change={autoHide => update(group, { autoHide })} />
-      <Amount label="隐藏延迟（毫秒）" value={edge.hideDelayMs} min={0} max={60000} change={hideDelayMs => update(group, { hideDelayMs })} />
-      <Amount label="唤醒延迟（毫秒）" value={edge.wakeDelayMs} min={0} max={60000} change={wakeDelayMs => update(group, { wakeDelayMs })} />
-      <Amount label="边缘触发宽度（逻辑像素）" value={edge.triggerWidth} min={2} max={20} change={triggerWidth => update(group, { triggerWidth })} />
-      <Amount label="边缘露出尺寸（逻辑像素）" value={edge.peekSize} min={2} max={20} change={peekSize => update(group, { peekSize })} />
-      <Check label="全屏应用运行时隐藏" value={edge.hideOnFullscreen} change={hideOnFullscreen => update(group, { hideOnFullscreen })} />
-    </>;
+    case "edge": {
+      const mode = edge.autoHide && edge.mode !== "disabled" ? edge.mode : "compact";
+      return <>
+        <Choice label="指针离开并收起后" value={mode} change={mode => update(group, { mode, autoHide: true })} options={[
+          ["compact", "保持收起"], ["peek", "仅露出边缘条"], ["fullHide", "完全隐藏"],
+        ]} />
+        {mode === "fullHide" && <p>完全隐藏后，可从托盘菜单重新显示。</p>}
+        {mode !== "compact" && <Amount label="隐藏延迟（毫秒）" value={edge.hideDelayMs} min={0} max={60000} change={hideDelayMs => update(group, { hideDelayMs })} />}
+        {mode === "peek" && <>
+          <Amount label="唤醒延迟（毫秒）" value={edge.wakeDelayMs} min={0} max={60000} change={wakeDelayMs => update(group, { wakeDelayMs })} />
+          <Amount label="边缘触发宽度（逻辑像素）" value={edge.triggerWidth} min={2} max={20} change={triggerWidth => update(group, { triggerWidth })} />
+          <Amount label="边缘露出尺寸（逻辑像素）" value={edge.peekSize} min={2} max={20} change={peekSize => update(group, { peekSize })} />
+        </>}
+        <Check label="全屏应用运行时隐藏" value={edge.hideOnFullscreen} change={hideOnFullscreen => update(group, { hideOnFullscreen })} />
+      </>;
+    }
     case "appearance": return <>
       <Choice label="岛屿主题" value={appearance.theme} change={theme => {
         const base = defaults.appearance.background;
-        const usePalette = [base, lightSurface].includes(appearance.background.toLowerCase());
+        const usePalette = isDefaultDarkSurface(appearance.background) || appearance.background.toLowerCase() === lightSurface;
         update(group, { theme, background: usePalette ? theme === "light" ? lightSurface : base : appearance.background });
       }} options={[["system", "跟随系统"], ["light", "浅色"], ["dark", "深色"]]} />
-      <TextField color label="背景色" value={appearance.background} change={background => update(group, { background })} />
-      <TextField color label="边框色" value={appearance.border} change={border => update(group, { border })} />
+      <ColorField label="背景色" value={appearance.background} change={background => update(group, { background })} />
+      <ColorField label="边框色" value={appearance.border} change={border => update(group, { border })} />
       <Amount label="收起宽度（逻辑像素）" value={appearance.compactWidth} min={24} max={2048} change={compactWidth => update(group, { compactWidth })} />
       <Amount label="收起高度（逻辑像素）" value={appearance.compactHeight} min={24} max={2048} change={compactHeight => update(group, { compactHeight })} />
       <Amount label="展开宽度（逻辑像素）" value={appearance.expandedWidth} min={Math.max(48, appearance.compactWidth)} max={4096} change={expandedWidth => update(group, { expandedWidth })} />
@@ -99,17 +102,9 @@ export function SettingsGroups({ group, config, displays, update }: Props) {
     </>;
     case "interaction": return <>
       <Check label="悬停展开" value={interaction.hoverExpand} change={hoverExpand => update(group, { hoverExpand })} />
-      <Check label="点击切换展开状态" value={interaction.clickExpand} change={clickExpand => update(group, { clickExpand })} />
-      <Check label="点击岛屿外部时收起" value={interaction.outsideCollapse} change={outsideCollapse => update(group, { outsideCollapse })} />
-      <Check label="离开后自动收起" value={interaction.autoCollapse} change={autoCollapse => update(group, { autoCollapse })} />
-      <Amount label="收起延迟（毫秒）" value={interaction.collapseDelayMs} min={0} max={60000} change={collapseDelayMs => update(group, { collapseDelayMs })} />
+      <Check label="点击展开" value={interaction.clickExpand} change={clickExpand => update(group, { clickExpand })} />
       <Check label="允许固定" value={interaction.pinEnabled} change={pinEnabled => update(group, { pinEnabled })} />
       <Check label="允许拖动" value={interaction.dragEnabled} change={dragEnabled => update(group, { dragEnabled })} />
-      <h3>全局快捷键</h3>
-      <p>输入修饰键和一个字母、数字或功能键，例如 Ctrl+Alt+I。留空可停用该快捷键。</p>
-      <TextField label="切换显示" value={hotkeys.toggle} change={toggle => update("hotkeys", { toggle })} />
-      <TextField label="显示岛屿" value={hotkeys.show} change={show => update("hotkeys", { show })} />
-      <TextField label="隐藏岛屿" value={hotkeys.hide} change={hide => update("hotkeys", { hide })} />
     </>;
   }
 }

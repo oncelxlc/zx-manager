@@ -63,7 +63,35 @@ impl ConfigStore {
             None => 0,
         };
         match version {
-            0 | 1 => {
+            0..=2 => {
+                fields.remove("hotkeys");
+                if let Some(startup) = fields.get_mut("startup").and_then(Value::as_object_mut) {
+                    startup.remove("closeToTray");
+                }
+                if let Some(input) = fields.get_mut("interaction").and_then(Value::as_object_mut) {
+                    for key in ["outsideCollapse", "autoCollapse", "collapseDelayMs"] {
+                        input.remove(key);
+                    }
+                }
+                if let Some(notices) = fields
+                    .get_mut("notifications")
+                    .and_then(Value::as_object_mut)
+                {
+                    // A single switch cannot preserve a selective opt-out. Require an explicit opt-in.
+                    for key in ["wechatEnabled", "qqEnabled", "windowsNotificationsEnabled"] {
+                        if notices.remove(key) == Some(Value::Bool(false)) {
+                            notices.insert("enabled".into(), false.into());
+                        }
+                    }
+                    for key in [
+                        "showPreview",
+                        "previewTimeoutSeconds",
+                        "accountListEnabled",
+                        "animateNewMessage",
+                    ] {
+                        notices.remove(key);
+                    }
+                }
                 fields.insert("schemaVersion".into(), SCHEMA_VERSION.into());
             }
             version if version == u64::from(SCHEMA_VERSION) => {}
@@ -85,6 +113,9 @@ impl ConfigStore {
         let (previous, _) = self.read()?;
         if previous.revision != expected_revision {
             return Err("配置已被修改，请重新载入后再保存".into());
+        }
+        if draft == &previous {
+            return Ok(previous);
         }
         // JavaScript clients must be able to round-trip the revision exactly.
         if expected_revision >= (1 << 53) - 1 {

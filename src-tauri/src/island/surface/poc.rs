@@ -24,7 +24,7 @@ use windows_sys::Win32::{
     },
 };
 
-fn accessible_pin(hwnd: HWND) -> Result<()> {
+fn accessible_expand(hwnd: HWND) -> Result<()> {
     unsafe {
         let mut object = None;
         AccessibleObjectFromWindow(
@@ -35,17 +35,14 @@ fn accessible_pin(hwnd: HWND) -> Result<()> {
         )
         .map_err(|e| e.to_string())?;
         let node: IAccessible = object.ok_or("未获得岛屿辅助功能对象")?;
-        if node.accChildCount().map_err(|e| e.to_string())? != 3 {
-            return Err("展开态辅助功能按钮数量错误".into());
+        if node.accChildCount().map_err(|e| e.to_string())? != 1 {
+            return Err("收起态辅助功能控件数量错误".into());
         }
-        for (id, label) in [(1, "收起灵动岛"), (2, "隐藏岛屿"), (3, "取消固定")] {
-            let child = VARIANT::from(id);
-            if node.get_accName(&child).map_err(|e| e.to_string())? != label {
-                return Err(format!("辅助功能按钮名称与 {label} 不符"));
-            }
+        let body = VARIANT::from(1);
+        if node.get_accName(&body).map_err(|e| e.to_string())? != "展开灵动岛" {
+            return Err("收起态辅助功能名称错误".into());
         }
-        node.accDoDefaultAction(&VARIANT::from(3))
-            .map_err(|e| e.to_string())
+        node.accDoDefaultAction(&body).map_err(|e| e.to_string())
     }
 }
 
@@ -197,11 +194,17 @@ pub fn run_poc() -> Result<()> {
     if hit != HTCLIENT as isize {
         return Err("收起态中心未能命中".into());
     }
+    let local_minute = || {
+        let mut time = windows_sys::Win32::Foundation::SYSTEMTIME::default();
+        unsafe { windows_sys::Win32::System::SystemInformation::GetLocalTime(&mut time) };
+        time.wMinute
+    };
+    let minute = local_minute();
     let idle = window.stats()?;
     thread::sleep(Duration::from_millis(500));
     let after_idle = window.stats()?;
     if idle.presents == 0
-        || idle.presents != after_idle.presents
+        || after_idle.presents.saturating_sub(idle.presents) > u64::from(minute != local_minute())
         || idle.commits != after_idle.commits
     {
         return Err("空闲合成提交或绘制计数异常".into());
@@ -233,8 +236,8 @@ pub fn run_poc() -> Result<()> {
                 return Err("开始拖动后几何仍在运动".into());
             }
         }
-        if state == IslandState::Pinned {
-            window.call(accessible_pin)?;
+        if state == IslandState::Compact && delay == 300 {
+            window.call(accessible_expand)?;
         }
     }
     if window.outer_rect()? != compact {
@@ -248,15 +251,15 @@ pub fn run_poc() -> Result<()> {
     if unsafe { IsWindow(raw as HWND) } != 0 || window.call(|_| Ok(())).is_ok() {
         return Err("原生窗口或消息泵未释放".into());
     }
-    let mut unpinned = false;
+    let mut expanded = false;
     for event in input.try_iter() {
-        unpinned |= event == SurfaceEvent::Pin(false);
+        expanded |= event == SurfaceEvent::Click;
         if let SurfaceEvent::Error(e) = event {
             return Err(e);
         }
     }
-    if !unpinned {
-        return Err("读屏按钮未发出取消固定操作".into());
+    if !expanded {
+        return Err("读屏按钮未发出展开操作".into());
     }
     println!(
         "Native Island PoC: {}",

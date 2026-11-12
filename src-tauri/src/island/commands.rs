@@ -2,7 +2,10 @@ use super::{
     config::IslandConfig,
     displays,
     geometry::Display,
-    manager::{IslandManager, ManagerHandle, NotificationStatus, PerformanceStats, RuntimeStatus},
+    manager::{
+        IslandManager, MainSnapshot, ManagerHandle, NotificationStatus, PerformanceStats,
+        RuntimeStatus,
+    },
     notifications,
     state::Event,
 };
@@ -17,6 +20,13 @@ async fn request<T: Send + 'static>(
         return Err("当前窗口无权执行该操作".into());
     }
     caller.state::<ManagerHandle>().request(job).await
+}
+
+#[tauri::command]
+pub(super) async fn main_window_restore(
+    window: WebviewWindow,
+) -> Result<Option<MainSnapshot>, String> {
+    request(&window, |manager| Ok(manager.restore_main())).await
 }
 
 #[tauri::command]

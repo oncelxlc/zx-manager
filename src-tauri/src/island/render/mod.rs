@@ -11,10 +11,9 @@ use self::{
 use super::{
     config::{AnimationConfig, IslandConfig, PerformanceMode},
     geometry::Rect,
-    state::{Event, IslandState},
+    state::IslandState,
 };
 pub(crate) use messages::{MessageAction, Messages, Panel};
-pub use paint::{action_at, action_rect};
 use serde::Serialize;
 use std::time::Instant;
 use windows::{
@@ -62,6 +61,7 @@ struct Scene {
     movement: Option<Movement>,
     last: Option<(IslandState, Rect, AnimationConfig)>,
     frequency: i64,
+    fading_shells: bool,
 }
 
 impl Scene {
@@ -81,6 +81,7 @@ impl Scene {
             movement: None,
             last: None,
             frequency,
+            fading_shells: false,
         })
     }
 
@@ -96,32 +97,11 @@ impl Scene {
             item.fade.SetOpacity2(0.0)?;
             item.scale.SetScaleX2(1.0)?;
             item.scale.SetScaleY2(1.0)?;
-            item.reset_content()?;
+            item.shell_fade.SetOpacity2(0.0)?;
         }
         self.device.composition.Commit()?;
         stats.commits += 1;
         Ok(())
-    }
-
-    unsafe fn remove_previews(&mut self) -> WinResult<bool> {
-        let mut dirty = false;
-        for (index, slot) in self.textures.iter_mut().enumerate() {
-            if let Some(texture) = slot
-                .as_ref()
-                .filter(|t| t.key.panel.as_ref().is_some_and(|p| p.contains_preview))
-            {
-                self.device.root.RemoveVisual(&texture.outer)?;
-                *slot = None;
-                self.fades[index] = None;
-                dirty = true;
-            }
-        }
-        if dirty {
-            // The replacement swap chain must be attached even when island geometry is unchanged.
-            self.last = None;
-            self.device.composition.Commit()?;
-        }
-        Ok(dirty)
     }
 
     unsafe fn apply(&mut self, frame: &Frame<'_>, stats: &mut RenderStats) -> WinResult<()> {
@@ -132,7 +112,6 @@ impl Scene {
             host,
             scale,
             transition,
-            hovered,
             panel,
             message_hover,
         } = *frame;
@@ -144,7 +123,6 @@ impl Scene {
             _ => return self.hide(stats),
         };
         let mut key = ImageKey::new(cfg, state, target, scale);
-        key.hovered = hovered;
         key.panel = panel.cloned();
         key.message_hover = message_hover;
         let dirty = self.textures[idx]
@@ -163,8 +141,12 @@ impl Scene {
             .is_some_and(|(prev, _, _)| *prev == state);
         // A new buffer on the same swap chain is visible after Present. Leave its
         // existing compositor timelines running when only theme or content changed.
+        let radius =
+            (cfg.appearance.radius * scale).min(f64::from(target.width.min(target.height)) / 2.0);
         if same_state
-            && self.movement.is_some_and(|m| m.to == target)
+            && self
+                .movement
+                .is_some_and(|m| m.to == target && m.radii[1] == radius)
             && self
                 .last
                 .as_ref()
@@ -201,20 +183,11 @@ impl Scene {
         } else {
             anim.collapse_ms
         };
-        let fade_ms = if !anim.enabled || system_motion == 0 || !transition || same_state {
-            0
-        } else if !full {
-            anim.content_ms.min(60)
-        } else {
-            anim.content_ms
-        };
-        let fade_ms = if panel.is_some() {
-            fade_ms.min(duration)
-        } else {
-            fade_ms
-        };
+        let duration = self
+            .movement
+            .map_or(duration, |m| m.remaining_ms(target, begin, duration));
         let timing = Timing::new(begin, self.frequency, duration, anim);
-        let fade_timing = Timing::new(begin, self.frequency, fade_ms, anim);
+        let fade_timing = Timing::new(begin, self.frequency, anim.content_ms.min(duration), anim);
         let from = self.movement.map(|m| m.at(begin)).unwrap_or_else(|| {
             let shrink = if full { 0.025 * anim.amplitude } else { 0.0 };
             let dx = (target.width as f64 * shrink / 2.0).round() as i32;
@@ -227,6 +200,9 @@ impl Scene {
             }
         });
         let d = &self.device;
+        let radii = [self.movement.map_or(radius, |m| m.radius_at(begin)), radius];
+        d.animate_clip(timing, from, target, radii)?;
+        self.fading_shells = edge || self.last.is_none();
         timing.property(
             &d.composition,
             (from.x - host.x) as f32,
@@ -263,7 +239,18 @@ impl Scene {
                     |n| item.scale.SetScaleY2(n),
                     |a| item.scale.SetScaleY(a),
                 )?;
-                item.animate_content(&d.composition, fade_timing, anim, full, alpha, next)?;
+            }
+            // A shared shell stays opaque while only the contents crossfade.
+            if self.fading_shells {
+                fade_timing.property(
+                    &d.composition,
+                    alpha,
+                    next,
+                    |v| item.shell_fade.SetOpacity2(v),
+                    |a| item.shell_fade.SetOpacity(a),
+                )?;
+            } else {
+                item.shell_fade.SetOpacity2(next)?;
             }
             fade_timing.property(
                 &d.composition,
@@ -284,6 +271,7 @@ impl Scene {
             from,
             to: target,
             timing,
+            radii,
         });
         self.last = Some((state, host, anim.clone()));
         Ok(())
@@ -297,7 +285,6 @@ struct Frame<'a> {
     host: Rect,
     scale: f64,
     transition: bool,
-    hovered: Option<Event>,
     panel: Option<&'a Panel>,
     message_hover: Option<MessageAction>,
 }
@@ -317,7 +304,6 @@ pub struct Renderer {
     hwnd: HWND,
     scene: Option<Scene>,
     stats: RenderStats,
-    hovered: Option<Event>,
     pub(crate) panel: Option<Panel>,
     message_hover: Option<MessageAction>,
 }
@@ -331,7 +317,6 @@ impl Renderer {
             hwnd,
             scene: Some(scene),
             stats: Default::default(),
-            hovered: None,
             panel: None,
             message_hover: None,
         })
@@ -357,7 +342,6 @@ impl Renderer {
             host,
             scale,
             transition,
-            hovered: self.hovered,
             panel: self.panel.as_ref(),
             message_hover: self.message_hover,
         };
@@ -389,10 +373,8 @@ impl Renderer {
     }
 
     pub fn hide(&mut self) -> Result<(), String> {
-        self.purge_previews()?;
         self.panel = None;
         self.message_hover = None;
-        self.hovered = None;
         if let Some(scene) = &mut self.scene {
             unsafe { scene.hide(&mut self.stats) }.map_err(|e| e.to_string())?;
         }
@@ -401,6 +383,17 @@ impl Renderer {
 
     pub fn visible_rect(&self) -> Option<Rect> {
         self.scene.as_ref()?.movement.map(|m| m.at(now()))
+    }
+
+    pub fn moving(&self) -> bool {
+        self.scene
+            .as_ref()
+            .and_then(|s| s.movement)
+            .is_some_and(|m| m.timing.progress(now()) < 1.0)
+    }
+
+    pub fn visible_radius(&self) -> Option<f64> {
+        self.scene.as_ref()?.movement.map(|m| m.radius_at(now()))
     }
 
     pub(crate) fn hit_panel(&self) -> Option<&Panel> {
@@ -445,33 +438,8 @@ impl Renderer {
         ))
     }
 
-    pub fn set_hovered(&mut self, action: Option<Event>) -> bool {
-        std::mem::replace(&mut self.hovered, action) != action
-    }
-
     pub(crate) fn hover_message(&mut self, action: Option<MessageAction>) -> bool {
         std::mem::replace(&mut self.message_hover, action) != action
-    }
-
-    pub(crate) fn purge_previews(&mut self) -> Result<(), String> {
-        if self.panel.as_ref().is_some_and(|p| p.contains_preview) {
-            self.panel = None;
-        }
-        let Some(scene) = self.scene.as_mut() else {
-            return Ok(());
-        };
-        match unsafe { scene.remove_previews() } {
-            Ok(true) => self.stats.commits += 1,
-            Ok(false) => (),
-            Err(error) => {
-                // Also release inactive buffers when the compositor cannot detach a visual.
-                self.scene = None;
-                if !device_lost(&error) {
-                    return Err(format!("清除通知预览纹理失败：{error}"));
-                }
-            }
-        }
-        Ok(())
     }
 
     pub fn freeze(&mut self, rect: Rect) -> Result<(), String> {
@@ -483,7 +451,11 @@ impl Renderer {
         };
         let ticks = now();
         let timing = Timing::new(ticks, scene.frequency, 0, &anim);
+        let radius = scene.movement.map_or(0.0, |m| m.radius_at(ticks));
         let result: WinResult<()> = (|| unsafe {
+            scene
+                .device
+                .animate_clip(timing, rect, rect, [radius, radius])?;
             scene.device.root.SetOffsetX2(0.0)?;
             scene.device.root.SetOffsetY2(0.0)?;
             for (item, fade) in scene.textures.iter().zip(&mut scene.fades) {
@@ -494,16 +466,9 @@ impl Renderer {
                         .SetScaleX2(rect.width as f32 / item.key.size.0 as f32)?;
                     item.scale
                         .SetScaleY2(rect.height as f32 / item.key.size.1 as f32)?;
-                    item.animate_content(
-                        &scene.device.composition,
-                        timing,
-                        &anim,
-                        anim.enabled
-                            && !anim.reduced_motion
-                            && anim.performance != PerformanceMode::Performance,
-                        alpha,
-                        alpha,
-                    )?;
+                    if scene.fading_shells {
+                        item.shell_fade.SetOpacity2(alpha)?;
+                    }
                     *fade = Some(Fade {
                         from: alpha,
                         to: alpha,
@@ -518,6 +483,7 @@ impl Renderer {
             from: rect,
             to: rect,
             timing,
+            radii: [radius, radius],
         });
         self.stats.commits += 1;
         Ok(())

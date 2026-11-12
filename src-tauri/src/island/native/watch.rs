@@ -1,75 +1,46 @@
 use super::{os_error, NativeEvent};
-use std::{
-    cell::RefCell,
-    mem::size_of,
-    ptr::{null, null_mut},
-    rc::Rc,
-};
+use std::{cell::RefCell, mem::size_of, ptr::null_mut, rc::Rc};
 use windows_sys::Win32::{
     Foundation::{
         GetLastError, ERROR_HOOK_NOT_INSTALLED, ERROR_INVALID_HOOK_HANDLE, HWND, LPARAM, LRESULT,
         POINT, RECT, WPARAM,
     },
     Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST},
-    System::LibraryLoader::GetModuleHandleW,
-    System::RemoteDesktop::{
-        WTSRegisterSessionNotification, WTSUnRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION,
-    },
     UI::{
         Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK},
-        Input::KeyboardAndMouse::{
-            GetAsyncKeyState, GetCapture, RegisterHotKey, ReleaseCapture, UnregisterHotKey,
-            MOD_NOREPEAT, VK_LBUTTON,
-        },
+        Input::KeyboardAndMouse::{GetAsyncKeyState, GetCapture, ReleaseCapture, VK_LBUTTON},
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
 };
 
-type Binding = (u32, u32);
 const SUBCLASS: usize = 0x4953;
 const RECHECK: u32 = WM_APP + 0x491;
 const START_DRAG: u32 = WM_APP + 0x492;
-const BUTTON_DOWN: u32 = WM_APP + 0x493;
 
 struct Watch {
     hwnd: HWND,
     emit: Rc<dyn Fn(NativeEvent)>,
-    hotkeys: Vec<(i32, Binding)>,
-    actions: [Option<Binding>; 3],
-    mouse: HHOOK,
     foreground: HWINEVENTHOOK,
     location: HWINEVENTHOOK,
     foreground_thread: u32,
     pending: bool,
     fullscreen: bool,
-    session_watch: bool,
 }
 
 thread_local! { static WATCH: RefCell<Option<Watch>> = const { RefCell::new(None) }; }
 
-enum OldHook {
-    Mouse(HHOOK),
-    Event(HWINEVENTHOOK),
-}
-
-impl OldHook {
-    fn remove(&self) -> bool {
-        unsafe {
-            let result = match self {
-                OldHook::Mouse(h) => UnhookWindowsHookEx(*h),
-                OldHook::Event(h) => UnhookWinEvent(*h),
-            };
-            result != 0
-                || matches!(
-                    GetLastError(),
-                    ERROR_INVALID_HOOK_HANDLE | ERROR_HOOK_NOT_INSTALLED
-                )
-        }
+fn unhook(hook: HWINEVENTHOOK) -> bool {
+    unsafe {
+        UnhookWinEvent(hook) != 0
+            || matches!(
+                GetLastError(),
+                ERROR_INVALID_HOOK_HANDLE | ERROR_HOOK_NOT_INSTALLED
+            )
     }
 }
 
-thread_local! { static RETIRED: RefCell<Vec<OldHook>> = const { RefCell::new(Vec::new()) }; }
+thread_local! { static RETIRED: RefCell<Vec<HWINEVENTHOOK>> = const { RefCell::new(Vec::new()) }; }
 
 pub(super) fn notify(event: NativeEvent) {
     let emit = WATCH.with_borrow(|w| w.as_ref().map(|w| w.emit.clone()));
@@ -82,36 +53,19 @@ pub(super) fn install(hwnd: HWND, callback: impl Fn(NativeEvent) + 'static) -> R
     if WATCH.with_borrow(|w| w.is_some()) {
         return Err("窗口监听已注册".into());
     }
-    RETIRED.with_borrow_mut(|hooks| hooks.retain(|h| !h.remove()));
+    RETIRED.with_borrow_mut(|hooks| hooks.retain(|h| !unhook(*h)));
     if unsafe { SetWindowSubclass(hwnd, Some(window_message), SUBCLASS, 0) } == 0 {
         return Err(os_error("监听窗口事件失败"));
     }
-    let session_watch =
-        unsafe { WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) != 0 };
     WATCH.replace(Some(Watch {
         hwnd,
         emit: Rc::new(callback),
-        hotkeys: Vec::new(),
-        actions: [None; 3],
-        mouse: null_mut(),
         foreground: null_mut(),
         location: null_mut(),
         foreground_thread: 0,
         pending: false,
         fullscreen: false,
-        session_watch,
     }));
-    unsafe {
-        SendMessageW(
-            hwnd,
-            crate::island::surface::SESSION_GUARD,
-            session_watch.into(),
-            0,
-        );
-    }
-    if !session_watch {
-        notify(NativeEvent::SessionLocked(true));
-    }
     Ok(())
 }
 
@@ -120,61 +74,6 @@ pub(in crate::island) fn begin_drag(hwnd: HWND) -> Result<(), String> {
         return Err(os_error("请求拖动窗口失败"));
     }
     Ok(())
-}
-
-pub(super) fn hotkeys(hwnd: HWND, actions: [Option<Binding>; 3]) -> Result<(), String> {
-    let previous = WATCH
-        .with_borrow(|slot| slot.as_ref().map(|w| w.actions))
-        .ok_or("窗口监听未安装")?;
-    match update_hotkeys(hwnd, actions) {
-        Ok(()) => Ok(()),
-        Err(error) => match update_hotkeys(hwnd, previous) {
-            Ok(()) => Err(error),
-            Err(rollback) => Err(format!("{error}；恢复旧快捷键失败：{rollback}")),
-        },
-    }
-}
-
-fn update_hotkeys(hwnd: HWND, actions: [Option<Binding>; 3]) -> Result<(), String> {
-    WATCH.with_borrow_mut(|slot| {
-        let w = slot.as_mut().ok_or("窗口监听未安装")?;
-        // Keep existing registrations (even when swapping actions). Acquire new bindings
-        // before releasing old ones, so a conflict leaves the previous shortcuts usable.
-        let mut added: Vec<(i32, Binding)> = Vec::new();
-        for binding in actions.iter().flatten() {
-            if w.hotkeys.iter().chain(&added).any(|(_, b)| b == binding) {
-                continue;
-            }
-            let id = (0x4900..0x4910)
-                .find(|id| !w.hotkeys.iter().chain(&added).any(|(k, _)| k == id))
-                .ok_or("快捷键 ID 已耗尽")?;
-            if unsafe { RegisterHotKey(hwnd, id, binding.0 | MOD_NOREPEAT, binding.1) } == 0 {
-                let mut error = os_error("注册快捷键失败（可能已被其他应用占用）");
-                for (id, b) in added {
-                    if unsafe { UnregisterHotKey(hwnd, id) } == 0 {
-                        error.push_str(&os_error("；回滚快捷键失败"));
-                        w.hotkeys.push((id, b));
-                    }
-                }
-                return Err(error);
-            }
-            added.push((id, *binding));
-        }
-        w.hotkeys.extend(added);
-        let mut failure = None;
-        w.hotkeys.retain(|(id, binding)| {
-            if actions.contains(&Some(*binding)) {
-                return true;
-            }
-            if unsafe { UnregisterHotKey(hwnd, *id) } == 0 {
-                failure = Some(os_error("注销快捷键失败"));
-                return true;
-            }
-            false
-        });
-        w.actions = actions;
-        failure.map_or(Ok(()), Err)
-    })
 }
 
 fn remove_event(hook: &mut HWINEVENTHOOK) -> Result<(), String> {
@@ -187,22 +86,10 @@ fn remove_event(hook: &mut HWINEVENTHOOK) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn track(hwnd: HWND, fullscreen: bool, outside: bool) -> Result<(), String> {
+pub(super) fn track(hwnd: HWND, fullscreen: bool) -> Result<(), String> {
     let mut exited = false;
     WATCH.with_borrow_mut(|slot| -> Result<(), String> {
         let w = slot.as_mut().ok_or("窗口监听未安装")?;
-        if outside && w.mouse.is_null() {
-            let module = unsafe { GetModuleHandleW(null()) };
-            w.mouse = unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_button), module, 0) };
-            if w.mouse.is_null() {
-                return Err(os_error("启用外部点击收起失败"));
-            }
-        } else if !outside && !w.mouse.is_null() {
-            if unsafe { UnhookWindowsHookEx(w.mouse) } == 0 {
-                return Err(os_error("注销外部点击监听失败"));
-            }
-            w.mouse = null_mut();
-        }
         if fullscreen && w.foreground.is_null() {
             w.foreground = unsafe {
                 SetWinEventHook(
@@ -233,26 +120,6 @@ pub(super) fn track(hwnd: HWND, fullscreen: bool, outside: bool) -> Result<(), S
         refresh_fullscreen(hwnd)?;
     }
     Ok(())
-}
-
-unsafe extern "system" fn mouse_button(code: i32, action: WPARAM, data: LPARAM) -> LRESULT {
-    if code >= 0
-        && matches!(
-            action as u32,
-            WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN
-        )
-    {
-        let hwnd = WATCH.with(|w| {
-            w.try_borrow()
-                .ok()
-                .and_then(|w| w.as_ref().filter(|w| !w.mouse.is_null()).map(|w| w.hwnd))
-        });
-        if let Some(hwnd) = hwnd {
-            let pt = (*(data as *const MSLLHOOKSTRUCT)).pt;
-            PostMessageW(hwnd, BUTTON_DOWN, pt.x as WPARAM, pt.y as LPARAM);
-        }
-    }
-    CallNextHookEx(null_mut(), code, action, data)
 }
 
 unsafe extern "system" fn win_event(
@@ -397,65 +264,7 @@ unsafe extern "system" fn window_message(
         return DefSubclassProc(hwnd, msg, wp, lp);
     }
     match msg {
-        WM_WTSSESSION_CHANGE | WM_POWERBROADCAST => {
-            let locked = match (msg, wp as u32) {
-                (
-                    WM_WTSSESSION_CHANGE,
-                    WTS_SESSION_LOCK
-                    | WTS_SESSION_LOGOFF
-                    | WTS_CONSOLE_DISCONNECT
-                    | WTS_REMOTE_DISCONNECT,
-                )
-                | (WM_POWERBROADCAST, PBT_APMSUSPEND) => Some(true),
-                (
-                    WM_WTSSESSION_CHANGE,
-                    WTS_SESSION_UNLOCK | WTS_SESSION_LOGON | WTS_CONSOLE_CONNECT
-                    | WTS_REMOTE_CONNECT,
-                )
-                | (WM_POWERBROADCAST, PBT_APMRESUMEAUTOMATIC | PBT_APMRESUMESUSPEND) => Some(false),
-                _ => None,
-            };
-            if let Some(locked) = locked
-                .filter(|_| WATCH.with_borrow(|w| w.as_ref().is_some_and(|w| w.session_watch)))
-            {
-                SendMessageW(
-                    hwnd,
-                    crate::island::surface::SESSION_GUARD,
-                    usize::from(!locked),
-                    0,
-                );
-                notify(NativeEvent::SessionLocked(locked));
-            }
-            if msg == WM_POWERBROADCAST {
-                notify(NativeEvent::DisplayChanged);
-            }
-        }
         WM_MOUSEACTIVATE => return MA_NOACTIVATE as LRESULT,
-        BUTTON_DOWN => {
-            if WATCH.with_borrow(|w| w.as_ref().is_some_and(|w| !w.mouse.is_null()))
-                && !hits(
-                    hwnd,
-                    POINT {
-                        x: wp as i32,
-                        y: lp as i32,
-                    },
-                )
-            {
-                notify(NativeEvent::OutsideClick);
-            }
-            return 0;
-        }
-        WM_HOTKEY => {
-            let action = WATCH.with_borrow(|slot| {
-                let w = slot.as_ref()?;
-                let (_, binding) = w.hotkeys.iter().find(|(id, _)| *id == wp as i32)?;
-                w.actions.iter().position(|a| *a == Some(*binding))
-            });
-            if let Some(i) = action {
-                notify([NativeEvent::Toggle, NativeEvent::Show, NativeEvent::Hide][i].clone());
-                return 0;
-            }
-        }
         START_DRAG => {
             let mut cursor = POINT::default();
             // The pointer may have been released before the queued move starts.
@@ -476,7 +285,9 @@ unsafe extern "system" fn window_message(
             notify(NativeEvent::DragEnded);
             return 0;
         }
-        WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE => notify(NativeEvent::DisplayChanged),
+        WM_POWERBROADCAST | WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE => {
+            notify(NativeEvent::DisplayChanged)
+        }
         RECHECK => {
             if let Err(e) = refresh_fullscreen(hwnd) {
                 notify(NativeEvent::Error(e));
@@ -491,25 +302,10 @@ unsafe extern "system" fn window_message(
 pub(super) fn uninstall(hwnd: HWND) -> Result<(), String> {
     let Some(w) = WATCH.take() else { return Ok(()) };
     let mut errors = Vec::new();
-    if w.session_watch && unsafe { WTSUnRegisterSessionNotification(hwnd) } == 0 {
-        errors.push(os_error("注销会话监听失败"));
-    }
-    for hook in [
-        (!w.mouse.is_null()).then_some(OldHook::Mouse(w.mouse)),
-        (!w.location.is_null()).then_some(OldHook::Event(w.location)),
-        (!w.foreground.is_null()).then_some(OldHook::Event(w.foreground)),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if !hook.remove() {
+    for hook in [w.location, w.foreground] {
+        if !hook.is_null() && !unhook(hook) {
             errors.push(os_error("注销系统监听失败"));
             RETIRED.with_borrow_mut(|hooks| hooks.push(hook));
-        }
-    }
-    for (id, _) in w.hotkeys {
-        if unsafe { UnregisterHotKey(hwnd, id) } == 0 {
-            errors.push(os_error("注销快捷键失败"));
         }
     }
     if unsafe { RemoveWindowSubclass(hwnd, Some(window_message), SUBCLASS) } == 0 {
@@ -526,58 +322,22 @@ pub(super) fn uninstall(hwnd: HWND) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::island::surface::Surface;
-    use std::sync::mpsc;
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        MOD_ALT, MOD_CONTROL, MOD_SHIFT, VK_F24,
-    };
 
     #[test]
-    #[ignore = "uses an interactive Windows desktop and briefly registers Ctrl+Alt+Shift+F24"]
-    fn hooks_and_hotkey_release_before_the_next_registration() {
+    #[ignore = "uses an interactive Windows desktop"]
+    fn fullscreen_hooks_release_before_the_next_registration() {
         let surface = Surface::start(|_| {}).unwrap();
         for _ in 0..2 {
-            let (events, received) = mpsc::channel();
             surface
-                .call(move |hwnd| {
-                    install(hwnd, move |event| {
-                        let _ = events.send(event);
-                    })?;
-                    let result = (|| {
-                        hotkeys(
-                            hwnd,
-                            [
-                                Some((MOD_ALT | MOD_CONTROL | MOD_SHIFT, VK_F24.into())),
-                                None,
-                                None,
-                            ],
-                        )?;
-                        let id = WATCH.with_borrow(|w| w.as_ref().unwrap().hotkeys[0].0);
-                        unsafe {
-                            SendMessageW(hwnd, WM_HOTKEY, id as usize, 0);
-                        }
-                        track(hwnd, true, true)?;
-                        let watching = WATCH.with_borrow(|w| {
-                            w.as_ref()
-                                .is_some_and(|w| !w.mouse.is_null() && !w.foreground.is_null())
-                        });
-                        track(hwnd, false, false)?;
-                        let released = WATCH.with_borrow(|w| {
-                            w.as_ref().is_some_and(|w| {
-                                w.mouse.is_null() && w.foreground.is_null() && w.location.is_null()
-                            })
-                        });
-                        if watching && released {
-                            Ok(())
-                        } else {
-                            Err("系统监听状态不符".into())
-                        }
-                    })();
+                .call(|hwnd| {
+                    install(hwnd, |_| {})?;
+                    let result = track(hwnd, true).and_then(|_| track(hwnd, false));
+                    assert!(WATCH.with_borrow(|w| w
+                        .as_ref()
+                        .is_some_and(|w| w.foreground.is_null() && w.location.is_null())));
                     result.and(uninstall(hwnd))
                 })
                 .unwrap();
-            assert!(received
-                .try_iter()
-                .any(|event| matches!(event, NativeEvent::Toggle)));
         }
         surface.shutdown().unwrap();
     }

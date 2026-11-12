@@ -16,7 +16,6 @@ export interface IslandConfig {
     launchAtLogin: boolean;
     showOnStart: boolean;
     startCompact: boolean;
-    closeToTray: boolean;
   };
   placement: {
     anchor: Anchor;
@@ -64,25 +63,10 @@ export interface IslandConfig {
   interaction: {
     hoverExpand: boolean;
     clickExpand: boolean;
-    outsideCollapse: boolean;
-    autoCollapse: boolean;
-    collapseDelayMs: number;
     pinEnabled: boolean;
     dragEnabled: boolean;
   };
   notifications: {
     enabled: boolean;
-    wechatEnabled: boolean;
-    qqEnabled: boolean;
-    windowsNotificationsEnabled: boolean;
-    showPreview: boolean;
-    previewTimeoutSeconds: number;
-    accountListEnabled: boolean;
-    animateNewMessage: boolean;
-  };
-  hotkeys: {
-    toggle: string;
-    show: string;
-    hide: string;
   };
 }

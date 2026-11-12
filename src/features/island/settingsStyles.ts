@@ -1,6 +1,11 @@
 import * as stylex from "@stylexjs/stylex";
+import defaults from "./defaults.json";
 
 export const lightSurface = "#f5f5f4";
+export function isDefaultDarkSurface(color: string) {
+  const value = color.toLowerCase();
+  return value === defaults.appearance.background || value === "#202326";
+}
 
 export const ui = stylex.create({
   page: { minHeight: "100svh", color: "#1c1917", backgroundColor: "#fafaf9", paddingBlock: "clamp(1rem, 5vw, 3rem)", paddingInline: "clamp(1rem, 5vw, 4rem)" },
@@ -14,15 +19,15 @@ export const ui = stylex.create({
   navItem: { textAlign: "start", paddingInline: 12, paddingBlock: 9, minHeight: 40, borderRadius: 7, borderWidth: 0,
     cursor: "pointer", fontFamily: "inherit", fontSize: "0.94rem", backgroundColor: { default: "transparent", ":hover": "#e5e3df" }, color: "#44403c" },
   current: { backgroundColor: "#fff", color: "#114e41", fontWeight: 700, boxShadow: "0 1px 3px #24231e24" },
-  panel: { backgroundColor: "#fff", border: "1px solid #deddd7", borderRadius: 14, padding: "clamp(1rem, 4vw, 2rem)", minWidth: 0 },
+  panel: { backgroundColor: "#fff", borderWidth: 1, borderStyle: "solid", borderColor: "#deddd7", borderRadius: 14, padding: "clamp(1rem, 4vw, 2rem)", minWidth: 0 },
   fields: { padding: 0, margin: 0, minWidth: 0, borderWidth: 0 },
   subheading: { fontSize: "1.45rem", lineHeight: 1.3, marginBlock: "0 12px" },
   actions: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBlockStart: 18 },
   button: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 40,
-    paddingInline: 14, paddingBlock: 7, border: "1px solid #ccc9c3", borderRadius: 8,
+    paddingInline: 14, paddingBlock: 7, borderWidth: 1, borderStyle: "solid", borderColor: "#ccc9c3", borderRadius: 8,
     color: "#292524", backgroundColor: { default: "#fff", ":hover": "#f5f5f4" },
     cursor: { default: "pointer", ":disabled": "default" }, opacity: { default: 1, ":disabled": 0.55 }, fontFamily: "inherit", fontWeight: 600 },
   primary: { color: "#fff", borderColor: "#165b4c", backgroundColor: { default: "#165b4c", ":hover": "#114b3f" } },
   message: { color: "#57534e", fontSize: "0.9rem", lineHeight: 1.55, marginBlock: "8px 16px" },
-  error: { color: "#8d281b", borderInlineStart: "3px solid #bd503e", paddingInlineStart: 10, overflowWrap: "anywhere" },
+  error: { color: "#8d281b", borderInlineStartWidth: 3, borderInlineStartStyle: "solid", borderInlineStartColor: "#bd503e", paddingInlineStart: 10, overflowWrap: "anywhere" },
 });

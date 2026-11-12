@@ -18,11 +18,11 @@ export function Amount({ label, value, change, min, max, step = 1 }: {
     onChange={event => change(event.currentTarget.valueAsNumber)} /></Row>;
 }
 
-export function TextField({ label, value, change, color = false }: {
-  label: string; value: string; change: (value: string) => void; color?: boolean;
+export function ColorField({ label, value, change }: {
+  label: string; value: string; change: (value: string) => void;
 }) {
-  return <Row label={label}><input type={color ? "color" : "text"} value={value} {...stylex.props(s.input)}
-    spellCheck={false} onChange={event => change(event.currentTarget.value)} /></Row>;
+  return <Row label={label}><input type="color" value={value} {...stylex.props(s.input)}
+    onChange={event => change(event.currentTarget.value)} /></Row>;
 }
 
 export function Choice<T extends string>({ label, value, options, change }: {
@@ -37,9 +37,10 @@ export function Choice<T extends string>({ label, value, options, change }: {
 const s = stylex.create({
   row: {
     minHeight: 54, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-    paddingBlock: 7, borderBottom: "1px solid #e7e5e4", fontSize: "0.94rem", color: "#292524",
+    paddingBlock: 7, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "#e7e5e4",
+    fontSize: "0.94rem", color: "#292524",
   },
   input: { minWidth: 0, width: "min(50%, 14rem)", height: 38, paddingInline: 9, borderRadius: 7,
-    fontFamily: "inherit", fontSize: "0.94rem", color: "#1c1917", border: "1px solid #a8a29e", backgroundColor: "#fff" },
+    fontFamily: "inherit", fontSize: "0.94rem", color: "#1c1917", borderWidth: 1, borderStyle: "solid", borderColor: "#a8a29e", backgroundColor: "#fff" },
   check: { width: 22, height: 22, marginInlineEnd: 1, accentColor: "#176957", cursor: "pointer" },
 });
