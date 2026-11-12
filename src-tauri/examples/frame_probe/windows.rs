@@ -22,9 +22,13 @@ use windows_sys::{
     core::{w, BOOL},
     Win32::{
         Foundation::{HWND, LPARAM, RECT},
-        Graphics::Gdi::{
-            EnumDisplaySettingsW, GetStockObject, UpdateWindow, DEVMODEW, ENUM_CURRENT_SETTINGS,
-            LTGRAY_BRUSH,
+        Graphics::{
+            Dwm::DwmFlush,
+            Gdi::{
+                EnumDisplaySettingsW, GetMonitorInfoW, GetStockObject, MonitorFromWindow,
+                UpdateWindow, DEVMODEW, ENUM_CURRENT_SETTINGS, LTGRAY_BRUSH, MONITORINFO,
+                MONITOR_DEFAULTTONULL,
+            },
         },
         System::{LibraryLoader::GetModuleHandleW, Performance::QueryPerformanceFrequency},
         UI::{
@@ -75,29 +79,65 @@ impl Drop for Backdrop {
     }
 }
 
+fn capture_region(
+    compact: RECT,
+    work: RECT,
+    compact_height: i32,
+    expanded: (i32, i32),
+) -> Result<RECT> {
+    let w = expanded.0.min(work.right - work.left);
+    let h = expanded.1.min(work.bottom - work.top);
+    let current_width = compact.right - compact.left;
+    if !(1..=w).contains(&current_width)
+        || h <= 0
+        || (compact.bottom - compact.top - compact_height).abs() > 1
+    {
+        return Err("帧采样窗口与配置的收起尺寸不符".into());
+    }
+    let x = (compact.left + (current_width - w) / 2).clamp(work.left, work.right - w);
+    let y = compact.top.clamp(work.top, work.bottom - h);
+    Ok(RECT {
+        left: x,
+        top: y,
+        right: x + w,
+        bottom: y + h,
+    })
+}
+
 unsafe fn backdrop(island: HWND, config_dir: &Path) -> Result<(Backdrop, RECT)> {
     let mut r = RECT::default();
     if GetWindowRect(island, &mut r) == 0 {
         return Err(std::io::Error::last_os_error().into());
     }
-    let scale = f64::from(GetDpiForWindow(island)) / 96.0;
-    let px = |v: f64| (v * scale).round() as i32;
     let config: Value = serde_json::from_slice(&fs::read(config_dir.join("island.json"))?)?;
-    let size = |key: &str| {
-        config["appearance"][key]
-            .as_f64()
-            .map(px)
-            .ok_or("缺少采样尺寸")
+    let size = config["appearance"]["islandSize"]
+        .as_f64()
+        .ok_or("缺少岛体大小")?;
+    let scale = f64::from(GetDpiForWindow(island)) / 96.0 * size / 100.0;
+    let px = |v: f64| (v * scale).round() as i32;
+    let mut monitor = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
     };
-    let (w, h) = (size("expandedWidth")?, size("expandedHeight")?);
-    // The compact bar widens when Windows reports a battery or a media session.
-    if !(size("compactWidth")? - 1..=w + 1).contains(&(r.right - r.left))
-        || (r.bottom - r.top - size("compactHeight")?).abs() > 1
+    if GetMonitorInfoW(
+        MonitorFromWindow(island, MONITOR_DEFAULTTONULL),
+        &mut monitor,
+    ) == 0
     {
-        return Err("帧采样窗口与配置的收起尺寸不符".into());
+        return Err(std::io::Error::last_os_error().into());
     }
-    let x = (r.left + r.right - w) / 2;
-    let y = r.top;
+    let roi = capture_region(
+        r,
+        monitor.rcWork,
+        px(30.0),
+        (px(419.0 + 2.0 * 17.6), px(140.0)),
+    )?;
+    let (x, y, w, h) = (
+        roi.left,
+        roi.top,
+        roi.right - roi.left,
+        roi.bottom - roi.top,
+    );
     let cls = WNDCLASSW {
         lpfnWndProc: Some(DefWindowProcW),
         hInstance: GetModuleHandleW(null()),
@@ -128,15 +168,8 @@ unsafe fn backdrop(island: HWND, config_dir: &Path) -> Result<(Backdrop, RECT)> 
         return Err(std::io::Error::last_os_error().into());
     }
     UpdateWindow(bg.0);
-    Ok((
-        bg,
-        RECT {
-            left: x,
-            top: y,
-            right: x + w,
-            bottom: y + h,
-        },
-    ))
+    windows::core::HRESULT(DwmFlush()).ok()?;
+    Ok((bg, roi))
 }
 
 struct Capture {
@@ -494,6 +527,35 @@ fn analyze(csv: &str, frames: &[Sample], frequency: i64, hz: u32) -> Result<Valu
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn content_sized_widths_fit_within_the_backdrop_on_negative_origin_displays() {
+        let work = RECT {
+            left: -1280,
+            top: 0,
+            right: 0,
+            bottom: 720,
+        };
+        for width in [130, 156, 162, 188] {
+            let compact = RECT {
+                left: -width,
+                top: 0,
+                right: 0,
+                bottom: 30,
+            };
+            let roi = capture_region(compact, work, 30, (454, 140)).unwrap();
+            assert_eq!(
+                (roi.left, roi.top, roi.right, roi.bottom),
+                (-454, 0, 0, 140)
+            );
+        }
+        let wrong = RECT {
+            left: -500,
+            top: 0,
+            right: 0,
+            bottom: 30,
+        };
+        assert!(capture_region(wrong, work, 30, (454, 140)).is_err());
+    }
     #[test]
     fn recognizes_capture_border_blended_into_the_backdrop() {
         assert!(capture_indicator(&[48, 214, 239, 255]));

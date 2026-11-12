@@ -1,3 +1,4 @@
+use super::notch::{side, Notch};
 use crate::island::{
     config::IslandConfig,
     geometry::Rect,
@@ -14,9 +15,9 @@ pub(crate) enum MessageAction {
     NextPage,
     Previous,
     TogglePlayback,
+    ToggleLyrics,
     Next,
     Seek,
-    OpenSettings,
 }
 
 // Local DIP coordinates are shared by Direct2D, the pointer and MSAA.
@@ -62,6 +63,8 @@ fn rect(x: i32, y: i32, width: i32, height: i32) -> Rect {
 #[derive(Clone, PartialEq)]
 pub(crate) struct Panel {
     pub size: (i32, i32),
+    body: Rect,
+    pub side: bool,
     pub items: Vec<Item>,
     pub pet: Option<Rect>,
     pub pet_pose: PetPose,
@@ -69,6 +72,7 @@ pub(crate) struct Panel {
     pub waveform: Option<Rect>,
     pub wave_phase: u8,
     pub music: Option<MediaSnapshot>,
+    pub lyrics: bool,
     pub time: Option<(Rect, String)>,
     pub subtitle: Option<(Rect, String)>,
     pub status: String,
@@ -91,28 +95,31 @@ pub(crate) struct Messages {
 }
 
 impl Panel {
-    pub fn narrow_music(&self) -> bool {
-        self.size.0 < self.size.1 * 3 / 2
-    }
-
     pub fn music_track(&self) -> Rect {
-        if self.narrow_music() {
-            rect(12, 162, 116, 4)
+        if self.lyrics {
+            rect(44, 80, 176, 4)
         } else {
             rect(96, 91, 221, 4)
         }
     }
 
-    // The reference music page and its hit regions use a 419 × 140 DIP canvas.
+    pub fn seek_fraction(&self, visible: Rect, screen_x: i32) -> u16 {
+        let (x, _, scale) = self.music_frame();
+        let local = (screen_x - visible.x) as f32 * self.size.0 as f32 / visible.width as f32;
+        let track = self.music_track();
+        let fraction = ((local - x) / scale - track.x as f32) / track.width as f32;
+        (fraction.clamp(0.0, 1.0) * 1000.0).round() as u16
+    }
+
+    // The page, its controls and its accessibility bounds use the same 419 × 140 body.
     pub fn music_frame(&self) -> (f32, f32, f32) {
-        let (w, h) = (self.size.0 as f32, self.size.1 as f32);
-        let (cw, ch) = if self.narrow_music() {
-            (140.0, 226.0)
-        } else {
-            (419.0, 140.0)
-        };
-        let scale = (w / cw).min(h / ch);
-        ((w - cw * scale) / 2.0, (h - ch * scale) / 2.0, scale)
+        let b = self.body;
+        let s = (b.width as f32 / 419.0).min(b.height as f32 / 140.0);
+        (
+            b.x as f32 + (b.width as f32 - 419.0 * s) / 2.0,
+            b.y as f32 + (b.height as f32 - 140.0 * s) / 2.0,
+            s,
+        )
     }
 
     fn music_control(
@@ -186,9 +193,9 @@ impl Panel {
             &[]
         };
         let reminded = |s| snapshot.reminders.iter().any(|r| r.source == s);
-        let sources: Vec<_> = [Source::Wechat, Source::Qq]
-            .into_iter()
-            .filter(|s| reminded(*s) && windows.iter().any(|w| w.source == *s))
+        let mut sources: Vec<_> = snapshot
+            .visible_reminders()
+            .filter(|_| cfg.notifications.enabled)
             .collect();
         let groups: Vec<_> = sources.iter().map(|s| s.label()).collect();
         let group_status = groups.join("、");
@@ -197,8 +204,12 @@ impl Panel {
         } else {
             format!("{time}，{group_status}有系统提醒")
         };
+        let body = Notch::for_config(cfg, state, f64::from(w), f64::from(h))
+            .map_or(rect(0, 0, w, h), |n| n.body(w, h));
         let mut panel = Self {
             size: (w, h),
+            body,
+            side: side(cfg.placement.anchor),
             items: vec![],
             pet: None,
             pet_pose: PetPose::Awake,
@@ -206,66 +217,86 @@ impl Panel {
             waveform: None,
             wave_phase: 0,
             music: None,
+            lyrics: false,
             time: None,
             subtitle: None,
             status,
         };
         if state == IslandState::Compact {
-            let vertical = h > w;
-            let long = w.max(h);
-            let side = w.min(h).min(28);
-            let along = |offset, length, cross| {
+            let media = &messages.media;
+            let vertical = side(cfg.placement.anchor);
+            let (long, cross) = if vertical {
+                (body.height, body.width)
+            } else {
+                (body.width, body.height)
+            };
+            if cfg.appearance.minimal && cross < 6 {
+                return Some(panel);
+            }
+            let along = |offset, length, breadth| {
                 if vertical {
-                    rect((w - cross) / 2, offset, cross, length)
+                    rect(
+                        body.x + (cross - breadth) / 2,
+                        body.y + offset,
+                        breadth,
+                        length,
+                    )
                 } else {
-                    rect(offset, (h - cross) / 2, length, cross)
+                    rect(
+                        body.x + offset,
+                        body.y + (cross - breadth) / 2,
+                        length,
+                        breadth,
+                    )
                 }
             };
-            let media = &messages.media;
-            let clock = if vertical { 20 } else { 44.min(w) };
-            let shown = sources.len().min((long / side) as usize);
-            let icons = side * shown as i32;
-            let has_clock = long >= clock + icons;
-            let mut reserved = icons + if has_clock { clock } else { 0 };
-            let mut reserve = |length: i32, present: bool| {
-                if present && long - reserved >= length + 12 {
-                    reserved += length + 12;
-                    length + 12
+            if cfg.appearance.minimal {
+                sources = Vec::new();
+            }
+            let extra = (cfg.appearance.unread_extent.round() as i32).clamp(0, long);
+            let shown = sources.len().min(((extra - 10).max(0) / 22) as usize);
+            let usable = long - extra;
+            let gap = if vertical { 0 } else { 12 };
+            let clock = (if vertical { 32 } else { 44 }).min(usable);
+            let mut used = clock;
+            let mut reserve = |length: i32, enabled| {
+                if enabled && used + gap + length <= usable {
+                    used += gap + length;
+                    length
                 } else {
                     0
                 }
             };
-            let pet = reserve(32, !vertical);
-            let battery = reserve(20, media.battery.is_some());
-            let wave = reserve(14, !media.title.is_empty());
-            let mut cursor = (long - reserved) / 2;
-            if battery > 0 {
-                panel.battery = media
-                    .battery
-                    .map(|(pct, charging)| (along(cursor, 20, side.min(20)), pct, charging));
-                cursor += battery;
-            }
-            if pet > 0 {
-                panel.pet = Some(along(cursor, 32, side.min(18)));
-                cursor += pet;
-            }
-            if has_clock {
-                panel.time = Some((
-                    along(cursor, clock, if vertical { w } else { h }),
-                    time.into(),
-                ));
+            let pet = reserve(32, !vertical && cfg.appearance.pet);
+            let battery = reserve(20, cfg.appearance.show_battery && media.battery.is_some());
+            let wave = reserve(if vertical { 18 } else { 14 }, !media.title.is_empty());
+            let mut cursor = (usable - used) / 2;
+            if vertical {
+                panel.time = Some((along(cursor, clock, cross), time.into()));
                 cursor += clock;
             }
+            if battery > 0 {
+                let r = along(cursor, 20, if vertical { 14 } else { 20 });
+                panel.battery = media.battery.map(|(pct, charging)| (r, pct, charging));
+                cursor += battery + gap;
+            }
+            if pet > 0 {
+                panel.pet = Some(along(cursor, pet, 18));
+                cursor += pet + gap;
+            }
+            if !vertical {
+                panel.time = Some((along(cursor, clock, cross), time.into()));
+                cursor += clock + gap;
+            }
             if wave > 0 {
-                panel.waveform = Some(along(cursor + 12, 14, side.min(16)));
-                cursor += wave;
+                panel.waveform = Some(along(cursor, wave, 16));
             }
             for (index, source) in sources.into_iter().take(shown).enumerate() {
                 let mut instances = windows.iter().filter(|w| w.source == source);
                 let Some(entry) = instances.next() else {
                     continue;
                 };
-                let bounds = along(cursor + index as i32 * side, side, side);
+                let bounds = along(usable + 5 + index as i32 * 22, 22, 24.min(cross));
                 let mut item = Self::instance_item(bounds, entry, reminded(source), String::new());
                 if instances.next().is_some() {
                     item.action = Some(MessageAction::OpenInstances(source));
@@ -294,37 +325,26 @@ impl Panel {
                 panel.time = Some((rect(0, 0, w, h), time.into()));
                 return Some(panel);
             }
-            let narrow = panel.narrow_music();
-            let header_x = if narrow { 58 } else { 210 };
-            let header_width = if narrow { 108 } else { 140 };
-            let start = header_x - header_width / 2;
-            let battery = media.battery.filter(|_| !narrow);
-            let date_width = header_width - 39 - if battery.is_some() { 20 } else { 0 };
-            if let Some((pct, charging)) = battery {
-                panel.battery = Some((rect(start, 11, 15, 15), pct, charging));
-            }
-            let date_x = start + if battery.is_some() { 20 } else { 0 };
-            panel.time = Some((rect(date_x + date_width, 7, 39, 23), time.into()));
-            panel.subtitle = Some((rect(date_x, 7, date_width, 23), date.into()));
-            if !media.title.is_empty() && !narrow {
-                panel.waveform = Some(rect(359, 10, 16, 16));
+            panel.battery = media
+                .battery
+                .filter(|_| cfg.appearance.show_battery)
+                .map(|(pct, charging)| (rect(0, 11, 16, 16), pct, charging));
+            panel.time = Some((rect(210, 7, 44, 23), time.into()));
+            panel.subtitle = Some((rect(128, 7, 74, 23), date.into()));
+            if !media.title.is_empty() {
+                panel.waveform = Some(rect(360, 10, 14, 16));
             }
             panel.music = Some(media.clone());
             let has = !media.title.is_empty();
+            panel.lyrics = has && cfg.appearance.lyrics_enabled;
             panel.status = format!(
                 "{date} {time}，{}",
                 if has { &media.title } else { "暂无音乐" }
             );
             use MessageAction::*;
-            panel.music_control(
-                rect(if narrow { 112 } else { 380 }, 4, 28, 28),
-                Some(OpenSettings),
-                "打开灵动岛设置",
-                "\u{e713}",
-            );
             let track = panel.music_track();
             panel.music_control(
-                rect(track.x, track.y - 6, track.width, 15),
+                rect(track.x - 4, track.y - 5, track.width + 8, 14),
                 (has && media.duration_ms > 0 && media.can_seek).then_some(Seek),
                 "播放进度",
                 "",
@@ -335,37 +355,36 @@ impl Panel {
                 ("播放", "▶")
             };
             let controls = [
-                (74, 15, None, "歌词", "词"),
+                (74, 26, has.then_some(ToggleLyrics), "歌词", "词"),
                 (
                     162,
-                    42,
+                    30,
                     (has && media.can_previous).then_some(Previous),
                     "上一首",
                     "⏪",
                 ),
                 (
                     211,
-                    70,
+                    30,
                     (has && media.can_toggle).then_some(TogglePlayback),
                     label,
                     glyph,
                 ),
                 (
                     258,
-                    98,
+                    30,
                     (has && media.can_next).then_some(Next),
                     "下一首",
                     "⏩",
                 ),
-                (367, 125, None, "音乐应用音量", "\u{e767}"),
+                (367, 26, None, "音乐应用音量", "\u{e767}"),
             ];
-            for (wide_x, narrow_x, action, label, glyph) in controls {
-                let bounds = if narrow {
-                    rect(narrow_x - 12, 192, 24, 24)
-                } else {
-                    rect(wide_x - 13, 106, 26, 24)
-                };
+            for (x, width, action, label, glyph) in controls {
+                let bounds = rect(x - width / 2, 106, width, 24);
                 panel.music_control(bounds, action, label, glyph);
+            }
+            if has && !panel.side {
+                panel.music_control(rect(279, 108, 68, 20), None, "岛上歌词", "岛上歌词");
             }
             return Some(panel);
         }
@@ -444,9 +463,16 @@ mod tests {
         }
     }
     fn panel(messages: &Messages, state: IslandState, w: i32, h: i32) -> Panel {
+        let mut cfg = IslandConfig::default();
+        let count = messages.snapshot.visible_reminders().count();
+        cfg.appearance.unread_extent = if count == 0 {
+            0.0
+        } else {
+            10.0 + 22.0 * count as f64
+        };
         Panel::build(
             messages,
-            &IslandConfig::default(),
+            &cfg,
             state,
             rect(-w, 0, w, h),
             1.0,
@@ -461,6 +487,103 @@ mod tests {
         assert!(p.items.is_empty());
         assert!(p.pet.is_some() && p.time.is_some());
         assert!(p.battery.is_none() && p.waveform.is_none());
+    }
+    #[test]
+    fn classic_slots_use_body_coordinates_inside_the_shoulders() {
+        let mut cfg = IslandConfig::default();
+        let mut model = Messages::default();
+        model.media.battery = Some((75, true));
+        model.media.title = "音乐".into();
+        let make = |cfg: &IslandConfig, w, h| {
+            Panel::build(
+                &model,
+                cfg,
+                IslandState::Compact,
+                rect(0, 0, w, h),
+                1.0,
+                "09:41",
+                "",
+            )
+            .unwrap()
+        };
+        let bar = make(&cfg, 188, 30);
+        let cx = |r: Rect| r.x + r.width / 2;
+        assert_eq!(bar.body, rect(5, 0, 178, 30));
+        assert_eq!(
+            [
+                cx(bar.battery.unwrap().0),
+                cx(bar.pet.unwrap()),
+                cx(bar.time.unwrap().0),
+                cx(bar.waveform.unwrap())
+            ],
+            [31, 69, 119, 160]
+        );
+        cfg.placement.anchor = crate::island::config::Anchor::CenterRight;
+        let bar = make(&cfg, 36, 94);
+        assert_eq!(bar.body, rect(0, 5, 36, 84));
+        assert!(bar.pet.is_none());
+        let cy = |r: Rect| r.y + r.height / 2;
+        assert_eq!(
+            [
+                cy(bar.time.unwrap().0),
+                cy(bar.battery.unwrap().0),
+                cy(bar.waveform.unwrap())
+            ],
+            [28, 54, 73]
+        );
+        cfg.appearance.minimal = true;
+        let minimal = make(&cfg, 5, 44);
+        assert!(minimal.time.is_none() && minimal.battery.is_none() && minimal.waveform.is_none());
+    }
+
+    #[test]
+    fn seek_uses_the_painted_track_inside_its_larger_hit_area() {
+        let p = panel(&Messages::default(), IslandState::Expanded, 454, 140);
+        let visible = rect(-100, 0, 454, 140);
+        let (x, _, s) = p.music_frame();
+        assert_eq!(s, 1.0);
+        assert_eq!(p.seek_fraction(visible, visible.x + x as i32 + 92), 0);
+        assert_eq!(p.seek_fraction(visible, visible.x + x as i32 + 317), 1000);
+    }
+    #[test]
+    fn lyrics_switch_changes_the_seek_track_and_is_available_only_with_music() {
+        let mut cfg = IslandConfig::default();
+        let make = |cfg: &IslandConfig, model: &Messages| {
+            Panel::build(
+                model,
+                cfg,
+                IslandState::Expanded,
+                rect(0, 0, 454, 140),
+                1.0,
+                "09:41",
+                "",
+            )
+            .unwrap()
+        };
+        let mut model = Messages::default();
+        assert!(!make(&cfg, &model)
+            .items
+            .iter()
+            .any(|i| i.action == Some(MessageAction::ToggleLyrics)));
+        model.media.title = "Test".into();
+        let page = make(&cfg, &model);
+        assert!(
+            page.lyrics
+                && page
+                    .items
+                    .iter()
+                    .any(|i| i.action == Some(MessageAction::ToggleLyrics))
+        );
+        assert_eq!(page.music_track().width, 176);
+        assert!(page
+            .items
+            .iter()
+            .any(|i| i.name == "岛上歌词" && i.action.is_none()));
+        cfg.appearance.lyrics_enabled = false;
+        cfg.placement.anchor = crate::island::config::Anchor::CenterLeft;
+        let page = make(&cfg, &model);
+        assert!(!page.lyrics && page.items.iter().all(|i| i.name != "岛上歌词"));
+        assert_eq!(page.music_track().width, 221);
     }
     #[test]
     fn idle_clock_fits_compact_and_expanded_sizes() {
@@ -488,14 +611,7 @@ mod tests {
         let mut messages = Messages::default();
         let empty = panel(&messages, IslandState::Expanded, 419, 140);
         assert!(empty.status.contains("暂无音乐"));
-        assert_eq!(
-            empty
-                .items
-                .iter()
-                .filter_map(|item| item.action)
-                .collect::<Vec<_>>(),
-            [MessageAction::OpenSettings]
-        );
+        assert!(empty.items.iter().all(|item| item.action.is_none()));
         messages.media = MediaSnapshot {
             title: "Audio".into(),
             playing: true,

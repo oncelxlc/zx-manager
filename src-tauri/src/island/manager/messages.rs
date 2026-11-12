@@ -18,6 +18,10 @@ pub(super) struct Messages {
 }
 
 impl IslandManager {
+    pub(super) fn reminder_count(&self) -> usize {
+        self.messages.snapshot.visible_reminders().count()
+    }
+
     pub fn notification_status(&self) -> NotificationStatus {
         NotificationStatus {
             sequence: self.messages.sequence,
@@ -26,10 +30,19 @@ impl IslandManager {
     }
 
     fn receive_messages(&mut self, snapshot: NotificationSnapshot) -> Result<()> {
+        let resized = self.reminder_count() != snapshot.visible_reminders().count();
         let previous = self.messages.snapshot.permission;
         self.messages.snapshot = snapshot;
         if let Some(window) = &self.window {
             window.set_notifications(self.messages.snapshot.clone())?;
+        }
+        if resized
+            && self.messages.worker.is_some()
+            && self.window.is_some()
+            && self.config.enabled
+            && self.config.notifications.enabled
+        {
+            self.refresh()?;
         }
         if previous != self.messages.snapshot.permission {
             self.messages.sequence += 1;

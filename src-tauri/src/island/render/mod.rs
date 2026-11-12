@@ -178,12 +178,11 @@ impl Scene {
                 .last
                 .as_ref()
                 .is_some_and(|(s, _, _)| *s == IslandState::EdgePeek);
-        let duration = if !full || !transition || same_state {
+        let first_frame = self.movement.is_none();
+        let duration = if first_frame || !full || !transition || same_state {
             0
         } else if edge {
             anim.edge_ms
-        } else if self.last.is_none() {
-            200
         } else if matches!(state, IslandState::Expanded | IslandState::Pinned) {
             anim.expand_ms
         } else {
@@ -194,17 +193,7 @@ impl Scene {
             .map_or(duration, |m| m.remaining_ms(target, begin, duration));
         let timing = Timing::new(begin, self.frequency, duration, anim);
         let fade_timing = Timing::new(begin, self.frequency, anim.content_ms.min(duration), anim);
-        let from = self.movement.map(|m| m.at(begin)).unwrap_or_else(|| {
-            let shrink = if full { 0.025 * anim.amplitude } else { 0.0 };
-            let dx = (target.width as f64 * shrink / 2.0).round() as i32;
-            let dy = (target.height as f64 * shrink / 2.0).round() as i32;
-            Rect {
-                x: target.x + dx,
-                y: target.y + dy,
-                width: (target.width - 2 * dx).max(1),
-                height: (target.height - 2 * dy).max(1),
-            }
-        });
+        let from = self.movement.map_or(target, |m| m.at(begin));
         let d = &self.device;
         let radii = if notch.is_some() {
             [0.0; 2]
@@ -276,6 +265,10 @@ impl Scene {
             });
         }
         d.composition.Commit()?;
+        if first_frame {
+            // ShowWindow must expose a committed shell and glyph layer at their final opacities.
+            d.composition.WaitForCommitCompletion()?;
+        }
         stats.commits += 1;
         self.movement = Some(Movement {
             from,

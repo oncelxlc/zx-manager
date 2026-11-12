@@ -37,7 +37,8 @@ impl ManagerHandle {
         thread::Builder::new()
             .name("island-manager".into())
             .spawn(move || {
-                let store = ConfigStore::new(directory);
+                let host = app.clone();
+                let store = ConfigStore::new(directory, move || displays::displays(&host));
                 let (config, load_error) = match store.load() {
                     Ok(config) => (config, None),
                     Err(error) => (IslandConfig::default(), Some(error)),
@@ -190,9 +191,6 @@ impl IslandManager {
 
     fn effective_config(&self) -> IslandConfig {
         let mut config = self.config.clone();
-        config.appearance.compact_width = (config.appearance.compact_width
-            + self.media.extra_width())
-        .min(config.appearance.expanded_width);
         if let Some(position) = &self.session_position {
             config.placement.anchor = position.anchor;
             config.placement.display_id.clone_from(&position.display_id);
@@ -208,7 +206,7 @@ impl IslandManager {
     }
 
     fn rebuild_window(&mut self) -> Result<()> {
-        let config = self.store.load()?;
+        let config = self.edge_config(self.store.load()?)?;
         self.close_window()?;
         self.load_error = None;
         self.last_error = None;
@@ -276,7 +274,8 @@ impl IslandManager {
     }
 
     fn receive_media(&mut self, next: MediaSnapshot) -> Result<()> {
-        let resized = self.media.extra_width() != next.extra_width();
+        let resized = self.media.battery.is_some() != next.battery.is_some()
+            || self.media.title.is_empty() != next.title.is_empty();
         let previous_position = self.media.position_ms;
         self.media.position_ms = next.position_ms;
         let notify_preview = self.media != next
@@ -334,7 +333,8 @@ impl IslandManager {
                     let screens = displays::displays(&self.app)?;
                     let display =
                         displays::target_display(&screens, cfg.placement.display_id.as_deref())?;
-                    window.apply(&cfg, state, display)?;
+                    let layout = display.content_config(&cfg, &self.media, self.reminder_count());
+                    window.apply(&layout, state, display)?;
                 } else {
                     window.hide()?;
                 }
@@ -385,6 +385,12 @@ impl IslandManager {
                 SurfaceEvent::PointerEnter => Event::PointerEnter,
                 SurfaceEvent::PointerLeave => Event::PointerLeave,
                 SurfaceEvent::Click => Event::Click,
+                SurfaceEvent::ToggleLyrics => {
+                    let mut config = self.read_config()?;
+                    config.appearance.lyrics_enabled = !config.appearance.lyrics_enabled;
+                    self.save(config)?;
+                    return Ok(());
+                }
                 SurfaceEvent::Hide => Event::Hide,
                 SurfaceEvent::OpenInstances(source) => {
                     if let Some(window) = &self.window {
@@ -393,7 +399,6 @@ impl IslandManager {
                     Event::OpenNotifications
                 }
                 SurfaceEvent::ActivateWindow(id) => return self.activate_notification_window(id),
-                SurfaceEvent::OpenSettings => return self.open_main(true),
                 SurfaceEvent::Transport(action) => {
                     return self
                         .media_worker

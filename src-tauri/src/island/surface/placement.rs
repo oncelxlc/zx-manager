@@ -1,8 +1,5 @@
 use super::{error, Context, IslandConfig, IslandState, Rect, Renderer, Result, SurfaceEvent};
-use crate::island::{
-    config::{Orientation, PerformanceMode},
-    render::notch::Notch,
-};
+use crate::island::{config::PerformanceMode, render::notch::Notch};
 use raw_window_handle::{RawWindowHandle, Win32WindowHandle, WindowHandle};
 use std::{num::NonZeroIsize, ptr::null_mut};
 use windows_sys::Win32::{
@@ -90,9 +87,9 @@ fn region(
     }
     unsafe {
         let region = if let Some(notch) = notch {
-            let points = notch.outline(f64::from(r.width), f64::from(r.height), |px, py| POINT {
-                x: x + px.round() as i32,
-                y: y + py.round() as i32,
+            let points = notch.pixel_outline(r.width, r.height, |px, py| POINT {
+                x: x + px,
+                y: y + py,
             });
             CreatePolygonRgn(points.as_ptr(), points.len() as i32, WINDING)
         } else {
@@ -244,18 +241,12 @@ pub(super) fn apply(
     {
         let mut renderer = ui.renderer.borrow_mut();
         let renderer = renderer.as_mut().ok_or("原生绘制设备不可用")?;
-        renderer.notch = (target.y == ui.work_top.get()
-            && target.width >= target.height
-            && cfg.placement.orientation != Orientation::Vertical
-            && state != IslandState::EdgePeek)
-            .then(|| {
-                Notch::new(
-                    state,
-                    f64::from(target.width) / scale,
-                    f64::from(target.height) / scale,
-                    cfg.appearance.radius,
-                )
-            });
+        renderer.notch = Notch::for_config(
+            &cfg,
+            state,
+            f64::from(target.width) / scale,
+            f64::from(target.height) / scale,
+        );
         super::messages::prepare(ui, hwnd, renderer, &cfg, state, target, scale)?;
         renderer.apply(&cfg, state, target, host, scale, changed_state)?;
         ui.recovery_pending.set(false);

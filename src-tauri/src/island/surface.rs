@@ -41,8 +41,8 @@ pub(super) enum SurfaceEvent {
     PointerEnter,
     PointerLeave,
     Click,
+    ToggleLyrics,
     Transport(super::media::Transport),
-    OpenSettings,
     ActivateWindow(u64),
     OpenInstances(Source),
     Hide,
@@ -58,9 +58,9 @@ impl super::render::MessageAction {
             Self::NextPage => return None,
             Self::Previous => SurfaceEvent::Transport(super::media::Transport::Previous),
             Self::TogglePlayback => SurfaceEvent::Transport(super::media::Transport::Toggle),
+            Self::ToggleLyrics => SurfaceEvent::ToggleLyrics,
             Self::Next => SurfaceEvent::Transport(super::media::Transport::Next),
             Self::Seek => SurfaceEvent::Transport(super::media::Transport::Seek(500)),
-            Self::OpenSettings => SurfaceEvent::OpenSettings,
         })
     }
 }
@@ -84,7 +84,6 @@ struct Context {
     renderer: RefCell<Option<Renderer>>,
     frame: RefCell<Option<placement::Frame>>,
     clock: hit_clock::HitClock,
-    work_top: Cell<i32>,
     mask: Cell<Option<placement::Mask>>,
     recovery_pending: Cell<bool>,
     redraw_pending: Cell<bool>,
@@ -190,11 +189,9 @@ impl Surface {
             return self.hide();
         }
         let target = screen.target(cfg, state);
-        let scale = screen.scale_factor;
-        let work_top = screen.work.y;
+        let scale = screen.scale(cfg);
         let cfg = cfg.clone();
         self.request(DuringMove::Defer, move |hwnd, ui| {
-            ui.work_top.set(work_top);
             placement::apply(ui, hwnd, cfg, state, target, scale)
         })
     }
@@ -335,7 +332,6 @@ fn run(
         renderer: RefCell::new(None),
         frame: RefCell::new(None),
         clock: hit_clock::HitClock::new()?,
-        work_top: Cell::new(0),
         mask: Cell::new(None),
         recovery_pending: Cell::new(false),
         redraw_pending: Cell::new(false),
@@ -433,6 +429,42 @@ fn run(
         }
     }
     result
+}
+
+// Called synchronously from the island HWND's WM_MOVING subclass, on the same thread as wndproc.
+pub(super) unsafe fn move_drag_frame(
+    hwnd: HWND,
+    display: &Display,
+    at: Rect,
+    cursor: (i32, i32),
+) -> Result<(Rect, bool)> {
+    let ui = (GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const Context)
+        .as_ref()
+        .ok_or("窗口上下文已释放")?;
+    let (layout, target, state, changed) = {
+        let frame = ui.frame.borrow();
+        let f = frame.as_ref().ok_or("隐藏的岛屿无法拖动")?;
+        let messages = ui.messages.borrow();
+        let (layout, target) = display.drag_layout(
+            &f.cfg,
+            f.state,
+            at,
+            cursor,
+            &messages.media,
+            messages.snapshot.visible_reminders().count(),
+        );
+        let switched = layout.placement.anchor != f.cfg.placement.anchor;
+        let changed =
+            switched || display.scale(&layout) != f.scale || layout.appearance != f.cfg.appearance;
+        (layout, target, f.state, changed)
+    };
+    if changed {
+        let scale = display.scale(&layout);
+        let result = placement::apply(ui, hwnd, layout, state, target, scale);
+        ui.dragging.set(true);
+        result?;
+    }
+    Ok((target, changed))
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {

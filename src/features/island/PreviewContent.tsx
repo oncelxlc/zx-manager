@@ -1,11 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useId, useState } from "react";
 import type { MediaStatus } from "./islandApi";
-import { BatteryRing, MusicWave, PreviewMusic } from "./PreviewMusic";
+import { notchOutline, type PreviewLayout } from "./previewLayout";
+import { PreviewMusic } from "./PreviewMusic";
+import { BatteryRing, MusicWave } from "./PreviewSymbols";
 import { isDefaultDarkSurface, lightSurface } from "./settingsStyles";
 import type { AnimationPreset, CustomCurve, IslandConfig } from "./types";
 
-export type PreviewState = "compact" | "expanded" | "edgePeek" | "hidden";
 export function motionEasing(preset: AnimationPreset, expanding: boolean, customCurve?: CustomCurve) {
   if (preset === "custom" && customCurve) {
     if (customCurve === "linear") return "linear";
@@ -16,20 +17,6 @@ export function motionEasing(preset: AnimationPreset, expanding: boolean, custom
   return expanding ? "cubic-bezier(.22,1,.36,1)" : "cubic-bezier(.4,0,1,1)";
 }
 
-// The native notch samples the same power curve at fourteen intervals on each shoulder.
-function notchPath(width: number, height: number, radius: number, expanded: boolean) {
-  const wing = Math.min(expanded ? 17.6 : 5, width / 4);
-  const depth = Math.min(expanded ? 16 : 8, height / 2);
-  const r = Math.min(radius * (expanded ? 1 : 12.5 / 33), height / 2, width / 2 - wing);
-  const shoulder = Array.from({ length: 15 }, (_, i) => {
-    const t = i / 14;
-    return { x: wing * (1 - (1 - t) ** 2.4), y: depth * t };
-  });
-  const right = shoulder.map(({ x, y }) => `L${width - x} ${y}`).join(" ");
-  const left = shoulder.reverse().map(({ x, y }) => `L${x} ${y}`).join(" ");
-  return `M0 0 ${right} V${height - r} a${r} ${r} 0 0 1 ${-r} ${r} H${wing + r} a${r} ${r} 0 0 1 ${-r} ${-r} ${left} Z`;
-}
-
 function ink(hex: string) {
   const channels = [1, 3, 5].map(start => {
     const channel = parseInt(hex.slice(start, start + 2), 16) / 255;
@@ -38,82 +25,115 @@ function ink(hex: string) {
   return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722 > 0.179 ? "#111111" : "#ffffff";
 }
 
-export function PreviewContent({ config, state, width, height, docked, media, sampledAt }: {
-  config: IslandConfig; state: PreviewState; width: number; height: number; docked: boolean;
-  media?: MediaStatus; sampledAt: number;
+function Companion({ x, motion }: { x: number; motion: boolean }) {
+  const [cycle, setCycle] = useState(0);
+  useEffect(() => {
+    if (!motion) return;
+    const timer = setInterval(() => setCycle(n => n + 1), 5600);
+    return () => clearInterval(timer);
+  }, [motion]);
+  let hash = BigInt.asUintN(64, BigInt(cycle) * 0x9e3779b97f4a7c15n);
+  hash ^= hash >> 31n;
+  hash = BigInt.asUintN(64, hash * 0xbf58476d1ce4e5b9n);
+  hash ^= hash >> 29n;
+  const delay = 2 + Number(hash >> 40n) / 2 ** 24 * 2.7;
+  return <g key={cycle} {...stylex.props(motion && s.blink(delay))}>
+    <rect x={x - 7.4} y="10.5" width="3.6" height="8" rx="1.8" />
+    <rect x={x + 3.8} y="10.5" width="3.6" height="8" rx="1.8" />
+  </g>;
+}
+
+function Compact({ layout, battery, pet, music, playing, motion, clock }: {
+  layout: PreviewLayout; battery?: [number, boolean] | null; pet: boolean; music: boolean; playing: boolean; motion: boolean; clock: string;
 }) {
-  const { appearance: a, animation, edge } = config;
-  const expanded = state === "expanded";
+  if (layout.side) {
+    const [hour, minute] = clock.split(":");
+    return <>
+      <g fontSize="13.5" fontWeight="700" textAnchor="middle"><text x="18" y="22">{hour}</text><text x="18" y="36">{minute}</text></g>
+      {battery && <BatteryRing x={18} y={49} battery={battery} scale={0.72} />}
+      {music && <MusicWave x={18} y={48 + (battery ? 20 : 0)} playing={playing} motion={motion} />}
+    </>;
+  }
+  const used = 44 + (battery ? 32 : 0) + (pet ? 44 : 0) + (music ? 26 : 0);
+  const left = (layout.bodyWidth - used) / 2;
+  const petX = left + (battery ? 32 : 0);
+  const clockX = petX + (pet ? 44 : 0);
+  return <>
+    {battery && <BatteryRing x={left + 10} y={15} battery={battery} />}
+    {pet && <Companion x={petX + 16} motion={motion} />}
+    <text x={clockX + 22} y="21" fontWeight="700" fontSize="15.5" textAnchor="middle">{clock}</text>
+    {music && <MusicWave x={clockX + 63} y={15} playing={playing} motion={motion} />}
+  </>;
+}
+
+function Outline({ layout, grow = 0, transform }: { layout: PreviewLayout; grow?: number; transform?: string }) {
+  if (!layout.pill) return <path d={notchOutline(layout, grow)} transform={transform} />;
+  return <rect x={-grow * .6} y={-grow * .3} width={layout.width + grow * 1.2} height={layout.height + grow * 1.3}
+    rx={layout.radius + grow * .8} transform={transform} />;
+}
+
+export function PreviewContent({ config, layout, media, sampledAt }: {
+  config: IslandConfig; layout: PreviewLayout; media?: MediaStatus; sampledAt: number;
+}) {
+  const { appearance: a, animation } = config;
+  const { width, height, expanded } = layout;
   const motion = animation.enabled && !animation.reducedMotion && animation.performance !== "performance";
   const automatic = a.theme === "system" && isDefaultDarkSurface(a.background);
   const background = automatic ? `light-dark(${lightSurface}, ${a.background})` : a.background;
-  const foreground = automatic ? "light-dark(#181817, #fff)" : ink(a.background);
+  const light = ink(a.background) === "#111111";
+  const tone = (dark: string, bright: string) => automatic ? `light-dark(${bright}, ${dark})` : light ? bright : dark;
+  const foreground = tone("#fff", "#111111");
   const border = automatic && a.background === "#000000" && a.border === "#000000" ? background : a.border;
   const id = useId();
-  const path = docked && width > 0 && height > 0 ? notchPath(width, height, a.radius, expanded) : undefined;
   const [now, setNow] = useState(() => new Date());
-  const interval = expanded && media?.playing ? 1_000 : 60_000;
+  const interval = expanded && media?.playing ? 1000 : 60_000;
   useEffect(() => {
     const timer = setTimeout(() => setNow(new Date()), interval - Date.now() % interval);
     return () => clearTimeout(timer);
   }, [now, interval]);
   const clock = now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
-  const vertical = height > width;
-  const space = Math.max(width, height) - (vertical ? 20 : Math.min(44, width));
-  const pet = !expanded && !vertical && space >= 44;
-  const battery = !expanded && media?.battery && space - (pet ? 44 : 0) >= 32 ? media.battery : null;
-  const wave = !expanded && media?.title && space - (pet ? 44 : 0) - (battery ? 32 : 0) >= 26;
-  if (state === "edgePeek") return <div {...stylex.props(s.stripArea, s.colors(a.theme, foreground))}><span {...stylex.props(s.strip(edge.peekSize))} /></div>;
-  return <div {...stylex.props(s.shell, s.colors(a.theme, foreground))}>
-    {path && <svg width="0" height="0" {...stylex.props(s.overlay)}>
-      <defs><clipPath id={id} clipPathUnits="objectBoundingBox"><path d={path} transform={`scale(${1 / width} ${1 / height})`} /></clipPath></defs>
-    </svg>}
-    <div {...stylex.props(s.body, s.surface(background, a.opacity, path ? 0 : a.radius, path ? `url(#${id})` : "none"),
-      !path && s.border(border), a.shadow && s.shadow, a.blur && animation.performance !== "performance" && s.blur)}>
-      <div key={expanded ? "music" : "bar"} {...stylex.props(s.content, motion && s.reveal(animation.contentMs, motionEasing(animation.preset, expanded, animation.customCurve), animation.amplitude))}>
-        {expanded && width >= 96 && height >= 56 ? <PreviewMusic media={media} sampledAt={sampledAt} now={now} clock={clock} narrow={width < height * 1.5} motion={motion} />
-          : <div {...stylex.props(s.bar)}>
-            {battery && <BatteryRing battery={battery} />}
-            {pet && <span {...stylex.props(s.pet, motion && s.blink)}>
-              <i {...stylex.props(s.eye)} /><i {...stylex.props(s.eye)} />
-            </span>}
-            <time {...stylex.props(s.clock)}>{clock}</time>
-            {wave && <MusicWave playing={media.playing} motion={motion} />}
-          </div>}
-      </div>
-      {path && <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" {...stylex.props(s.overlay)}>
-        <path d={path} fill="none" stroke={border} strokeWidth={2} vectorEffect="non-scaling-stroke" />
-      </svg>}
-    </div>
+  const battery = a.showBattery ? media?.battery : null;
+  return <div {...stylex.props(s.shell, s.colors(a.theme, foreground, tone("#dcdce0", "#38383c"), tone("#d2d2d6", "#37373a"),
+    tone("#b2b2ba", "#494951"), tone("#58585c", "#76767c"), tone("#4e4e52", "#77777b"), tone("#242427", "#ceced2"),
+    tone("#161616", "#e4e4e4"), tone("#2f2f2f", "#bfbfbf")))}>
+    {a.blur && animation.performance !== "performance" && <div {...stylex.props(s.blur(`url(#${id}-blur)`))} />}
+    <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" fill="currentColor" {...stylex.props(s.svg)}>
+      <defs>
+        <clipPath id={id}><Outline layout={layout} /></clipPath>
+        {a.blur && <clipPath id={`${id}-blur`} clipPathUnits="objectBoundingBox">
+          <Outline layout={layout} transform={`scale(${1 / width} ${1 / height})`} />
+        </clipPath>}
+      </defs>
+      {a.shadow && expanded && [[10, .035], [6.5, .05], [3.5, .07], [1.5, .09]].map(([grow, opacity]) =>
+        <g key={grow} fill="#000" opacity={opacity}><Outline layout={layout} grow={grow} /></g>)}
+      <g fill={background} fillOpacity={a.opacity}><Outline layout={layout} /></g>
+      <g clipPath={`url(#${id})`}>
+        {!layout.minimal && <g transform={`translate(${layout.bodyX} ${layout.bodyY})`}>
+          <g key={expanded ? "music" : "bar"} {...stylex.props(motion && s.reveal(animation.contentMs, animation.amplitude))}>
+            {expanded ? <PreviewMusic media={media} battery={battery} sampledAt={sampledAt} now={now} clock={clock} motion={motion}
+              lyricsEnabled={a.lyricsEnabled} top={!layout.side} />
+              : <Compact layout={layout} battery={battery} pet={a.pet} music={Boolean(media?.title)} playing={Boolean(media?.playing)} motion={motion} clock={clock} />}
+          </g>
+        </g>}
+        {(border !== background || a.opacity < 1) && <g fill="none" stroke={border} strokeWidth="2"><Outline layout={layout} /></g>}
+      </g>
+    </svg>
   </div>;
 }
 
-const blink = stylex.keyframes({ "0%": { transform: "scaleY(1)" }, "96.8%": { transform: "scaleY(.45)" }, "100%": { transform: "scaleY(.45)" } });
-const reveal = stylex.keyframes({ from: { opacity: 0, transform: "translateY(var(--preview-shift))" }, to: { opacity: 1, transform: "translateY(0)" } });
+const blinking = stylex.keyframes({ from: { transform: "scaleY(1)" }, "50%": { transform: "scaleY(.45)" }, to: { transform: "scaleY(1)" } });
+const entering = stylex.keyframes({ from: { opacity: 0, transform: "translateY(var(--island-shift))" }, to: { opacity: 1, transform: "translateY(0)" } });
 const s = stylex.create({
-  shell: { position: "relative", width: "100%", height: "100%", userSelect: "none", fontFamily: '"Segoe UI", "Microsoft YaHei UI", sans-serif' },
-  colors: (theme: string, color: string) => ({ colorScheme: theme === "system" ? "light dark" : theme, color }),
-  body: { position: "absolute", inset: 0, overflow: "hidden", containerType: "size" },
-  surface: (base: string, opacity: number, radius: number, clip: string) => ({
-    backgroundColor: `color-mix(in srgb, ${base} ${opacity * 100}%, transparent)`, borderRadius: radius, clipPath: clip,
+  shell: { position: "relative", width: "100%", height: "100%", fontFamily: '"Segoe UI", "Microsoft YaHei UI", sans-serif', userSelect: "none" },
+  svg: { overflow: "visible", display: "block" },
+  colors: (theme: string, color: string, battery: string, date: string, dim: string, control: string, elapsed: string, track: string, button: string, border: string) => ({
+    colorScheme: theme === "system" ? "light dark" : theme, color, "--island-battery": battery, "--island-date": date,
+    "--island-dim": dim, "--island-control": control, "--island-elapsed": elapsed, "--island-track": track,
+    "--island-lyrics-button": button, "--island-lyrics-border": border,
   }),
-  border: (color: string) => ({ borderWidth: 1, borderStyle: "solid", borderColor: color }),
-  shadow: { boxShadow: "inset 0 0 14px #0002" },
-  blur: { backdropFilter: "blur(12px)" },
-  overlay: { position: "absolute", inset: 0, pointerEvents: "none" },
-  content: { position: "absolute", inset: 0 },
-  reveal: (ms: number, easing: string, amplitude: number) => ({ animationName: reveal,
-    "--preview-shift": `${amplitude * 4}px`, animationTimingFunction: easing, animationDuration: { default: `${ms}ms`, "@media (prefers-reduced-motion: reduce)": "0ms" } }),
-  stripArea: { width: "100%", height: "100%", display: "grid", placeItems: "center", containerType: "size" },
-  strip: (size: number) => ({ backgroundColor: "currentColor", borderRadius: 999,
-    width: { default: "100%", "@container (aspect-ratio < 1)": `min(100%, ${size}px)` },
-    height: { default: `min(100%, ${size}px)`, "@container (aspect-ratio < 1)": "100%" } }),
-  bar: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
-    flexDirection: { default: "row", "@container (aspect-ratio < 1)": "column" } },
-  pet: { width: 32, display: "flex", gap: 7.6, justifyContent: "center", flexShrink: 0 },
-  eye: { width: 3.6, height: 8, borderRadius: 2, backgroundColor: "currentColor" },
-  blink: { animationName: blink, animationDuration: "5.6s", animationIterationCount: "infinite", animationTimingFunction: "step-end",
-    animationPlayState: { default: "running", "@media (prefers-reduced-motion: reduce)": "paused" } },
-  clock: { maxWidth: "100%", whiteSpace: "nowrap", fontWeight: 700, fontVariantNumeric: "tabular-nums", lineHeight: 1, textAlign: "center",
-    fontSize: { default: 15.5, "@container (28px <= width < 40px)": 11, "@container (width < 28px)": 9 } },
+  blur: (clipPath: string) => ({ position: "absolute", inset: 0, backdropFilter: "blur(12px)", clipPath }),
+  blink: (delay: number) => ({ transformBox: "fill-box", transformOrigin: "center", animationName: { default: blinking, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "180ms", animationDelay: `${delay}s`, animationTimingFunction: "ease-in-out" }),
+  reveal: (ms: number, amplitude: number) => ({ "--island-shift": `${4 * amplitude}px`,
+    animationName: { default: entering, "@media (prefers-reduced-motion: reduce)": "none" }, animationDuration: `${ms}ms`, animationTimingFunction: "ease-out" }),
 });

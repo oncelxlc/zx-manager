@@ -1,8 +1,18 @@
 use super::*;
 
 impl IslandManager {
+    pub(super) fn edge_config(&self, mut config: IslandConfig) -> Result<IslandConfig> {
+        if !config.placement.lock_to_anchor() {
+            let screens = displays::displays(&self.app)?;
+            let screen =
+                displays::target_display(&screens, config.placement.display_id.as_deref())?;
+            screen.normalize_placement(&mut config);
+        }
+        Ok(config)
+    }
+
     pub fn read_config(&mut self) -> Result<IslandConfig> {
-        let current = self.store.load()?;
+        let current = self.edge_config(self.store.load()?)?;
         if self.load_error.is_some() {
             self.restart()?;
         } else if current != self.config {
@@ -13,6 +23,7 @@ impl IslandManager {
 
     pub fn save(&mut self, draft: IslandConfig) -> Result<IslandConfig> {
         draft.validate()?;
+        let draft = self.edge_config(draft)?;
         let previous = self.read_config()?;
         if draft.revision != previous.revision {
             return Err("配置已被修改，请重新载入后再保存".into());
@@ -88,13 +99,16 @@ impl IslandManager {
         y: f64,
         revision: u64,
     ) -> Result<IslandConfig> {
+        if !(-65535.0..=65535.0).contains(&x) || !(-65535.0..=65535.0).contains(&y) {
+            return Err("窗口坐标超出有效范围".into());
+        }
         let mut config = self.read_config()?;
         config.revision = revision;
         config.placement.anchor = Anchor::Custom;
         config.placement.display_id = Some(display_id);
         config.placement.offset_x = x;
         config.placement.offset_y = y;
-        self.save(config)
+        self.save(self.edge_config(config)?)
     }
 
     pub fn drag(&mut self) -> Result<()> {
@@ -133,21 +147,30 @@ impl IslandManager {
     }
 
     fn apply_drag_position(&mut self, origin: (i32, i32)) -> Result<()> {
-        let mut config = self.effective_config();
+        let effective = self.effective_config();
         let window = self.window.as_ref().ok_or("灵动岛窗口不可用")?;
         let at = window.outer_rect()?;
         if (at.x, at.y) == origin {
             return self.refresh();
         }
-        let (display, x, y) = displays::drag_position(&self.app, &config, self.machine.state, at)?;
-        config.placement.anchor = Anchor::Custom;
-        config.placement.display_id = Some(display);
-        config.placement.offset_x = x;
-        config.placement.offset_y = y;
-        if config.placement.remember_position {
-            self.save(config)?;
+        let placement = displays::drag_position(
+            &self.app,
+            &effective,
+            &self.media,
+            self.reminder_count(),
+            self.machine.state,
+            at,
+        )?;
+        if placement.remember_position {
+            let mut config = self.config.clone();
+            config.placement = placement;
+            if config == self.config {
+                self.refresh()?;
+            } else {
+                self.save(config)?;
+            }
         } else {
-            self.session_position = Some(config.placement);
+            self.session_position = Some(placement);
             self.position_changed()?;
             self.refresh()?;
         }

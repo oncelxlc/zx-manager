@@ -1,4 +1,5 @@
 use super::config::{IslandConfig, SCHEMA_VERSION};
+use super::geometry::Display;
 use serde_json::Value;
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
@@ -6,12 +7,17 @@ use std::path::{Path, PathBuf};
 
 pub struct ConfigStore {
     directory: PathBuf,
+    displays: Box<dyn Fn() -> Result<Vec<Display>, String> + Send>,
 }
 
 impl ConfigStore {
-    pub fn new(config_dir: PathBuf) -> Self {
+    pub fn new(
+        config_dir: PathBuf,
+        displays: impl Fn() -> Result<Vec<Display>, String> + Send + 'static,
+    ) -> Self {
         Self {
             directory: config_dir,
+            displays: Box::new(displays),
         }
     }
 
@@ -93,31 +99,56 @@ impl ConfigStore {
                     }
                 }
             }
-            3 => {}
+            3..=5 => {}
             version if version == u64::from(SCHEMA_VERSION) => {}
             version => return Err(format!("不支持的配置版本 {version}，请升级应用")),
         }
         let migrated = version < u64::from(SCHEMA_VERSION);
+        let legacy_size = |key: &str| fields.get("appearance")?.get(key)?.as_f64();
+        let old_width = legacy_size("compactWidth").unwrap_or(120.0);
+        let old_height = legacy_size("compactHeight").unwrap_or(30.0);
+        if migrated {
+            if let Some(edge) = fields.get_mut("edge").and_then(Value::as_object_mut) {
+                edge.remove("triggerWidth");
+                edge.remove("peekSize");
+            }
+            if let Some(a) = fields.get_mut("appearance").and_then(Value::as_object_mut) {
+                for key in [
+                    "compactWidth",
+                    "compactHeight",
+                    "expandedWidth",
+                    "expandedHeight",
+                    "radius",
+                ] {
+                    a.remove(key);
+                }
+            }
+            if let Some(p) = fields.get_mut("placement").and_then(Value::as_object_mut) {
+                p.remove("orientation");
+                p.remove("expandDirection");
+            }
+        }
         fields.insert("schemaVersion".into(), SCHEMA_VERSION.into());
         let mut config: IslandConfig =
             serde_json::from_value(value).map_err(|err| format!("island.json 配置无效：{err}"))?;
-        if migrated {
+        if migrated
+            && (config.placement.offset_x != 0.0
+                || config.placement.offset_y != 0.0
+                || !matches!(
+                    config.placement.anchor,
+                    super::config::Anchor::TopCenter
+                        | super::config::Anchor::CenterLeft
+                        | super::config::Anchor::CenterRight
+                ))
+        {
+            let displays = (self.displays)()?;
+            let screen =
+                super::displays::target_display(&displays, config.placement.display_id.as_deref())?;
+            screen.migrate_placement(&mut config, old_width, old_height)?;
+        }
+        if version < 4 {
             let a = &mut config.appearance;
             let defaults = super::config::AppearanceConfig::default();
-            if (
-                a.compact_width,
-                a.compact_height,
-                a.expanded_width,
-                a.expanded_height,
-                a.radius,
-            ) == (156.0, 44.0, 328.0, 168.0, 24.0)
-            {
-                a.compact_width = defaults.compact_width;
-                a.compact_height = defaults.compact_height;
-                a.expanded_width = defaults.expanded_width;
-                a.expanded_height = defaults.expanded_height;
-                a.radius = defaults.radius;
-            }
             if a.background.eq_ignore_ascii_case("#101214")
                 && a.border.eq_ignore_ascii_case("#34383c")
                 && a.opacity == 0.96

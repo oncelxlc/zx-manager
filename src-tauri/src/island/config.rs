@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 6;
 
 macro_rules! config_enum {
     ($name:ident { $($item:ident),+ }) => {
@@ -22,18 +22,7 @@ config_enum!(Anchor {
     BottomRight,
     Custom
 });
-config_enum!(Orientation {
-    Horizontal,
-    Vertical,
-    Auto
-});
-config_enum!(ExpandDirection {
-    Auto,
-    Up,
-    Down,
-    Left,
-    Right
-});
+config_enum!(IslandShape { Notch, Pill });
 config_enum!(EdgeMode {
     Disabled,
     Compact,
@@ -96,14 +85,12 @@ config_group!(StartupConfig {
     start_compact: bool = true,
 });
 
-// All geometry in the config is in logical pixels, relative to the selected work area.
+// The active axis ranges from -100 to 100 percent of the dock's travel.
 config_group!(PlacementConfig {
     anchor: Anchor = Anchor::TopCenter,
     display_id: Option<String> = None,
     offset_x: f64 = 0.0,
     offset_y: f64 = 0.0,
-    orientation: Orientation = Orientation::Auto,
-    expand_direction: ExpandDirection = ExpandDirection::Auto,
     remember_position: bool = true,
 });
 
@@ -112,16 +99,28 @@ config_group!(EdgeConfig {
     auto_hide: bool = true,
     hide_delay_ms: u32 = 900,
     wake_delay_ms: u32 = 80,
-    trigger_width: f64 = 6.0,
-    peek_size: f64 = 6.0,
     hide_on_fullscreen: bool = true,
 });
 
 config_group!(AppearanceConfig {
+    island_size: u32 = 100,
+    minimal: bool = false,
+    pet: bool = true,
+    show_battery: bool = true,
+    lyrics_enabled: bool = true,
+    shape: IslandShape = IslandShape::Notch,
+    // Per-frame body dimensions in island coordinates, before shoulders and scaling.
+    #[serde(skip)]
     compact_width: f64 = 120.0,
+    #[serde(skip)]
     compact_height: f64 = 30.0,
+    #[serde(skip)]
     expanded_width: f64 = 419.0,
+    #[serde(skip)]
     expanded_height: f64 = 140.0,
+    #[serde(skip)]
+    unread_extent: f64 = 0.0,
+    #[serde(skip)]
     radius: f64 = 33.0,
     opacity: f64 = 1.0,
     background: String = "#000000".into(),
@@ -178,25 +177,27 @@ impl IslandConfig {
             return Err("显示器标识无效".into());
         }
         let a = &self.appearance;
+        if !(80..=140).contains(&a.island_size) || !a.island_size.is_multiple_of(5) {
+            return Err("岛体大小必须为 80% 至 140%，每档 5%".into());
+        }
+        if !matches!(
+            self.placement.anchor,
+            Anchor::TopCenter | Anchor::CenterLeft | Anchor::CenterRight
+        ) {
+            return Err("请选择顶部、左侧或右侧停靠".into());
+        }
+        for offset in [self.placement.offset_x, self.placement.offset_y] {
+            if !(-100.0..=100.0).contains(&offset) || offset.fract() != 0.0 {
+                return Err("沿边位置必须是 -100 至 100 之间的整数百分比".into());
+            }
+        }
         for (name, value, min, max) in [
-            ("offsetX", self.placement.offset_x, -65535.0, 65535.0),
-            ("offsetY", self.placement.offset_y, -65535.0, 65535.0),
-            ("triggerWidth", self.edge.trigger_width, 2.0, 20.0),
-            ("peekSize", self.edge.peek_size, 2.0, 20.0),
-            ("compactWidth", a.compact_width, 24.0, 2048.0),
-            ("compactHeight", a.compact_height, 24.0, 2048.0),
-            ("expandedWidth", a.expanded_width, 48.0, 4096.0),
-            ("expandedHeight", a.expanded_height, 48.0, 4096.0),
-            ("radius", a.radius, 0.0, 1024.0),
             ("opacity", a.opacity, 0.0, 1.0),
             ("amplitude", self.animation.amplitude, 0.0, 2.0),
         ] {
             if !(min..=max).contains(&value) {
                 return Err(format!("{name} 必须在 {min} 至 {max} 之间"));
             }
-        }
-        if a.expanded_width < a.compact_width || a.expanded_height < a.compact_height {
-            return Err("展开尺寸必须大于或等于收起尺寸".into());
         }
         for color in [&a.background, &a.border] {
             if color.len() != 7

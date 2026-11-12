@@ -1,7 +1,5 @@
 export type IslandState = "disabled" | "hidden" | "edgePeek" | "compact" | "expanded" | "pinned" | "suspended";
-export type Anchor = "topLeft" | "topCenter" | "topRight" | "centerLeft" | "center" | "centerRight" | "bottomLeft" | "bottomCenter" | "bottomRight" | "custom";
-export type Orientation = "horizontal" | "vertical" | "auto";
-export type ExpandDirection = "auto" | "up" | "down" | "left" | "right";
+export type Anchor = "topCenter" | "centerLeft" | "centerRight";
 export type EdgeMode = "disabled" | "compact" | "peek" | "fullHide";
 export type Theme = "system" | "light" | "dark";
 export type AnimationPreset = "subtle" | "smooth" | "spring" | "custom";
@@ -22,8 +20,6 @@ export interface IslandConfig {
     displayId: string | null;
     offsetX: number;
     offsetY: number;
-    orientation: Orientation;
-    expandDirection: ExpandDirection;
     rememberPosition: boolean;
   };
   edge: {
@@ -31,16 +27,15 @@ export interface IslandConfig {
     autoHide: boolean;
     hideDelayMs: number;
     wakeDelayMs: number;
-    triggerWidth: number;
-    peekSize: number;
     hideOnFullscreen: boolean;
   };
   appearance: {
-    compactWidth: number;
-    compactHeight: number;
-    expandedWidth: number;
-    expandedHeight: number;
-    radius: number;
+    islandSize: number;
+    minimal: boolean;
+    pet: boolean;
+    showBattery: boolean;
+    lyricsEnabled: boolean;
+    shape: "notch" | "pill";
     opacity: number;
     background: string;
     border: string;

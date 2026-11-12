@@ -1,6 +1,7 @@
 use super::{
-    config::IslandConfig,
+    config::{IslandConfig, PlacementConfig},
     geometry::{Display, Rect},
+    media::MediaSnapshot,
     state::IslandState,
 };
 use tauri::{AppHandle, Monitor};
@@ -18,18 +19,18 @@ fn display(monitor: &Monitor, primary: Option<&Monitor>) -> Display {
             pos.y
         )
     });
-    let work = monitor.work_area();
+    let bounds = Rect {
+        x: pos.x,
+        y: pos.y,
+        width: monitor.size().width.max(1) as i32,
+        height: monitor.size().height.max(1) as i32,
+    };
     Display {
         id: name.clone(),
         name,
         primary: primary.is_some_and(|p| p.position() == pos),
         scale_factor: monitor.scale_factor(),
-        work: Rect {
-            x: work.position.x,
-            y: work.position.y,
-            width: work.size.width.max(1) as i32,
-            height: work.size.height.max(1) as i32,
-        },
+        work: bounds.placement_bounds(monitor.work_area().position.y),
     }
 }
 
@@ -45,15 +46,19 @@ pub(super) fn displays(app: &AppHandle) -> Result<Vec<Display>> {
 pub(super) fn drag_position(
     app: &AppHandle,
     cfg: &IslandConfig,
+    media: &MediaSnapshot,
+    reminder_count: usize,
     state: IslandState,
     at: Rect,
-) -> Result<(String, f64, f64)> {
+) -> Result<PlacementConfig> {
     let screen = displays(app)?
         .into_iter()
         .max_by_key(|d| overlap_and_distance(d.work, at))
         .ok_or("找不到可用显示器")?;
-    let (x, y) = screen.drag_offset(cfg, state, at);
-    Ok((screen.id, x, y))
+    let mut placed = cfg.clone();
+    placed.placement.anchor = at.dock_anchor(screen.work, cfg.placement.anchor);
+    let sized = screen.content_config(&placed, media, reminder_count);
+    Ok(screen.drag_placement(&sized, state, at))
 }
 
 // A partially off-screen island can have its center in a gap between monitors.

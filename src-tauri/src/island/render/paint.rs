@@ -32,7 +32,6 @@ pub(super) struct ImageKey {
     border: D2D1_COLOR_F,
     ink: D2D1_COLOR_F,
     shadow: bool,
-    peek_size: f32,
 }
 
 fn color(rgb: u32, a: f32) -> D2D1_COLOR_F {
@@ -116,12 +115,7 @@ impl ImageKey {
                 1.0,
             ),
             ink,
-            shadow: a.shadow,
-            peek_size: if state == IslandState::EdgePeek {
-                cfg.edge.peek_size as f32
-            } else {
-                0.0
-            },
+            shadow: a.shadow && matches!(state, IslandState::Expanded | IslandState::Pinned),
         }
     }
 }
@@ -147,20 +141,10 @@ fn point(x: f32, y: f32) -> Vector2 {
 unsafe fn font(
     factory: &IDWriteFactory,
     size: f32,
-    bold: bool,
-    icons: bool,
+    weight: DWRITE_FONT_WEIGHT,
 ) -> Result<IDWriteTextFormat> {
-    let weight = if bold {
-        DWRITE_FONT_WEIGHT_BOLD
-    } else {
-        DWRITE_FONT_WEIGHT_NORMAL
-    };
     factory.CreateTextFormat(
-        if icons {
-            w!("Segoe MDL2 Assets")
-        } else {
-            w!("Segoe UI")
-        },
+        w!("Segoe UI"),
         None,
         weight,
         DWRITE_FONT_STYLE_NORMAL,
@@ -171,15 +155,20 @@ unsafe fn font(
 }
 
 pub(super) struct Painter {
+    write: IDWriteFactory,
     brush: ID2D1SolidColorBrush,
+    charging_bolt: ID2D1PathGeometry,
     icons: Vec<(Weak<AppIcon>, ID2D1Bitmap1)>,
     clock: IDWriteTextFormat,
     title: IDWriteTextFormat,
+    small_title: IDWriteTextFormat,
+    tiny: IDWriteTextFormat,
+    tiny_label: IDWriteTextFormat,
+    lyrics_label: IDWriteTextFormat,
     artist: IDWriteTextFormat,
     elapsed: IDWriteTextFormat,
     percent: IDWriteTextFormat,
-    symbol: IDWriteTextFormat,
-    note: IDWriteTextFormat,
+    side_clock: IDWriteTextFormat,
     header_clock: IDWriteTextFormat,
     narrow_clock: IDWriteTextFormat,
     detail: IDWriteTextFormat,
@@ -189,8 +178,8 @@ pub(super) struct Painter {
 impl Painter {
     pub unsafe fn new(dc: &ID2D1DeviceContext) -> Result<Self> {
         let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
-        let message_font = |size, bold, center, icons| -> Result<IDWriteTextFormat> {
-            let fmt = font(&factory, size, bold, icons)?;
+        let message_font = |size, weight, center| -> Result<IDWriteTextFormat> {
+            let fmt = font(&factory, size, weight)?;
             fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
             fmt.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
             if center {
@@ -204,19 +193,24 @@ impl Painter {
             Ok(fmt)
         };
         Ok(Self {
+            write: factory.clone(),
             brush: dc.CreateSolidColorBrush(&color(0xffffff, 1.0), None)?,
+            charging_bolt: music::charging_bolt(dc)?,
             icons: Vec::new(),
-            clock: message_font(15.5, true, true, false)?,
-            header_clock: message_font(12.5, true, true, false)?,
-            narrow_clock: message_font(9.0, true, true, false)?,
-            title: message_font(14.0, true, false, false)?,
-            artist: message_font(11.5, false, false, false)?,
-            elapsed: message_font(15.0, false, true, false)?,
-            percent: message_font(6.6, true, true, false)?,
-            symbol: message_font(15.0, false, true, true)?,
-            note: message_font(26.0, false, true, true)?,
-            detail: message_font(13.0, false, false, false)?,
-            centered: message_font(11.0, false, true, false)?,
+            clock: message_font(15.5, DWRITE_FONT_WEIGHT_BOLD, true)?,
+            header_clock: message_font(12.5, DWRITE_FONT_WEIGHT_BOLD, true)?,
+            narrow_clock: message_font(9.0, DWRITE_FONT_WEIGHT_BOLD, true)?,
+            title: message_font(14.0, DWRITE_FONT_WEIGHT_BOLD, false)?,
+            artist: message_font(11.5, DWRITE_FONT_WEIGHT_NORMAL, false)?,
+            elapsed: message_font(15.0, DWRITE_FONT_WEIGHT_NORMAL, true)?,
+            percent: message_font(6.6, DWRITE_FONT_WEIGHT_BOLD, true)?,
+            side_clock: message_font(13.5, DWRITE_FONT_WEIGHT_BOLD, true)?,
+            detail: message_font(13.0, DWRITE_FONT_WEIGHT_NORMAL, false)?,
+            centered: message_font(11.0, DWRITE_FONT_WEIGHT_NORMAL, true)?,
+            small_title: message_font(12.0, DWRITE_FONT_WEIGHT_BOLD, false)?,
+            tiny: message_font(10.0, DWRITE_FONT_WEIGHT_NORMAL, false)?,
+            tiny_label: message_font(10.0, DWRITE_FONT_WEIGHT_SEMI_BOLD, false)?,
+            lyrics_label: message_font(14.0, DWRITE_FONT_WEIGHT_SEMI_BOLD, false)?,
         })
     }
 
@@ -225,17 +219,9 @@ impl Painter {
         let h = key.size.1 as f32 / key.scale;
         let b = &self.brush;
         dc.Clear(None);
-        if key.state == IslandState::EdgePeek {
-            let (sw, sh) = if w < h {
-                (key.peek_size.min(w), h)
-            } else {
-                (w, key.peek_size.min(h))
-            };
-            b.SetColor(&key.ink);
-            dc.FillRoundedRectangle(
-                &round((w - sw) / 2.0, (h - sh) / 2.0, sw, sh, sw.min(sh) / 2.0),
-                b,
-            );
+        if key.state == IslandState::EdgePeek && key.notch.is_none() {
+            b.SetColor(&key.background);
+            dc.FillRoundedRectangle(&round(0.0, 0.0, w, h, w.min(h) / 2.0), b);
             return Ok(());
         }
         let clip = D2D_RECT_F {
@@ -260,13 +246,15 @@ impl Painter {
                 b.SetColor(&color(0, 0.08));
                 dc.DrawGeometry(&path, b, 5.0, None);
             }
-            b.SetColor(&key.border);
-            dc.DrawGeometry(&path, b, 1.0, None);
+            if key.border != key.background {
+                b.SetColor(&key.border);
+                dc.DrawGeometry(&path, b, 1.0, None);
+            }
             dc.PopAxisAlignedClip();
         } else {
             dc.FillRectangle(&clip, b);
             if key.shadow {
-                // The WebView inset shadow is approximated by nested antialiased strokes.
+                // The window region clips the native shading to the shell.
                 for inset in 1..=6 {
                     let i = inset as f32;
                     if w.min(h) <= 2.0 * i {
@@ -281,8 +269,15 @@ impl Painter {
                     );
                 }
             }
-            b.SetColor(&key.border);
-            dc.DrawRoundedRectangle(&round(0.5, 0.5, w - 1.0, h - 1.0, key.radius), b, 1.0, None);
+            if key.border != key.background {
+                b.SetColor(&key.border);
+                dc.DrawRoundedRectangle(
+                    &round(0.5, 0.5, w - 1.0, h - 1.0, key.radius),
+                    b,
+                    1.0,
+                    None,
+                );
+            }
         }
         let (x, y) = key.content_origin();
         dc.SetTransform(&windows_numerics::Matrix3x2::translation(
@@ -383,7 +378,7 @@ impl Painter {
         if let Some(media) = &panel.music {
             return self.music(dc, key, panel, media);
         }
-        self.header(dc, key, panel);
+        self.header(dc, key, panel)?;
         for item in &panel.items {
             let r = item.bounds;
             let (x, y, w, h) = (r.x as f32, r.y as f32, r.width as f32, r.height as f32);

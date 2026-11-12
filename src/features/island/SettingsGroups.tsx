@@ -2,7 +2,7 @@ import type { IslandDisplay } from "./islandApi";
 import defaults from "./defaults.json";
 import { isDefaultDarkSurface, lightSurface } from "./settingsStyles";
 import type { IslandConfig } from "./types";
-import { Amount, Check, Choice, ColorField } from "./SettingsFields";
+import { Amount, Check, Choice, ColorField, IslandSlider } from "./SettingsFields";
 
 export const groups = {
   overview: "总览", startup: "启动管理", placement: "位置与方向", edge: "边界隐藏",
@@ -34,20 +34,14 @@ export function SettingsGroups({ group, config, displays, update }: Props) {
       if (placement.displayId && !displays.some(d => d.id === placement.displayId)) {
         options.push([placement.displayId, `${placement.displayId}（未连接）`]);
       }
+      const side = placement.anchor === "centerLeft" || placement.anchor === "centerRight";
       return <>
         <Choice label="目标显示器" value={placement.displayId ?? ""} options={options} change={id => update(group, { displayId: id || null })} />
-        <Choice label="停靠位置" value={placement.anchor} change={anchor => update(group, { anchor })} options={[
-          ["topLeft", "左上"], ["topCenter", "上方居中"], ["topRight", "右上"], ["centerLeft", "左侧居中"], ["center", "中央"],
-          ["centerRight", "右侧居中"], ["bottomLeft", "左下"], ["bottomCenter", "下方居中"], ["bottomRight", "右下"], ["custom", "自定义坐标"],
+        <Choice label="停靠位置" value={placement.anchor} change={anchor => update(group, { anchor, offsetX: 0, offsetY: 0 })} options={[
+          ["topCenter", "顶部"], ["centerLeft", "左侧"], ["centerRight", "右侧"],
         ]} />
-        <Amount label={placement.anchor === "custom" ? "工作区 X 坐标（逻辑像素）" : "水平偏移（逻辑像素）"} value={placement.offsetX}
-          min={-65535} max={65535} step="any" change={offsetX => update(group, { offsetX })} />
-        <Amount label={placement.anchor === "custom" ? "工作区 Y 坐标（逻辑像素）" : "垂直偏移（逻辑像素）"} value={placement.offsetY}
-          min={-65535} max={65535} step="any" change={offsetY => update(group, { offsetY })} />
-        <Choice label="布局方向" value={placement.orientation} change={orientation => update(group, { orientation })}
-          options={[["auto", "自动"], ["horizontal", "横向"], ["vertical", "纵向"]]} />
-        <Choice label="展开方向" value={placement.expandDirection} change={expandDirection => update(group, { expandDirection })}
-          options={[["auto", "自动"], ["up", "向上"], ["down", "向下"], ["left", "向左"], ["right", "向右"]]} />
+        {side ? <IslandSlider position="vertical" value={placement.offsetY} change={offsetY => update(group, { offsetY })} />
+          : <IslandSlider position="horizontal" value={placement.offsetX} change={offsetX => update(group, { offsetX })} />}
         <Check label="记住拖动后的位置" value={placement.rememberPosition} change={rememberPosition => update(group, { rememberPosition })} />
       </>;
     }
@@ -59,11 +53,7 @@ export function SettingsGroups({ group, config, displays, update }: Props) {
         ]} />
         {mode === "fullHide" && <p>完全隐藏后，可从托盘菜单重新显示。</p>}
         {mode !== "compact" && <Amount label="隐藏延迟（毫秒）" value={edge.hideDelayMs} min={0} max={60000} change={hideDelayMs => update(group, { hideDelayMs })} />}
-        {mode === "peek" && <>
-          <Amount label="唤醒延迟（毫秒）" value={edge.wakeDelayMs} min={0} max={60000} change={wakeDelayMs => update(group, { wakeDelayMs })} />
-          <Amount label="边缘触发宽度（逻辑像素）" value={edge.triggerWidth} min={2} max={20} change={triggerWidth => update(group, { triggerWidth })} />
-          <Amount label="边缘露出尺寸（逻辑像素）" value={edge.peekSize} min={2} max={20} change={peekSize => update(group, { peekSize })} />
-        </>}
+        {mode === "peek" && <Amount label="唤醒延迟（毫秒）" value={edge.wakeDelayMs} min={0} max={60000} change={wakeDelayMs => update(group, { wakeDelayMs })} />}
         <Check label="全屏应用运行时隐藏" value={edge.hideOnFullscreen} change={hideOnFullscreen => update(group, { hideOnFullscreen })} />
       </>;
     }
@@ -77,11 +67,13 @@ export function SettingsGroups({ group, config, displays, update }: Props) {
       }} options={[["system", "跟随系统"], ["light", "浅色"], ["dark", "深色"]]} />
       <ColorField label="背景色" value={appearance.background} change={background => update(group, { background })} />
       <ColorField label="边框色" value={appearance.border} change={border => update(group, { border })} />
-      <Amount label="收起宽度（逻辑像素）" value={appearance.compactWidth} min={24} max={2048} change={compactWidth => update(group, { compactWidth })} />
-      <Amount label="收起高度（逻辑像素）" value={appearance.compactHeight} min={24} max={2048} change={compactHeight => update(group, { compactHeight })} />
-      <Amount label="展开宽度（逻辑像素）" value={appearance.expandedWidth} min={Math.max(48, appearance.compactWidth)} max={4096} change={expandedWidth => update(group, { expandedWidth })} />
-      <Amount label="展开高度（逻辑像素）" value={appearance.expandedHeight} min={Math.max(48, appearance.compactHeight)} max={4096} change={expandedHeight => update(group, { expandedHeight })} />
-      <Amount label="圆角（逻辑像素）" value={appearance.radius} min={0} max={1024} change={radius => update(group, { radius })} />
+      <Choice label="岛体形态" value={appearance.shape} change={shape => update(group, { shape })}
+        options={[["notch", "刘海"], ["pill", "胶囊"]]} />
+      <IslandSlider value={appearance.islandSize} change={islandSize => update(group, { islandSize })} />
+      <Check label="极简模式" value={appearance.minimal} change={minimal => update(group, { minimal })} />
+      <Check label="显示伙伴" value={appearance.pet} change={pet => update(group, { pet })} />
+      <Check label="显示电池" value={appearance.showBattery} change={showBattery => update(group, { showBattery })} />
+      <Check label="展开时显示歌词" value={appearance.lyricsEnabled} change={lyricsEnabled => update(group, { lyricsEnabled })} />
       <Amount label="背景不透明度" value={appearance.opacity} step={0.01} min={0} max={1} change={opacity => update(group, { opacity })} />
       <Check label="阴影" value={appearance.shadow} change={shadow => update(group, { shadow })} />
       <Check label="毛玻璃效果" value={appearance.blur} change={blur => update(group, { blur })} />

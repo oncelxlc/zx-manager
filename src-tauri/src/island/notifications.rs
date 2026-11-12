@@ -84,6 +84,15 @@ pub struct NotificationSnapshot {
     pub reminders: Vec<Reminder>,
 }
 
+impl NotificationSnapshot {
+    pub fn visible_reminders(&self) -> impl Iterator<Item = Source> + '_ {
+        [Source::Wechat, Source::Qq].into_iter().filter(|s| {
+            self.reminders.iter().any(|r| r.source == *s)
+                && self.windows.iter().any(|w| w.source == *s)
+        })
+    }
+}
+
 #[derive(Default)]
 struct WorkerState {
     stop: AtomicBool,

@@ -1,19 +1,19 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 6,
   "revision": 0,
   "enabled": true,
   "startup": { "launchAtLogin": false, "showOnStart": true, "startCompact": true },
   "placement": {
     "anchor": "topCenter", "displayId": null, "offsetX": 0.0, "offsetY": 0.0,
-    "orientation": "auto", "expandDirection": "auto", "rememberPosition": true
+    "rememberPosition": true
   },
   "edge": {
     "mode": "compact", "autoHide": true, "hideDelayMs": 900, "wakeDelayMs": 80,
-    "triggerWidth": 6.0, "peekSize": 6.0, "hideOnFullscreen": true
+    "hideOnFullscreen": true
   },
   "appearance": {
-    "compactWidth": 120.0, "compactHeight": 30.0, "expandedWidth": 419.0, "expandedHeight": 140.0,
-    "radius": 33.0, "opacity": 1.0, "background": "#000000", "border": "#000000",
+    "islandSize": 100, "minimal": false, "pet": true, "showBattery": true, "lyricsEnabled": true, "shape": "notch",
+    "opacity": 1.0, "background": "#000000", "border": "#000000",
     "shadow": true, "blur": false, "theme": "dark"
   },
   "animation": {

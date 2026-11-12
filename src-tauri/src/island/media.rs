@@ -39,13 +39,6 @@ pub(crate) struct MediaSnapshot {
     pub battery: Option<(u8, bool)>,
 }
 
-impl MediaSnapshot {
-    pub fn extra_width(&self) -> f64 {
-        (if self.battery.is_some() { 32.0 } else { 0.0 })
-            + if self.title.is_empty() { 0.0 } else { 26.0 }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Transport {
     Previous,
@@ -132,10 +125,16 @@ fn select_session(manager: &SessionManager) -> Option<Session> {
 
 fn battery() -> Option<(u8, bool)> {
     let mut status = SYSTEM_POWER_STATUS::default();
-    (unsafe { GetSystemPowerStatus(&mut status) } != 0
-        && status.BatteryFlag & 128 == 0
-        && status.BatteryLifePercent <= 100)
-        .then_some((status.BatteryLifePercent, status.BatteryFlag & 8 != 0))
+    if unsafe { GetSystemPowerStatus(&mut status) } == 0 {
+        return None;
+    }
+    battery_reading(&status)
+}
+
+fn battery_reading(status: &SYSTEM_POWER_STATUS) -> Option<(u8, bool)> {
+    // A plugged-in laptop can stop charging at its configured charge limit.
+    (status.BatteryFlag & 128 == 0 && status.BatteryLifePercent <= 100)
+        .then_some((status.BatteryLifePercent, status.ACLineStatus == 1))
 }
 
 fn read(session: &Session, last: &MediaSnapshot) -> Result<MediaSnapshot> {
@@ -278,4 +277,27 @@ fn control(session: &Session, title: &str, action: Transport) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod battery_tests {
+    use super::*;
+
+    #[test]
+    fn plugged_in_at_charge_limit_uses_the_power_indicator() {
+        let mut status = SYSTEM_POWER_STATUS {
+            ACLineStatus: 1,
+            BatteryFlag: 1,
+            BatteryLifePercent: 78,
+            ..Default::default()
+        };
+        assert_eq!(battery_reading(&status), Some((78, true)));
+        status.ACLineStatus = 0;
+        assert_eq!(battery_reading(&status), Some((78, false)));
+        status.BatteryFlag = 128;
+        assert!(battery_reading(&status).is_none());
+        status.BatteryFlag = 1;
+        status.BatteryLifePercent = 255;
+        assert!(battery_reading(&status).is_none());
+    }
 }

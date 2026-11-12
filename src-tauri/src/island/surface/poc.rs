@@ -1,6 +1,6 @@
 use super::{error, Display, IslandConfig, IslandState, Rect, Result, Surface, SurfaceEvent};
 mod appearance;
-use std::{mem::size_of, sync::mpsc, thread, time::Duration};
+use std::{mem::size_of, ptr::null_mut, sync::mpsc, thread, time::Duration};
 use windows::{
     core::Interface,
     Win32::{
@@ -14,9 +14,12 @@ use windows::{
 };
 use windows_sys::Win32::{
     Foundation::{HWND, POINT, RECT},
-    Graphics::Gdi::{
-        EnumDisplayMonitors, GetMonitorInfoW, MonitorFromPoint, HDC, HMONITOR, MONITORINFO,
-        MONITOR_DEFAULTTOPRIMARY,
+    Graphics::{
+        Dwm::DwmFlush,
+        Gdi::{
+            EnumDisplayMonitors, GetDC, GetMonitorInfoW, GetPixel, MonitorFromPoint, ReleaseDC,
+            HDC, HMONITOR, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+        },
     },
     UI::{
         HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI},
@@ -48,6 +51,55 @@ fn accessible_expand(hwnd: HWND) -> Result<()> {
 
 fn foreground_at(point: POINT) -> HWND {
     unsafe { WindowFromPhysicalPoint(point) }
+}
+
+fn verify_first_show(screen: &Display) -> Result<()> {
+    let mut cfg = IslandConfig::default();
+    cfg.appearance.background = "#31587e".into();
+    cfg.appearance.border = cfg.appearance.background.clone();
+    cfg.appearance.opacity = 1.0;
+    cfg.appearance.shadow = false;
+    cfg.appearance.blur = false;
+    for state in [IslandState::Compact, IslandState::Expanded] {
+        // Start a fresh HWND and composition target, just as restarting the island does.
+        let window = Surface::start(|_| ())?;
+        let target = screen.target(&cfg, state);
+        let sample = POINT {
+            x: target.x + target.width / 2,
+            y: target.y + (3.0 * screen.scale_factor).round() as i32,
+        };
+        window.apply(&cfg, state, screen)?;
+        for delay in [0, 400] {
+            thread::sleep(Duration::from_millis(delay));
+            window.request(super::DuringMove::Dispatch, move |hwnd, ui| {
+                if unsafe { DwmFlush() } < 0 || foreground_at(sample) != hwnd {
+                    return Err("冷启动首帧未显示在预期位置".into());
+                }
+                let dc = unsafe { GetDC(null_mut()) };
+                if dc.is_null() {
+                    return Err(error("无法读取首帧"));
+                }
+                let pixel = unsafe { GetPixel(dc, sample.x, sample.y) };
+                unsafe {
+                    ReleaseDC(null_mut(), dc);
+                }
+                let mask = ui.mask.get().map(|m| (m.bounds.width, m.bounds.height));
+                if pixel != 0x7e5831
+                    || mask != Some((target.width, target.height))
+                    || ui.clock.active()
+                {
+                    return Err(format!(
+                        "{state:?} 冷启动首帧未就绪：像素 {pixel:06x}、区域 {mask:?}、动画 {}",
+                        ui.clock.active()
+                    ));
+                }
+                Ok(())
+            })?;
+        }
+        window.shutdown()?;
+    }
+    println!("Cold compact and expanded frames were fully painted without pointer input");
+    Ok(())
 }
 
 fn verify_displays(surface: &Surface, primary: &Display) -> Result<()> {
@@ -163,6 +215,7 @@ pub fn run_poc() -> Result<()> {
             },
         ))
     })?;
+    verify_first_show(&screen)?;
     let cfg = IslandConfig::default();
     let compact = screen.target(&cfg, IslandState::Compact);
     let expanded = screen.target(&cfg, IslandState::Expanded);

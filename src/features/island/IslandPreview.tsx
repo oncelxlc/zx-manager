@@ -1,7 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef, useState } from "react";
 import { islandApi, type MediaStatus } from "./islandApi";
-import { PreviewContent, motionEasing, type PreviewState } from "./PreviewContent";
+import { PreviewContent, motionEasing } from "./PreviewContent";
+import { previewLayout, type PreviewState } from "./previewLayout";
 import { ui } from "./settingsStyles";
 import type { IslandConfig } from "./types";
 
@@ -78,28 +79,24 @@ export function IslandPreview({ config, desktop, report }: {
       if (request === generation.current) { cancel(); report(error); }
     }
   }
-  const { appearance, animation, placement } = config;
+  const { animation } = config;
   const expanded = state === "expanded";
-  const vertical = placement.orientation === "vertical";
   const media = desktop ? sample?.media : undefined;
-  const compactWidth = Math.min(appearance.expandedWidth, appearance.compactWidth + (media?.battery ? 32 : 0) + (media?.title ? 26 : 0));
-  const width = expanded ? appearance.expandedWidth : compactWidth;
-  const height = state === "edgePeek" ? config.edge.peekSize : expanded ? appearance.expandedHeight : appearance.compactHeight;
-  const docked = !vertical && width >= height && placement.anchor.startsWith("top") && placement.offsetY <= 0;
-  const w = vertical ? height : width;
-  const h = vertical ? width : height;
+  const layout = previewLayout(config, state, Boolean(media?.battery), Boolean(media?.title));
+  const { dock, side, scale, gap, offset } = layout;
+  const along = `calc(max(0px, 50${side ? "cqh" : "cqw"} - ${(side ? 150 : 240) * scale}px) * ${offset})`;
+  const inset = `${gap * scale * (dock === "right" ? -1 : 1)}px`;
+  const position = side ? `translate(${inset}, ${along})` : `translate(${along}, ${inset})`;
   const duration = !animation.enabled || animation.reducedMotion || animation.performance === "performance" ? 0
     : state === "edgePeek" || previous === "edgePeek" || state === "hidden" || previous === "hidden"
       ? animation.edgeMs : expanded ? animation.expandMs : animation.collapseMs;
-  const offset = state !== "edgePeek" || docked ? "none" : vertical
-    ? "translateX(calc(-50cqw + 50%))" : "translateY(calc(-50cqh + 50%))";
   return (
     <section aria-label="动画预览" {...stylex.props(s.preview)}>
-      <div aria-hidden="true" {...stylex.props(s.canvas, vertical && s.verticalCanvas, docked && s.dockedCanvas)}>
-        <div {...stylex.props(s.frame(w, h, duration,
-          motionEasing(animation.preset, expanded, animation.customCurve), offset), state === "hidden" && s.hidden)}>
-          <PreviewContent config={config} state={state} width={w} height={h} docked={docked}
-            media={media} sampledAt={sample?.at ?? 0} />
+      <div aria-hidden="true" {...stylex.props(s.canvas, side && s.sideCanvas,
+        dock === "left" ? s.left : dock === "right" ? s.right : s.top)}>
+        <div {...stylex.props(s.frame(layout.width * scale, layout.height * scale, duration,
+          motionEasing(animation.preset, expanded, animation.customCurve), position, side ? gap * scale : 0), state === "hidden" && s.hidden)}>
+          <PreviewContent config={config} layout={layout} media={media} sampledAt={sample?.at ?? 0} />
         </div>
       </div>
       <button type="button" {...stylex.props(ui.button)} aria-pressed={playing}
@@ -114,13 +111,16 @@ export function IslandPreview({ config, desktop, report }: {
 const s = stylex.create({
   preview: { marginBlock: 18, display: "grid", justifyItems: "start", gap: 10 },
   canvas: { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: "minmax(0, 1fr)", placeItems: "center",
-    width: "100%", height: 200, padding: 12, overflow: "hidden", containerType: "size",
+    width: "100%", height: 224, overflow: "hidden", containerType: "size",
     borderRadius: 12, borderWidth: 1, borderStyle: "solid", borderColor: "#dedee2", backgroundColor: "#f0f0f2" },
-  verticalCanvas: { height: "clamp(200px, 65svh, 460px)" },
-  dockedCanvas: { alignItems: "start", paddingBlockStart: 0 },
-  frame: (w: number, h: number, ms: number, easing: string, transform: string) => ({
-    width: `min(${w}px, 100cqw, ${100 * w / h}cqh)`, height: `min(${h}px, 100cqh, ${100 * h / w}cqw)`,
-    transitionProperty: "width, height, transform, opacity", transitionTimingFunction: easing, transform,
+  sideCanvas: { height: "clamp(320px, 65svh, 460px)" },
+  top: { alignItems: "start" },
+  left: { justifyItems: "start" },
+  right: { justifyItems: "end" },
+  frame: (w: number, h: number, ms: number, easing: string, position: string, sideGap: number) => ({
+    width: `min(${w}px, calc(100cqw - ${sideGap}px), ${100 * w / h}cqh)`,
+    height: `min(${h}px, 100cqh, calc(${100 * h / w}cqw - ${sideGap * h / w}px))`,
+    transform: position, transitionProperty: "width, height, opacity, transform", transitionTimingFunction: easing,
     transitionDuration: { default: `${ms}ms`, "@media (prefers-reduced-motion: reduce)": "0ms" },
   }),
   hidden: { opacity: 0 },

@@ -67,10 +67,7 @@ fn action(ui: &Context, hwnd: HWND, point: POINT) -> Option<Action> {
     {
         let mut local = point;
         (unsafe { ScreenToClient(hwnd, &mut local) != 0 })
-            && notch.contains(
-                (f64::from(local.x - mask.x) + 0.5) / f64::from(mask.width),
-                (f64::from(local.y - mask.y) + 0.5) / f64::from(mask.height),
-            )
+            && notch.contains_pixel(mask.width, mask.height, local.x - mask.x, local.y - mask.y)
     } else {
         rounded(rect, radius, point)
     };
@@ -208,13 +205,14 @@ pub(super) unsafe fn message(ui: &Context, hwnd: HWND, msg: u32, lp: LPARAM) -> 
                 let visible = placement::outer_rect(ui, hwnd).ok()?;
                 let renderer = ui.renderer.borrow();
                 let panel = renderer.as_ref()?.hit_panel()?;
-                let track = panel
+                if !panel
                     .items
                     .iter()
-                    .find(|i| i.action == Some(MessageAction::Seek))?;
-                let bounds = track.screen_bounds(visible, panel.size);
-                let offset = (point.x - bounds.x).clamp(0, bounds.width.max(0));
-                let fraction = (1000 * offset / bounds.width.max(1)) as u16;
+                    .any(|item| item.action == Some(MessageAction::Seek))
+                {
+                    return Some(0);
+                }
+                let fraction = panel.seek_fraction(visible, point.x);
                 (ui.emit)(SurfaceEvent::Transport(
                     crate::island::media::Transport::Seek(fraction),
                 ));

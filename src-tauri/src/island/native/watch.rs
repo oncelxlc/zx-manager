@@ -1,13 +1,17 @@
 use super::{os_error, NativeEvent};
+use crate::island::geometry::{Display, Rect};
 use std::{cell::RefCell, mem::size_of, ptr::null_mut, rc::Rc};
 use windows_sys::Win32::{
     Foundation::{
         GetLastError, ERROR_HOOK_NOT_INSTALLED, ERROR_INVALID_HOOK_HANDLE, HWND, LPARAM, LRESULT,
         POINT, RECT, WPARAM,
     },
-    Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST},
+    Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    },
     UI::{
         Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK},
+        HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI},
         Input::KeyboardAndMouse::{GetAsyncKeyState, GetCapture, ReleaseCapture, VK_LBUTTON},
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::*,
@@ -26,6 +30,7 @@ struct Watch {
     foreground_thread: u32,
     pending: bool,
     fullscreen: bool,
+    drag_grip: Option<POINT>,
 }
 
 thread_local! { static WATCH: RefCell<Option<Watch>> = const { RefCell::new(None) }; }
@@ -65,6 +70,7 @@ pub(super) fn install(hwnd: HWND, callback: impl Fn(NativeEvent) + 'static) -> R
         foreground_thread: 0,
         pending: false,
         fullscreen: false,
+        drag_grip: None,
     }));
     Ok(())
 }
@@ -265,6 +271,106 @@ unsafe extern "system" fn window_message(
     }
     match msg {
         WM_MOUSEACTIVATE => return MA_NOACTIVATE as LRESULT,
+        WM_ENTERSIZEMOVE => {
+            let (mut cursor, mut rect) = (POINT::default(), RECT::default());
+            if GetCursorPos(&mut cursor) != 0 && GetWindowRect(hwnd, &mut rect) != 0 {
+                WATCH.with_borrow_mut(|s| {
+                    if let Some(w) = s {
+                        w.drag_grip = Some(POINT {
+                            x: cursor.x - rect.left,
+                            y: cursor.y - rect.top,
+                        });
+                    }
+                });
+            }
+        }
+        WM_MOVING if lp != 0 => {
+            let proposed = &mut *(lp as *mut RECT);
+            let mut at = Rect {
+                x: proposed.left,
+                y: proposed.top,
+                width: proposed.right - proposed.left,
+                height: proposed.bottom - proposed.top,
+            };
+            let mut cursor = POINT {
+                x: at.x + at.width / 2,
+                y: at.y + at.height / 2,
+            };
+            let grip = WATCH.with_borrow(|slot| slot.as_ref().and_then(|w| w.drag_grip));
+            if GetCursorPos(&mut cursor) == 0 {
+                GetWindowRect(hwnd, proposed);
+                return 1;
+            }
+            if let Some(grip) = grip {
+                // USER32 proposes positions relative to its original move rectangle, even after a change of dock.
+                let mut current = RECT::default();
+                if GetWindowRect(hwnd, &mut current) != 0 {
+                    at.width = current.right - current.left;
+                    at.height = current.bottom - current.top;
+                }
+                at.x = cursor.x - grip.x;
+                at.y = cursor.y - grip.y;
+            }
+            let monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+            let mut info = MONITORINFO {
+                cbSize: size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if GetMonitorInfoW(monitor, &mut info) == 0 {
+                GetWindowRect(hwnd, proposed);
+                return 1;
+            }
+            let mut dpi_x = 0;
+            let mut dpi_y = 0;
+            if GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) < 0 {
+                dpi_x = GetDpiForWindow(hwnd).max(96);
+            }
+            let r = info.rcMonitor;
+            let display = Display {
+                id: String::new(),
+                name: String::new(),
+                primary: false,
+                scale_factor: f64::from(dpi_x) / 96.0,
+                work: Rect {
+                    x: r.left,
+                    y: r.top,
+                    width: r.right - r.left,
+                    height: r.bottom - r.top,
+                }
+                .placement_bounds(info.rcWork.top),
+            };
+            match crate::island::surface::move_drag_frame(hwnd, &display, at, (cursor.x, cursor.y))
+            {
+                Ok((r, switched)) => {
+                    *proposed = RECT {
+                        left: r.x,
+                        top: r.y,
+                        right: r.x + r.width,
+                        bottom: r.y + r.height,
+                    };
+                    if switched {
+                        WATCH.with_borrow_mut(|slot| {
+                            if let Some(w) = slot {
+                                w.drag_grip = Some(POINT {
+                                    x: cursor.x - r.x,
+                                    y: cursor.y - r.y,
+                                });
+                            }
+                        });
+                    }
+                }
+                Err(error) => {
+                    GetWindowRect(hwnd, proposed);
+                    notify(NativeEvent::Error(error));
+                }
+            }
+            return 1;
+        }
+        WM_EXITSIZEMOVE => WATCH.with_borrow_mut(|slot| {
+            if let Some(w) = slot {
+                w.drag_grip = None;
+            }
+        }),
         START_DRAG => {
             let mut cursor = POINT::default();
             // The pointer may have been released before the queued move starts.
@@ -317,6 +423,10 @@ pub(super) fn uninstall(hwnd: HWND) -> Result<(), String> {
         Err(errors.join("；"))
     }
 }
+
+#[cfg(test)]
+#[path = "edge_drag_test.rs"]
+mod edge_drag_test;
 
 #[cfg(test)]
 mod tests {
