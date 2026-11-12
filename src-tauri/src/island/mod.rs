@@ -5,6 +5,7 @@ mod displays;
 mod geometry;
 mod manager;
 mod native;
+mod notifications;
 mod render;
 mod state;
 pub(crate) mod surface;
@@ -47,6 +48,10 @@ pub fn install(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry
             island_reset_config,
             island_get_runtime_status,
             island_get_performance_stats,
+            island_get_notifications,
+            island_request_notification_access,
+            island_open_notification_settings,
+            island_activate_notification_window,
             island_get_displays,
             island_set_position,
             island_set_pinned

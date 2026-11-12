@@ -1,11 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
 import { ChevronLeft } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import defaults from "./defaults.json";
 import { islandApi } from "./islandApi";
 import { island } from "./islandSlice";
 import { IslandPreview } from "./IslandPreview";
+import { NotificationSettings } from "./NotificationSettings";
 import { Check } from "./SettingsFields";
 import { groups, SettingsGroups, type Group } from "./SettingsGroups";
 import { ui } from "./settingsStyles";
@@ -20,11 +21,13 @@ const stateLabels: Record<IslandState, string> = {
 };
 
 export function IslandSettingsPage() {
-  const { config, displays, status, desktop, dispatch, error, report, retry } = useIsland();
+  const { config, displays, status, notifications, desktop, dispatch, error, report, retry } = useIsland();
   const saved = desktop ? config : browserDefaults;
   const [edit, setEdit] = useState<IslandConfig | null>(null);
   const draft = edit ?? saved;
-  const [group, setGroup] = useState<Group>("overview");
+  const [search, setSearch] = useSearchParams();
+  const groupNames = Object.keys(groups) as Group[];
+  const group = groupNames.find(name => name === search.get("group")) ?? "overview";
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const conflict = edit && saved && edit.revision !== saved.revision;
@@ -51,8 +54,11 @@ export function IslandSettingsPage() {
         <h1 {...stylex.props(ui.heading)}>灵动岛设置</h1>
         <div {...stylex.props(ui.layout)}>
           <nav aria-label="设置分组" {...stylex.props(ui.nav)}>
-            {(Object.keys(groups) as Group[]).map(key => <button key={key} type="button" aria-current={group === key ? "page" : undefined}
-              {...stylex.props(ui.navItem, group === key && ui.current)} onClick={() => setGroup(key)}>{groups[key]}</button>)}
+            {groupNames.map(key => <button key={key} type="button" aria-current={group === key ? "page" : undefined}
+              {...stylex.props(ui.navItem, group === key && ui.current)} onClick={() => setSearch(current => {
+                if (key === "overview") current.delete("group"); else current.set("group", key);
+                return current;
+              }, { replace: true })}>{groups[key]}</button>)}
           </nav>
           <form {...stylex.props(ui.panel)} onSubmit={event => {
             event.preventDefault();
@@ -77,6 +83,10 @@ export function IslandSettingsPage() {
                 </>}
                 <SettingsGroups group={group} config={draft} displays={displays}
                   update={(section, patch) => editConfig({ ...draft, [section]: { ...draft[section], ...patch } })} />
+                {group === "notifications" && <NotificationSettings config={draft} saved={saved} desktop={desktop}
+                  status={notifications} perform={perform} update={patch => editConfig({
+                    ...draft, notifications: { ...draft.notifications, ...patch },
+                  })} refresh={async () => { dispatch(island.actions.notificationsReceived(await islandApi.notifications())); }} />}
                 {(group === "animation" || group === "appearance") && <IslandPreview config={draft} desktop={desktop} report={report} />}
               </fieldset>
               {conflict && <p role="alert" {...stylex.props(ui.error)}>配置已在其他窗口更新。放弃草稿可载入最新设置。</p>}

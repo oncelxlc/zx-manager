@@ -1,5 +1,6 @@
 mod animation;
 mod device;
+mod messages;
 mod paint;
 
 use self::{
@@ -12,6 +13,7 @@ use super::{
     geometry::Rect,
     state::{Event, IslandState},
 };
+pub(crate) use messages::{MessageAction, Messages, Panel};
 pub use paint::{action_at, action_rect};
 use serde::Serialize;
 use std::time::Instant;
@@ -101,6 +103,27 @@ impl Scene {
         Ok(())
     }
 
+    unsafe fn remove_previews(&mut self) -> WinResult<bool> {
+        let mut dirty = false;
+        for (index, slot) in self.textures.iter_mut().enumerate() {
+            if let Some(texture) = slot
+                .as_ref()
+                .filter(|t| t.key.panel.as_ref().is_some_and(|p| p.contains_preview))
+            {
+                self.device.root.RemoveVisual(&texture.outer)?;
+                *slot = None;
+                self.fades[index] = None;
+                dirty = true;
+            }
+        }
+        if dirty {
+            // The replacement swap chain must be attached even when island geometry is unchanged.
+            self.last = None;
+            self.device.composition.Commit()?;
+        }
+        Ok(dirty)
+    }
+
     unsafe fn apply(&mut self, frame: &Frame<'_>, stats: &mut RenderStats) -> WinResult<()> {
         let Frame {
             cfg,
@@ -110,6 +133,8 @@ impl Scene {
             scale,
             transition,
             hovered,
+            panel,
+            message_hover,
         } = *frame;
         let idx = match state {
             IslandState::Compact => 0,
@@ -120,6 +145,8 @@ impl Scene {
         };
         let mut key = ImageKey::new(cfg, state, target, scale);
         key.hovered = hovered;
+        key.panel = panel.cloned();
+        key.message_hover = message_hover;
         let dirty = self.textures[idx]
             .as_ref()
             .is_none_or(|item| item.key != key);
@@ -180,6 +207,11 @@ impl Scene {
             anim.content_ms.min(60)
         } else {
             anim.content_ms
+        };
+        let fade_ms = if panel.is_some() {
+            fade_ms.min(duration)
+        } else {
+            fade_ms
         };
         let timing = Timing::new(begin, self.frequency, duration, anim);
         let fade_timing = Timing::new(begin, self.frequency, fade_ms, anim);
@@ -266,6 +298,8 @@ struct Frame<'a> {
     scale: f64,
     transition: bool,
     hovered: Option<Event>,
+    panel: Option<&'a Panel>,
+    message_hover: Option<MessageAction>,
 }
 
 fn device_lost(error: &Error) -> bool {
@@ -284,6 +318,8 @@ pub struct Renderer {
     scene: Option<Scene>,
     stats: RenderStats,
     hovered: Option<Event>,
+    pub(crate) panel: Option<Panel>,
+    message_hover: Option<MessageAction>,
 }
 
 impl Renderer {
@@ -296,6 +332,8 @@ impl Renderer {
             scene: Some(scene),
             stats: Default::default(),
             hovered: None,
+            panel: None,
+            message_hover: None,
         })
     }
 
@@ -320,6 +358,8 @@ impl Renderer {
             scale,
             transition,
             hovered: self.hovered,
+            panel: self.panel.as_ref(),
+            message_hover: self.message_hover,
         };
         let start = Instant::now();
         let result = unsafe {
@@ -349,6 +389,9 @@ impl Renderer {
     }
 
     pub fn hide(&mut self) -> Result<(), String> {
+        self.purge_previews()?;
+        self.panel = None;
+        self.message_hover = None;
         self.hovered = None;
         if let Some(scene) = &mut self.scene {
             unsafe { scene.hide(&mut self.stats) }.map_err(|e| e.to_string())?;
@@ -358,6 +401,22 @@ impl Renderer {
 
     pub fn visible_rect(&self) -> Option<Rect> {
         self.scene.as_ref()?.movement.map(|m| m.at(now()))
+    }
+
+    pub(crate) fn hit_panel(&self) -> Option<&Panel> {
+        let target = self.panel.as_ref()?;
+        let at = now();
+        if let Some(scene) = &self.scene {
+            // Both layers share the outer rect during a crossfade. Hit the one the user sees.
+            for (texture, fade) in scene.textures.iter().zip(scene.fades) {
+                if fade.is_some_and(|f| f.to == 0.0 && f.at(at) > 0.5) {
+                    if let Some(panel) = texture.as_ref().and_then(|t| t.key.panel.as_ref()) {
+                        return Some(panel);
+                    }
+                }
+            }
+        }
+        Some(target)
     }
 
     pub fn stats(&self) -> RenderStats {
@@ -388,6 +447,31 @@ impl Renderer {
 
     pub fn set_hovered(&mut self, action: Option<Event>) -> bool {
         std::mem::replace(&mut self.hovered, action) != action
+    }
+
+    pub(crate) fn hover_message(&mut self, action: Option<MessageAction>) -> bool {
+        std::mem::replace(&mut self.message_hover, action) != action
+    }
+
+    pub(crate) fn purge_previews(&mut self) -> Result<(), String> {
+        if self.panel.as_ref().is_some_and(|p| p.contains_preview) {
+            self.panel = None;
+        }
+        let Some(scene) = self.scene.as_mut() else {
+            return Ok(());
+        };
+        match unsafe { scene.remove_previews() } {
+            Ok(true) => self.stats.commits += 1,
+            Ok(false) => (),
+            Err(error) => {
+                // Also release inactive buffers when the compositor cannot detach a visual.
+                self.scene = None;
+                if !device_lost(&error) {
+                    return Err(format!("清除通知预览纹理失败：{error}"));
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn freeze(&mut self, rect: Rect) -> Result<(), String> {

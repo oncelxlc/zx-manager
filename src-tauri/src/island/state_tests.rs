@@ -1,6 +1,23 @@
 use super::*;
 
 #[test]
+fn choosing_a_message_source_expands_once_and_respects_pin_and_hide() {
+    let mut config = IslandConfig::default();
+    config.interaction.click_expand = false;
+    let mut machine = Machine::new(&config);
+    for _ in 0..2 {
+        machine.apply(Event::OpenNotifications, &config);
+        assert_eq!(machine.state, IslandState::Expanded);
+    }
+    machine.apply(Event::Pin, &config);
+    machine.apply(Event::OpenNotifications, &config);
+    assert_eq!(machine.state, IslandState::Pinned);
+    machine.apply(Event::Hide, &config);
+    machine.apply(Event::OpenNotifications, &config);
+    assert_eq!(machine.state, IslandState::Hidden);
+}
+
+#[test]
 fn disabled_hidden_and_pinned_ignore_automatic_events() {
     let config = IslandConfig::default();
     let mut machine = Machine::new(&config);

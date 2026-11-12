@@ -2,7 +2,8 @@ use super::{
     config::IslandConfig,
     displays,
     geometry::Display,
-    manager::{IslandManager, ManagerHandle, PerformanceStats, RuntimeStatus},
+    manager::{IslandManager, ManagerHandle, NotificationStatus, PerformanceStats, RuntimeStatus},
+    notifications,
     state::Event,
 };
 use tauri::{Manager, WebviewWindow};
@@ -28,6 +29,79 @@ pub(super) async fn island_get_runtime_status(
     window: WebviewWindow,
 ) -> Result<RuntimeStatus, String> {
     request(&window, |manager| Ok(manager.status())).await
+}
+
+#[tauri::command]
+pub(super) async fn island_get_notifications(
+    window: WebviewWindow,
+) -> Result<NotificationStatus, String> {
+    request(&window, |manager| {
+        manager.refresh_message_source();
+        Ok(manager.notification_status())
+    })
+    .await
+}
+
+#[tauri::command]
+pub(super) async fn island_request_notification_access(
+    window: WebviewWindow,
+) -> Result<(), String> {
+    request(&window, |manager| manager.can_request_notification_access()).await?;
+    let (send, mut receive) = tauri::async_runtime::channel(1);
+    window
+        .run_on_main_thread(move || {
+            let reply = send.clone();
+            if let Err(error) = notifications::request_access(move |result| {
+                let _ = reply.try_send(result);
+            }) {
+                let _ = send.try_send(Err(error));
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    let result = receive.recv().await.ok_or("系统授权请求已取消")?;
+    request(&window, |manager| {
+        manager.refresh_message_source();
+        Ok(())
+    })
+    .await?;
+    result.map(|_| ())
+}
+
+#[tauri::command]
+pub(super) async fn island_open_notification_settings(window: WebviewWindow) -> Result<(), String> {
+    request(&window, |_| {
+        use std::ptr::{null, null_mut};
+        use windows_sys::{
+            w,
+            Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
+        };
+        let result = unsafe {
+            ShellExecuteW(
+                null_mut(),
+                w!("open"),
+                w!("ms-settings:privacy-notifications"),
+                null(),
+                null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if result as isize <= 32 {
+            return Err("无法打开系统设置，请在 Windows 隐私设置中选择「通知」".into());
+        }
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub(super) async fn island_activate_notification_window(
+    window: WebviewWindow,
+    instance_id: u64,
+) -> Result<(), String> {
+    request(&window, move |manager| {
+        manager.activate_notification_window(instance_id)
+    })
+    .await
 }
 
 #[tauri::command]

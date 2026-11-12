@@ -1,15 +1,16 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type { IslandConfig } from "./types";
-import type { IslandDisplay, RuntimeStatus } from "./islandApi";
+import type { IslandDisplay, NotificationStatus, RuntimeStatus } from "./islandApi";
 
 interface IslandData {
   config: IslandConfig | null;
   status: RuntimeStatus | null;
+  notifications: NotificationStatus | null;
   displays: IslandDisplay[];
   error: string | null;
 }
 
-const initialState: IslandData = { config: null, status: null, displays: [], error: null };
+const initialState: IslandData = { config: null, status: null, notifications: null, displays: [], error: null };
 
 export const island = createSlice({
   name: "island",
@@ -20,6 +21,9 @@ export const island = createSlice({
     },
     statusReceived(state, { payload }: PayloadAction<RuntimeStatus>) {
       if (!state.status || payload.sequence >= state.status.sequence) state.status = payload;
+    },
+    notificationsReceived(state, { payload }: PayloadAction<NotificationStatus>) {
+      if (!state.notifications || payload.sequence >= state.notifications.sequence) state.notifications = payload;
     },
     displaysReceived(state, { payload }: PayloadAction<IslandDisplay[]>) {
       state.displays = payload;

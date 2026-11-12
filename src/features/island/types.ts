@@ -70,6 +70,16 @@ export interface IslandConfig {
     pinEnabled: boolean;
     dragEnabled: boolean;
   };
+  notifications: {
+    enabled: boolean;
+    wechatEnabled: boolean;
+    qqEnabled: boolean;
+    windowsNotificationsEnabled: boolean;
+    showPreview: boolean;
+    previewTimeoutSeconds: number;
+    accountListEnabled: boolean;
+    animateNewMessage: boolean;
+  };
   hotkeys: {
     toggle: string;
     show: string;

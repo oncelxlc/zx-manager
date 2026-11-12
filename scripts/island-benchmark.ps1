@@ -45,6 +45,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Benchmark build failed.' }
 $exe = "$root/src-tauri/target/debug/$binary.exe"
 
 $config = Get-Content "$root/src/features/island/defaults.json" -Raw | ConvertFrom-Json
+# Keep the renderer migration baseline independent of installed messaging clients.
+$config.notifications.enabled = $false
 $config.placement.offsetX = 380.0
 $config.edge.autoHide = $false
 $config.edge.hideOnFullscreen = $false

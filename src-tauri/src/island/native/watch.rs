@@ -12,6 +12,9 @@ use windows_sys::Win32::{
     },
     Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST},
     System::LibraryLoader::GetModuleHandleW,
+    System::RemoteDesktop::{
+        WTSRegisterSessionNotification, WTSUnRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION,
+    },
     UI::{
         Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK},
         Input::KeyboardAndMouse::{
@@ -40,6 +43,7 @@ struct Watch {
     foreground_thread: u32,
     pending: bool,
     fullscreen: bool,
+    session_watch: bool,
 }
 
 thread_local! { static WATCH: RefCell<Option<Watch>> = const { RefCell::new(None) }; }
@@ -82,6 +86,8 @@ pub(super) fn install(hwnd: HWND, callback: impl Fn(NativeEvent) + 'static) -> R
     if unsafe { SetWindowSubclass(hwnd, Some(window_message), SUBCLASS, 0) } == 0 {
         return Err(os_error("监听窗口事件失败"));
     }
+    let session_watch =
+        unsafe { WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) != 0 };
     WATCH.replace(Some(Watch {
         hwnd,
         emit: Rc::new(callback),
@@ -93,7 +99,19 @@ pub(super) fn install(hwnd: HWND, callback: impl Fn(NativeEvent) + 'static) -> R
         foreground_thread: 0,
         pending: false,
         fullscreen: false,
+        session_watch,
     }));
+    unsafe {
+        SendMessageW(
+            hwnd,
+            crate::island::surface::SESSION_GUARD,
+            session_watch.into(),
+            0,
+        );
+    }
+    if !session_watch {
+        notify(NativeEvent::SessionLocked(true));
+    }
     Ok(())
 }
 
@@ -379,6 +397,39 @@ unsafe extern "system" fn window_message(
         return DefSubclassProc(hwnd, msg, wp, lp);
     }
     match msg {
+        WM_WTSSESSION_CHANGE | WM_POWERBROADCAST => {
+            let locked = match (msg, wp as u32) {
+                (
+                    WM_WTSSESSION_CHANGE,
+                    WTS_SESSION_LOCK
+                    | WTS_SESSION_LOGOFF
+                    | WTS_CONSOLE_DISCONNECT
+                    | WTS_REMOTE_DISCONNECT,
+                )
+                | (WM_POWERBROADCAST, PBT_APMSUSPEND) => Some(true),
+                (
+                    WM_WTSSESSION_CHANGE,
+                    WTS_SESSION_UNLOCK | WTS_SESSION_LOGON | WTS_CONSOLE_CONNECT
+                    | WTS_REMOTE_CONNECT,
+                )
+                | (WM_POWERBROADCAST, PBT_APMRESUMEAUTOMATIC | PBT_APMRESUMESUSPEND) => Some(false),
+                _ => None,
+            };
+            if let Some(locked) = locked
+                .filter(|_| WATCH.with_borrow(|w| w.as_ref().is_some_and(|w| w.session_watch)))
+            {
+                SendMessageW(
+                    hwnd,
+                    crate::island::surface::SESSION_GUARD,
+                    usize::from(!locked),
+                    0,
+                );
+                notify(NativeEvent::SessionLocked(locked));
+            }
+            if msg == WM_POWERBROADCAST {
+                notify(NativeEvent::DisplayChanged);
+            }
+        }
         WM_MOUSEACTIVATE => return MA_NOACTIVATE as LRESULT,
         BUTTON_DOWN => {
             if WATCH.with_borrow(|w| w.as_ref().is_some_and(|w| !w.mouse.is_null()))
@@ -425,9 +476,7 @@ unsafe extern "system" fn window_message(
             notify(NativeEvent::DragEnded);
             return 0;
         }
-        WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE | WM_POWERBROADCAST => {
-            notify(NativeEvent::DisplayChanged)
-        }
+        WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE => notify(NativeEvent::DisplayChanged),
         RECHECK => {
             if let Err(e) = refresh_fullscreen(hwnd) {
                 notify(NativeEvent::Error(e));
@@ -442,6 +491,9 @@ unsafe extern "system" fn window_message(
 pub(super) fn uninstall(hwnd: HWND) -> Result<(), String> {
     let Some(w) = WATCH.take() else { return Ok(()) };
     let mut errors = Vec::new();
+    if w.session_watch && unsafe { WTSUnRegisterSessionNotification(hwnd) } == 0 {
+        errors.push(os_error("注销会话监听失败"));
+    }
     for hook in [
         (!w.mouse.is_null()).then_some(OldHook::Mouse(w.mouse)),
         (!w.location.is_null()).then_some(OldHook::Event(w.location)),

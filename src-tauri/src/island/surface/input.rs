@@ -1,5 +1,8 @@
 use super::{error, placement, Context, IslandState, Rect, SurfaceEvent};
-use crate::island::{render::action_at, state::Event};
+use crate::island::{
+    render::{action_at, MessageAction},
+    state::Event,
+};
 use std::{cell::Cell, mem::size_of};
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, POINT},
@@ -18,6 +21,7 @@ enum Action {
     Body,
     Pin(bool),
     Hide,
+    Message(MessageAction),
 }
 
 #[derive(Default)]
@@ -54,6 +58,9 @@ fn action(ui: &Context, hwnd: HWND, point: POINT) -> Option<Action> {
     let frame = ui.frame.try_borrow().ok()?;
     let f = frame.as_ref()?;
     let target = f.target;
+    if !rounded(rect, f.cfg.appearance.radius * f.scale, point) {
+        return None;
+    }
     let sample = POINT {
         x: target.x
             + (f64::from(point.x - rect.x) * f64::from(target.width) / f64::from(rect.width))
@@ -62,8 +69,17 @@ fn action(ui: &Context, hwnd: HWND, point: POINT) -> Option<Action> {
             + (f64::from(point.y - rect.y) * f64::from(target.height) / f64::from(rect.height))
                 .floor() as i32,
     };
-    if !rounded(target, f.cfg.appearance.radius * f.scale, sample) {
-        return None;
+    if let Ok(renderer) = ui.renderer.try_borrow() {
+        if let Some(panel) = renderer.as_ref().and_then(|r| r.hit_panel()) {
+            let hit = panel.items.iter().find(|i| {
+                let b = i.screen_bounds(rect, panel.size);
+                point.x >= b.x
+                    && point.x < b.x + b.width
+                    && point.y >= b.y
+                    && point.y < b.y + b.height
+            });
+            return Some(hit.map_or(Action::Body, |i| Action::Message(i.action)));
+        }
     }
     Some(
         match action_at(&f.cfg, f.state, target, f.scale, sample.x, sample.y) {
@@ -83,12 +99,15 @@ fn update_hover(ui: &Context, hwnd: HWND, hit: Option<Action>) {
         Some(Action::Hide) => Some(Event::Hide),
         _ => None,
     };
-    if ui
-        .renderer
-        .try_borrow_mut()
-        .ok()
-        .is_some_and(|mut r| r.as_mut().is_some_and(|r| r.set_hovered(control)))
-    {
+    if ui.renderer.try_borrow_mut().ok().is_some_and(|mut r| {
+        r.as_mut().is_some_and(|r| {
+            let msg = match hit {
+                Some(Action::Message(a)) => Some(a),
+                _ => None,
+            };
+            r.set_hovered(control) | r.hover_message(msg)
+        })
+    }) {
         ui.redraw_pending.set(true);
     }
     if inside && !ui.input.tracking.get() {
@@ -173,10 +192,15 @@ pub(super) unsafe fn message(ui: &Context, hwnd: HWND, msg: u32, lp: LPARAM) -> 
                 ReleaseCapture();
             }
             if let Some((_, _, action)) = down.filter(|(_, _, action)| hit == Some(*action)) {
+                if let Action::Message(MessageAction::NextPage) = action {
+                    PostMessageW(hwnd, super::NEXT_PAGE, 0, 0);
+                    return Some(0);
+                }
                 (ui.emit)(match action {
                     Action::Body => SurfaceEvent::Click,
                     Action::Pin(pinned) => SurfaceEvent::Pin(pinned),
                     Action::Hide => SurfaceEvent::Hide,
+                    Action::Message(a) => a.surface_event()?,
                 });
             }
         }

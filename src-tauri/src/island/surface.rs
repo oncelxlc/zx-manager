@@ -1,6 +1,7 @@
 mod accessibility;
 mod hit_clock;
 mod input;
+mod messages;
 mod placement;
 mod poc;
 pub use poc::run_poc;
@@ -8,6 +9,7 @@ pub use poc::run_poc;
 use super::{
     config::IslandConfig,
     geometry::{Display, Rect},
+    notifications::{NotificationSnapshot, Source},
     render::{RenderStats, Renderer},
     state::IslandState,
 };
@@ -39,10 +41,26 @@ pub(super) enum SurfaceEvent {
     PointerEnter,
     PointerLeave,
     Click,
+    OpenNotificationSource(Source),
+    ActivateWindow(u64),
+    NotificationSettings,
     Pin(bool),
     Hide,
     DragStart,
     Error(String),
+}
+
+impl super::render::MessageAction {
+    fn surface_event(self) -> Option<SurfaceEvent> {
+        Some(match self {
+            Self::Source(s) => SurfaceEvent::OpenNotificationSource(s),
+            Self::Window(id) => SurfaceEvent::ActivateWindow(id),
+            Self::Settings => SurfaceEvent::NotificationSettings,
+            Self::Pin(value) => SurfaceEvent::Pin(value),
+            Self::Hide => SurfaceEvent::Hide,
+            Self::NextPage => return None,
+        })
+    }
 }
 
 type Result<T> = std::result::Result<T, String>;
@@ -55,8 +73,13 @@ enum DuringMove {
 }
 const WORK: u32 = WM_APP + 0x521;
 const RECOVER: u32 = WM_APP + 0x522;
+pub(super) const SESSION_GUARD: u32 = WM_APP + 0x524;
+const NEXT_PAGE: u32 = WM_APP + 0x525;
 
 struct Context {
+    messages: RefCell<super::render::Messages>,
+    preview_allowed: Cell<bool>,
+    pulse: Cell<Option<(Source, std::time::Instant)>>,
     queue: Arc<Mutex<Queue>>,
     a11y: accessibility::Accessibility,
     renderer: RefCell<Option<Renderer>>,
@@ -174,6 +197,17 @@ impl Surface {
         })
     }
 
+    pub fn set_notifications(
+        &self,
+        snapshot: NotificationSnapshot,
+        selected_source: Option<Source>,
+        selected_window: Option<u64>,
+    ) -> Result<()> {
+        self.request(DuringMove::Dispatch, move |hwnd, ui| {
+            messages::update(ui, hwnd, snapshot, selected_source, selected_window)
+        })
+    }
+
     pub fn hide(&self) -> Result<()> {
         self.cancel_drag()?;
         self.request(DuringMove::Defer, |hwnd, ui| placement::hide(ui, hwnd))
@@ -284,6 +318,9 @@ fn run(
     let ui = Context {
         queue: work.clone(),
         a11y: accessibility::Accessibility::new(emit.clone()),
+        messages: Default::default(),
+        preview_allowed: Cell::new(false),
+        pulse: Cell::new(None),
         renderer: RefCell::new(None),
         frame: RefCell::new(None),
         clock: hit_clock::HitClock::new()?,
@@ -398,6 +435,31 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             return result;
         }
         match msg {
+            SESSION_GUARD => {
+                ui.preview_allowed.set(wp != 0);
+                if wp == 0 {
+                    if let Err(e) =
+                        messages::clear_previews(ui).and_then(|()| messages::redraw(ui, hwnd))
+                    {
+                        (ui.emit)(SurfaceEvent::Error(e));
+                    }
+                }
+                return 0;
+            }
+            NEXT_PAGE => {
+                let page = ui.messages.borrow().page;
+                ui.messages.borrow_mut().page = page.wrapping_add(1);
+                if let Err(e) = messages::redraw(ui, hwnd) {
+                    (ui.emit)(SurfaceEvent::Error(e));
+                }
+                return 0;
+            }
+            WM_TIMER if wp == messages::PULSE_TIMER => {
+                if let Err(e) = messages::redraw(ui, hwnd) {
+                    (ui.emit)(SurfaceEvent::Error(e));
+                }
+                return 0;
+            }
             WM_ENTERSIZEMOVE => ui.in_move_loop.set(true),
             WM_EXITSIZEMOVE => ui.in_move_loop.set(false),
             WORK if ui.in_move_loop.get() => {

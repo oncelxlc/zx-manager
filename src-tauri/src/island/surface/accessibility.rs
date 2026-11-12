@@ -2,7 +2,7 @@ use super::SurfaceEvent;
 use crate::island::{
     config::IslandConfig,
     geometry::Rect,
-    render::action_rect,
+    render::{action_rect, MessageAction, Panel},
     state::{Event, IslandState},
 };
 use std::sync::{Arc, RwLock};
@@ -27,10 +27,11 @@ use windows_sys::Win32::UI::{
 
 #[derive(Clone, PartialEq)]
 struct Control {
-    name: &'static str,
+    name: String,
     rect: Rect,
     action: Option<SurfaceEvent>,
     state: u32,
+    page: bool,
 }
 
 type Snapshot = Arc<RwLock<Vec<Control>>>;
@@ -80,12 +81,24 @@ impl Accessibility {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn update(
         &self,
         cfg: &IslandConfig,
         state: IslandState,
         rect: Rect,
         scale: f64,
+    ) -> bool {
+        self.update_panel(cfg, state, rect, scale, None)
+    }
+
+    pub(super) fn update_panel(
+        &self,
+        cfg: &IslandConfig,
+        state: IslandState,
+        rect: Rect,
+        scale: f64,
+        panel: Option<&Panel>,
     ) -> bool {
         let mut nodes = Vec::with_capacity(4);
         let name = match state {
@@ -96,10 +109,11 @@ impl Accessibility {
         };
         let pinned = state == IslandState::Pinned;
         nodes.push(Control {
-            name: "灵动岛",
+            name: "灵动岛".into(),
             rect,
             action: None,
             state: 0,
+            page: false,
         });
         let clickable = state == IslandState::EdgePeek || (cfg.interaction.click_expand && !pinned);
         let expanded = matches!(state, IslandState::Expanded | IslandState::Pinned);
@@ -109,9 +123,10 @@ impl Accessibility {
             STATE_SYSTEM_COLLAPSED
         };
         nodes.push(Control {
-            name,
+            name: name.into(),
             rect,
             action: clickable.then_some(SurfaceEvent::Click),
+            page: false,
             state: expanded_state
                 | if clickable {
                     0
@@ -119,30 +134,47 @@ impl Accessibility {
                     STATE_SYSTEM_UNAVAILABLE
                 },
         });
-        // Keep the hide child's ID stable when the pin button is disabled in settings.
-        for (event, name, action) in [
-            (Event::Hide, "隐藏岛屿", SurfaceEvent::Hide),
-            (
-                if pinned { Event::Unpin } else { Event::Pin },
-                if pinned {
-                    "取消固定"
-                } else {
-                    "固定岛屿"
-                },
-                SurfaceEvent::Pin(!pinned),
-            ),
-        ] {
-            if let Some(bounds) = action_rect(cfg, state, rect, scale, event) {
+        if let Some(panel) = panel {
+            for item in &panel.items {
                 nodes.push(Control {
-                    name,
-                    rect: bounds,
-                    action: Some(action),
-                    state: if event == Event::Unpin {
+                    name: item.name.clone(),
+                    rect: item.screen_bounds(rect, panel.size),
+                    action: item.action.surface_event(),
+                    page: item.action == MessageAction::NextPage,
+                    state: if item.selected {
                         STATE_SYSTEM_PRESSED
                     } else {
                         0
                     },
                 });
+            }
+        } else {
+            // Keep the hide child's ID stable when the pin button is disabled in settings.
+            for (event, name, action) in [
+                (Event::Hide, "隐藏岛屿", SurfaceEvent::Hide),
+                (
+                    if pinned { Event::Unpin } else { Event::Pin },
+                    if pinned {
+                        "取消固定"
+                    } else {
+                        "固定岛屿"
+                    },
+                    SurfaceEvent::Pin(!pinned),
+                ),
+            ] {
+                if let Some(bounds) = action_rect(cfg, state, rect, scale, event) {
+                    nodes.push(Control {
+                        name: name.into(),
+                        rect: bounds,
+                        action: Some(action),
+                        page: false,
+                        state: if event == Event::Unpin {
+                            STATE_SYSTEM_PRESSED
+                        } else {
+                            0
+                        },
+                    });
+                }
             }
         }
         let mut previous = self.controls.write().unwrap_or_else(|e| e.into_inner());
@@ -177,6 +209,7 @@ impl Accessibility {
                 standard: IAccessible::from_raw(standard),
                 controls: self.controls.clone(),
                 notify: self.notify.clone(),
+                hwnd: hwnd as usize,
             }
             .into();
             Some(LresultFromObject(&IAccessible::IID, WPARAM(wp), &provider).0)
@@ -189,6 +222,7 @@ struct IslandAccessible {
     standard: IAccessible,
     controls: Snapshot,
     notify: Notify,
+    hwnd: usize,
 }
 
 impl IslandAccessible {
@@ -272,7 +306,7 @@ impl IAccessible_Impl for IslandAccessible_Impl {
         Err(S_FALSE.into())
     }
     fn get_accName(&self, child: &VARIANT) -> Result<BSTR> {
-        Ok(self.control(child)?.name.into())
+        Ok(BSTR::from(self.control(child)?.name.as_str()))
     }
     fn get_accRole(&self, child: &VARIANT) -> Result<VARIANT> {
         self.control(child)?;
@@ -287,14 +321,30 @@ impl IAccessible_Impl for IslandAccessible_Impl {
         Ok((self.control(child)?.state as i32).into())
     }
     fn get_accDefaultAction(&self, child: &VARIANT) -> Result<BSTR> {
-        Ok(if self.control(child)?.action.is_some() {
+        let c = self.control(child)?;
+        Ok(if c.page || c.action.is_some() {
             "按下".into()
         } else {
             BSTR::new()
         })
     }
     fn accDoDefaultAction(&self, child: &VARIANT) -> Result<()> {
-        (self.notify)(self.control(child)?.action.ok_or(E_INVALIDARG)?);
+        let c = self.control(child)?;
+        if c.page {
+            if unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::PostMessageW(
+                    self.hwnd as _,
+                    super::NEXT_PAGE,
+                    0,
+                    0,
+                )
+            } == 0
+            {
+                return Err(CO_E_OBJNOTCONNECTED.into());
+            }
+        } else {
+            (self.notify)(c.action.ok_or(E_INVALIDARG)?);
+        }
         Ok(())
     }
     fn accLocation(

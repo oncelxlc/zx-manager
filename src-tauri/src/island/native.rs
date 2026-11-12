@@ -1,3 +1,4 @@
+mod startup;
 mod watch;
 use super::config::{parse_hotkey, HotkeyConfig};
 use super::surface::{Surface, SurfaceEvent};
@@ -15,6 +16,7 @@ pub enum NativeEvent {
     Hide,
     OutsideClick,
     Fullscreen(bool),
+    SessionLocked(bool),
     DisplayChanged,
     DragEnded,
     Error(String),
@@ -64,7 +66,35 @@ impl Surface {
     }
 }
 
+pub(super) fn packaged() -> Result<bool, u32> {
+    use windows_sys::Win32::{
+        Foundation::{APPMODEL_ERROR_NO_PACKAGE, ERROR_INSUFFICIENT_BUFFER},
+        Storage::Packaging::Appx::GetCurrentPackageFullName,
+    };
+    let mut length = 0;
+    match unsafe { GetCurrentPackageFullName(&mut length, std::ptr::null_mut()) } {
+        ERROR_INSUFFICIENT_BUFFER => Ok(true),
+        APPMODEL_ERROR_NO_PACKAGE => Ok(false),
+        code => Err(code),
+    }
+}
+
+fn packaged_startup() -> Result<bool, String> {
+    packaged().map_err(|code| format!("读取 Windows 应用包标识失败（{code}）"))
+}
+
+pub fn sync_autostart(enabled: bool) -> Result<bool, String> {
+    if packaged_startup()? {
+        return startup::task(None);
+    }
+    set_autostart(enabled)?;
+    Ok(enabled)
+}
+
 pub fn set_autostart(enabled: bool) -> Result<(), String> {
+    if packaged_startup()? {
+        return startup::task(Some(enabled)).map(|_| ());
+    }
     const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let result = if enabled {

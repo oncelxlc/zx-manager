@@ -63,7 +63,7 @@ impl ConfigStore {
             None => 0,
         };
         match version {
-            0 => {
+            0 | 1 => {
                 fields.insert("schemaVersion".into(), SCHEMA_VERSION.into());
             }
             version if version == u64::from(SCHEMA_VERSION) => {}
@@ -72,7 +72,7 @@ impl ConfigStore {
         let config: IslandConfig =
             serde_json::from_value(value).map_err(|err| format!("island.json 配置无效：{err}"))?;
         config.validate()?;
-        Ok((config, version == 0))
+        Ok((config, version < u64::from(SCHEMA_VERSION)))
     }
 
     pub fn save(

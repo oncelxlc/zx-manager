@@ -22,7 +22,7 @@ pub(super) struct Texture {
     pub fade: IDCompositionEffectGroup,
     content_scale: IDCompositionScaleTransform,
     content: IDCompositionVisual,
-    outer: IDCompositionVisual,
+    pub(super) outer: IDCompositionVisual,
     surface: IDCompositionVisual,
     viewport: IDCompositionVisual,
     glyphs: IDCompositionVisual,
@@ -64,8 +64,9 @@ impl Texture {
         from_alpha: f32,
         to_alpha: f32,
     ) -> Result<()> {
-        if self.key.content_origin() == (0, 0) {
-            return Ok(());
+        if self.key.content_origin() == (0, 0) || self.key.panel.is_some() {
+            // Notification controls follow the same outer transform as their hit targets.
+            return self.reset_content();
         }
         let amplitude = if motion { anim.amplitude as f32 } else { 0.0 };
         let distance = if anim.preset == AnimationPreset::Subtle {

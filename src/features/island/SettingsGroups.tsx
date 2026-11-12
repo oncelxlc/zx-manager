@@ -6,7 +6,7 @@ import { Amount, Check, Choice, TextField } from "./SettingsFields";
 
 export const groups = {
   overview: "总览", startup: "启动管理", placement: "位置与方向", edge: "边界隐藏",
-  appearance: "外观", animation: "动画效果", interaction: "交互与快捷键",
+  notifications: "通知与消息", appearance: "外观", animation: "动画效果", interaction: "交互与快捷键",
 } as const;
 export type Group = keyof typeof groups;
 
@@ -22,6 +22,7 @@ interface Props {
 export function SettingsGroups({ group, config, displays, update }: Props) {
   const { startup, placement, edge, appearance, animation, interaction, hotkeys } = config;
   switch (group) {
+    case "notifications":
     case "overview": return null;
     case "startup": return <>
       <Check label="登录 Windows 时启动" value={startup.launchAtLogin} change={launchAtLogin => update(group, { launchAtLogin })} />

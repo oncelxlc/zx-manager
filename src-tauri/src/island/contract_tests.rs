@@ -9,6 +9,10 @@ fn compiled_acl_grants_island_management_only_to_main() {
     let acl = context.runtime_authority_mut();
     for command in [
         "island_get_config",
+        "island_get_notifications",
+        "island_request_notification_access",
+        "island_open_notification_settings",
+        "island_activate_notification_window",
         "island_get_runtime_status",
         "island_set_pinned",
         "island_hide",

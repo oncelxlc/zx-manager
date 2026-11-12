@@ -26,6 +26,7 @@ function desktop() {
   vi.spyOn(islandApi, "config").mockResolvedValue(config);
   vi.spyOn(islandApi, "status").mockResolvedValue({ state: "compact", sequence: 1, lastError: null });
   vi.spyOn(islandApi, "displays").mockResolvedValue([]);
+  vi.spyOn(islandApi, "notifications").mockResolvedValue({ sequence: 1, permission: "notRequested", windows: [], reminders: [] });
 }
 
 it("keeps animation preview cancellable without saving the draft", async () => {
@@ -87,4 +88,34 @@ it("pins the native island from settings, ignoring older runtime snapshots", asy
   fireEvent.click(button);
   await waitFor(() => expect(pin).toHaveBeenCalledWith(true));
   expect(store.getState().island.status?.state).toBe("expanded");
+});
+
+it("opens the notification deep link and previews a local sample without calling Windows", async () => {
+  vi.spyOn(islandApi, "isDesktop").mockReturnValue(false);
+  const access = vi.spyOn(islandApi, "requestNotificationAccess");
+  const activate = vi.spyOn(islandApi, "activateNotificationWindow");
+  open("#/settings/island?group=notifications");
+  expect(screen.getByRole("heading", { name: "通知与消息" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "模拟一条提醒" }));
+  fireEvent.click(screen.getByRole("button", { name: "展开通知示例" }));
+  expect(screen.getByText("微信 2")).toBeTruthy();
+  expect(screen.queryByText("敏感内容已隐藏")).toBeNull();
+  expect(access).not.toHaveBeenCalled();
+  expect(activate).not.toHaveBeenCalled();
+});
+
+it("uses a registered window id and keeps authorization separate from draft controls", async () => {
+  desktop();
+  vi.spyOn(islandApi, "notifications").mockResolvedValue({
+    sequence: 2, permission: "denied", windows: [{ id: 7, source: "wechat", label: "微信 2" }], reminders: [],
+  });
+  const access = vi.spyOn(islandApi, "requestNotificationAccess");
+  const activate = vi.spyOn(islandApi, "activateNotificationWindow").mockResolvedValue();
+  open("#/settings/island?group=notifications");
+  fireEvent.click(await screen.findByRole("checkbox", { name: "显示通知正文预览" }));
+  expect(screen.getByLabelText("摘要保留时长（秒）")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "打开 Windows 通知隐私设置" })).toBeTruthy();
+  expect(access).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "切换到微信 2" }));
+  await waitFor(() => expect(activate).toHaveBeenCalledWith(7));
 });

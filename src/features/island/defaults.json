@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "revision": 0,
   "enabled": true,
   "startup": { "launchAtLogin": false, "showOnStart": true, "startCompact": true, "closeToTray": true },
@@ -23,6 +23,11 @@
   "interaction": {
     "hoverExpand": true, "clickExpand": true, "outsideCollapse": true, "autoCollapse": true,
     "collapseDelayMs": 450, "pinEnabled": true, "dragEnabled": true
+  },
+  "notifications": {
+    "enabled": true, "wechatEnabled": true, "qqEnabled": true, "windowsNotificationsEnabled": true,
+    "showPreview": false, "previewTimeoutSeconds": 8,
+    "accountListEnabled": true, "animateNewMessage": true
   },
   "hotkeys": { "toggle": "Ctrl+Alt+I", "show": "Ctrl+Alt+S", "hide": "Ctrl+Alt+H" }
 }

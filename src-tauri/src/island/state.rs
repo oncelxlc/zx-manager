@@ -30,6 +30,7 @@ pub enum Event {
     PointerEnter,
     PointerLeave,
     Click,
+    OpenNotifications,
     OutsideClick,
     Pin,
     Unpin,
@@ -208,6 +209,7 @@ impl Machine {
                 }
             }
             Click if self.state == EdgePeek => self.set(Compact),
+            OpenNotifications if self.state == Compact => self.set(Expanded),
             Click
                 if config.interaction.click_expand && matches!(self.state, Compact | Expanded) =>
             {

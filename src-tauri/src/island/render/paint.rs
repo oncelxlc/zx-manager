@@ -1,3 +1,5 @@
+use super::{MessageAction, Panel};
+use crate::island::notifications::Source;
 use crate::island::{
     config::{IslandConfig, Theme},
     geometry::Rect,
@@ -19,6 +21,8 @@ use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 #[derive(PartialEq)]
 pub(super) struct ImageKey {
     pub hovered: Option<Event>,
+    pub panel: Option<Panel>,
+    pub message_hover: Option<MessageAction>,
     pub size: (i32, i32),
     pub scale: f32,
     state: IslandState,
@@ -99,6 +103,8 @@ impl ImageKey {
         );
         Self {
             hovered: None,
+            panel: None,
+            message_hover: None,
             size: (rect.width, rect.height),
             scale: scale as f32,
             state,
@@ -219,22 +225,26 @@ struct Label {
     height: f32,
 }
 
+unsafe fn font(factory: &IDWriteFactory, size: f32, bold: bool) -> Result<IDWriteTextFormat> {
+    let weight = if bold {
+        DWRITE_FONT_WEIGHT_BOLD
+    } else {
+        DWRITE_FONT_WEIGHT_NORMAL
+    };
+    factory.CreateTextFormat(
+        w!("Segoe UI"),
+        None,
+        weight,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        size,
+        w!("zh-CN"),
+    )
+}
+
 impl Label {
     unsafe fn new(factory: &IDWriteFactory, text: &str, size: f32, bold: bool) -> Result<Self> {
-        let weight = if bold {
-            DWRITE_FONT_WEIGHT_BOLD
-        } else {
-            DWRITE_FONT_WEIGHT_NORMAL
-        };
-        let fmt = factory.CreateTextFormat(
-            w!("Segoe UI"),
-            None,
-            weight,
-            DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL,
-            size,
-            w!("zh-CN"),
-        )?;
+        let fmt = font(factory, size, bold)?;
         let layout = factory.CreateTextLayout(
             &text.encode_utf16().collect::<Vec<_>>(),
             &fmt,
@@ -257,16 +267,38 @@ pub(super) struct Painter {
     compact: Label,
     identity: Label,
     title: Option<(f32, Label)>,
+    heading: IDWriteTextFormat,
+    detail: IDWriteTextFormat,
+    button: IDWriteTextFormat,
+    qq: IDWriteTextFormat,
 }
 
 impl Painter {
     pub unsafe fn new(dc: &ID2D1DeviceContext) -> Result<Self> {
         let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
+        let message_font = |size, bold, center| -> Result<IDWriteTextFormat> {
+            let fmt = font(&factory, size, bold)?;
+            fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
+            fmt.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
+            if center {
+                fmt.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
+            }
+            let trim = DWRITE_TRIMMING {
+                granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                ..Default::default()
+            };
+            fmt.SetTrimming(&trim, &factory.CreateEllipsisTrimmingSign(&fmt)?)?;
+            Ok(fmt)
+        };
         Ok(Self {
             brush: dc.CreateSolidColorBrush(&color(0xffffff, 1.0), None)?,
             compact: Label::new(&factory, "zx-once", 16.0, false)?,
             identity: Label::new(&factory, "zx-once", 12.0, false)?,
             title: None,
+            heading: message_font(14.0, true, false)?,
+            detail: message_font(12.0, false, false)?,
+            button: message_font(12.0, false, true)?,
+            qq: message_font(10.0, true, true)?,
             factory,
         })
     }
@@ -335,6 +367,9 @@ impl Painter {
         w: f32,
         h: f32,
     ) -> Result<()> {
+        if let Some(panel) = &key.panel {
+            return self.messages(dc, key, panel);
+        }
         let b = &self.brush;
         b.SetColor(&key.ink);
         let line = |x: f32, y: f32, path: &[(f32, f32)]| {
@@ -449,6 +484,142 @@ impl Painter {
             &[(6., 3.5), (9., 3.), (12., 4.), (15.5, 8.), (13.5, 10.5)],
         );
         line(x, y, &[(6., 8.), (6.5, 9.5), (8.5, 10.)]);
+        Ok(())
+    }
+
+    unsafe fn message_text(
+        &self,
+        dc: &ID2D1DeviceContext,
+        bounds: Rect,
+        text: &str,
+        font: &IDWriteTextFormat,
+    ) {
+        let clip = D2D_RECT_F {
+            left: bounds.x as f32,
+            top: bounds.y as f32,
+            right: (bounds.x + bounds.width) as f32,
+            bottom: (bounds.y + bounds.height) as f32,
+        };
+        dc.DrawText(
+            &text.encode_utf16().collect::<Vec<_>>(),
+            font,
+            &clip,
+            &self.brush,
+            D2D1_DRAW_TEXT_OPTIONS_CLIP,
+            DWRITE_MEASURING_MODE_NATURAL,
+        );
+    }
+
+    unsafe fn messages(
+        &self,
+        dc: &ID2D1DeviceContext,
+        key: &ImageKey,
+        panel: &Panel,
+    ) -> Result<()> {
+        let b = &self.brush;
+        for caption in &panel.captions {
+            b.SetColor(&key.ink);
+            self.message_text(
+                dc,
+                caption.bounds,
+                &caption.text,
+                if caption.primary {
+                    &self.heading
+                } else {
+                    &self.detail
+                },
+            );
+        }
+        for item in &panel.items {
+            let r = item.bounds;
+            let (x, y, w, h) = (r.x as f32, r.y as f32, r.width as f32, r.height as f32);
+            if item.selected || key.message_hover == Some(item.action) {
+                let mut tint = key.ink;
+                tint.a = if item.selected { 0.18 } else { 0.10 };
+                b.SetColor(&tint);
+                dc.FillRoundedRectangle(&round(x, y, w, h, 7.0), b);
+            }
+            if let Some(source) = item.source {
+                let side = 21.0_f32.min(w).min(h);
+                let left = if item.text.is_empty() {
+                    x + (w - side) * 0.5
+                } else {
+                    x + 5.0
+                };
+                let top = y + (h - side) * 0.5;
+                let fill = match source {
+                    Source::Wechat => 0x107c54,
+                    Source::Qq => 0x2262a4,
+                };
+                b.SetColor(&color(fill, 1.0));
+                dc.FillRoundedRectangle(&round(left, top, side, side, 6.0), b);
+                b.SetColor(&color(0xffffff, 1.0));
+                match source {
+                    Source::Wechat => {
+                        dc.DrawRoundedRectangle(
+                            &round(left + 3.0, top + 4.0, 11.0, 8.0, 4.0),
+                            b,
+                            1.4,
+                            None,
+                        );
+                        dc.FillRoundedRectangle(&round(left + 8.5, top + 9.5, 9.0, 6.5, 3.25), b);
+                        dc.DrawLine(
+                            point(left + 14.0, top + 15.0),
+                            point(left + 16.5, top + 17.0),
+                            b,
+                            1.5,
+                            None,
+                        );
+                    }
+                    Source::Qq => self.message_text(
+                        dc,
+                        Rect {
+                            x: left.round() as i32,
+                            y: top.round() as i32,
+                            width: side as i32,
+                            height: side as i32,
+                        },
+                        "QQ",
+                        &self.qq,
+                    ),
+                }
+                if !item.text.is_empty() {
+                    b.SetColor(&key.ink);
+                    self.message_text(
+                        dc,
+                        Rect {
+                            x: r.x + 31,
+                            width: r.width - 36,
+                            ..r
+                        },
+                        &item.text,
+                        &self.detail,
+                    );
+                }
+            } else {
+                b.SetColor(&key.ink);
+                self.message_text(dc, r, &item.text, &self.button);
+            }
+            if item.reminder {
+                let right = x + w * 0.5 + (w * 0.3).min(8.0);
+                let top = y + h * 0.5 - (h * 0.35).min(10.0);
+                let glow = panel
+                    .pulse
+                    .filter(|(s, _)| Some(*s) == item.source)
+                    .map_or(0.0, |(_, v)| f32::from(v) / 8.0);
+                let d = 6.5 + 2.5 * glow;
+                b.SetColor(&key.background);
+                dc.FillRoundedRectangle(
+                    &round(right - 1.5, top - 1.5, d + 3.0, d + 3.0, (d + 3.0) / 2.0),
+                    b,
+                );
+                b.SetColor(&color(
+                    if key.ink.r < 0.5 { 0xb32938 } else { 0xff7178 },
+                    1.0,
+                ));
+                dc.FillRoundedRectangle(&round(right, top, d, d, d / 2.0), b);
+            }
+        }
         Ok(())
     }
 }

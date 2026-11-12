@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 macro_rules! config_enum {
     ($name:ident { $($item:ident),+ }) => {
@@ -84,7 +84,19 @@ config_group!(IslandConfig {
     appearance: AppearanceConfig = AppearanceConfig::default(),
     animation: AnimationConfig = AnimationConfig::default(),
     interaction: InteractionConfig = InteractionConfig::default(),
+    notifications: NotificationConfig = NotificationConfig::default(),
     hotkeys: HotkeyConfig = HotkeyConfig::default(),
+});
+
+config_group!(NotificationConfig {
+    enabled: bool = true,
+    wechat_enabled: bool = true,
+    qq_enabled: bool = true,
+    windows_notifications_enabled: bool = true,
+    show_preview: bool = false,
+    preview_timeout_seconds: u32 = 8,
+    account_list_enabled: bool = true,
+    animate_new_message: bool = true,
 });
 
 config_group!(StartupConfig {
@@ -219,6 +231,9 @@ impl IslandConfig {
         }
         if self.revision > (1 << 53) - 1 {
             return Err("配置版本计数超出客户端可表示的范围".into());
+        }
+        if !(1..=60).contains(&self.notifications.preview_timeout_seconds) {
+            return Err("通知预览时长必须在 1 至 60 秒之间".into());
         }
         if self.placement.display_id.as_ref().is_some_and(|id| {
             id.trim().is_empty() || id.len() > 512 || id.chars().any(char::is_control)

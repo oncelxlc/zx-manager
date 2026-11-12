@@ -4,7 +4,7 @@ import type { RootState } from "../../store";
 import { islandApi } from "./islandApi";
 import { island } from "./islandSlice";
 
-const { configReceived, statusReceived, displaysReceived, errorChanged } = island.actions;
+const { configReceived, statusReceived, notificationsReceived, displaysReceived, errorChanged } = island.actions;
 
 export function useIsland() {
   const dispatch = useDispatch();
@@ -37,6 +37,7 @@ export function useIsland() {
     async function connect() {
       const subscriptions = [
         islandApi.listen("state-changed", status => { if (active) dispatch(statusReceived(status)); }),
+        islandApi.listen("notifications-changed", status => { if (active) dispatch(notificationsReceived(status)); }),
         islandApi.listen("config-changed", config => { if (active) dispatch(configReceived(config)); }),
         islandApi.listen("runtime-error", fail),
         islandApi.listen("display-changed", () => { if (active) void refreshDisplays().catch(fail); }),
@@ -46,6 +47,7 @@ export function useIsland() {
       if (!active) return;
       await Promise.all([
         refreshConfig(),
+        islandApi.notifications().then(status => { if (active) dispatch(notificationsReceived(status)); }),
         islandApi.status().then(status => {
           if (active) {
             dispatch(statusReceived(status));

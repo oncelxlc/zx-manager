@@ -43,6 +43,20 @@ fn migration_keeps_old_bytes_and_supplies_missing_defaults() {
 }
 
 #[test]
+fn v1_settings_keep_revision_and_gain_private_notification_defaults() {
+    let dir = Directory::new();
+    let old = br#"{"schemaVersion":1,"revision":9,"enabled":false}"#;
+    fs::write(dir.0.join("island.json"), old).unwrap();
+    let config = ConfigStore::new(dir.0.clone()).load().unwrap();
+    assert_eq!(config.schema_version, SCHEMA_VERSION);
+    assert_eq!(config.revision, 9);
+    assert!(!config.enabled);
+    assert!(!config.notifications.show_preview);
+    assert_eq!(config.notifications.preview_timeout_seconds, 8);
+    assert_eq!(fs::read(dir.0.join("island.json.bak")).unwrap(), old);
+}
+
+#[test]
 fn concurrent_writers_cannot_commit_the_same_revision_twice() {
     let dir = Directory::new();
     let barrier = std::sync::Barrier::new(2);

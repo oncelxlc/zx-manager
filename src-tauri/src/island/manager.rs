@@ -1,4 +1,6 @@
+mod messages;
 mod settings;
+pub(super) use messages::NotificationStatus;
 
 use super::{
     config::{Anchor, IslandConfig, PlacementConfig},
@@ -49,6 +51,7 @@ impl ManagerHandle {
                     window: None,
                     generation: 0,
                     sequence: 0,
+                    messages: messages::Messages::default(),
                     timer: None,
                     drag_origin: None,
                     exiting: false,
@@ -116,6 +119,7 @@ pub(super) struct IslandManager {
     generation: u64,
     sequence: u64,
     timer: Option<(Instant, Event)>,
+    messages: messages::Messages,
     drag_origin: Option<(i32, i32)>,
     exiting: bool,
 }
@@ -125,14 +129,17 @@ impl IslandManager {
     fn run(&mut self, receive: Receiver<Job>) {
         while !self.exiting {
             if let Some((deadline, event)) = self.timer {
-                match receive.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                    Ok(job) => job(self),
-                    Err(RecvTimeoutError::Timeout) => {
-                        self.timer = None;
-                        if let Err(error) = self.transition(event) {
-                            self.report(error);
-                        }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    self.timer = None;
+                    if let Err(error) = self.transition(event) {
+                        self.report(error);
                     }
+                    continue;
+                }
+                match receive.recv_timeout(remaining) {
+                    Ok(job) => job(self),
+                    Err(RecvTimeoutError::Timeout) => continue,
                     Err(RecvTimeoutError::Disconnected) => break,
                 }
             } else if let Ok(job) = receive.recv() {
@@ -213,7 +220,16 @@ impl IslandManager {
             self.report(error);
         }
         self.window = Some(window);
-        if let Err(error) = native::set_autostart(self.config.startup.launch_at_login) {
+        let startup =
+            native::sync_autostart(self.config.startup.launch_at_login).and_then(|enabled| {
+                if enabled != self.config.startup.launch_at_login {
+                    let mut draft = self.config.clone();
+                    draft.startup.launch_at_login = enabled;
+                    self.config = self.store.save(&draft, self.config.revision)?;
+                }
+                Ok(())
+            });
+        if let Err(error) = startup {
             self.report(error);
         }
         let initialized = self
@@ -250,6 +266,7 @@ impl IslandManager {
             .emit("island://state-changed", self.status())
             .map_err(|e| e.to_string())?;
         let state = self.machine.state;
+        self.configure_messages()?;
         if let Some(window) = &self.window {
             if self.drag_origin.is_none() {
                 if state.is_visible() {
@@ -312,6 +329,21 @@ impl IslandManager {
                 SurfaceEvent::Pin(true) => Event::Pin,
                 SurfaceEvent::Pin(false) => Event::Unpin,
                 SurfaceEvent::Hide => Event::Hide,
+                SurfaceEvent::OpenNotificationSource(source) => {
+                    let result = self.open_source(source);
+                    if result.is_err() {
+                        self.open_message_settings()?;
+                    }
+                    return result;
+                }
+                SurfaceEvent::ActivateWindow(id) => {
+                    let result = self.activate_notification_window(id);
+                    if result.is_err() {
+                        self.open_message_settings()?;
+                    }
+                    return result;
+                }
+                SurfaceEvent::NotificationSettings => return self.open_message_settings(),
                 SurfaceEvent::DragStart => return self.drag(),
                 SurfaceEvent::Error(error) => return Err(error),
             },
@@ -322,12 +354,17 @@ impl IslandManager {
             NativeEvent::Fullscreen(false) => Event::FullscreenExited,
             NativeEvent::OutsideClick => Event::OutsideClick,
             NativeEvent::DisplayChanged => {
+                self.refresh_message_source();
                 self.app
                     .emit("island://display-changed", ())
                     .map_err(|e| e.to_string())?;
                 Event::DisplayChanged
             }
             NativeEvent::DragEnded => return self.finish_drag(),
+            NativeEvent::SessionLocked(locked) => {
+                self.messages.locked = locked;
+                return self.configure_messages();
+            }
             NativeEvent::Error(error) => return Err(error),
         };
         self.transition(event)
@@ -345,14 +382,17 @@ impl IslandManager {
     }
 
     pub fn open_main(&self, settings: bool) -> Result<()> {
+        self.open_route(if settings { "/settings/island" } else { "/" })
+    }
+
+    fn open_message_settings(&self) -> Result<()> {
+        self.open_route("/settings/island?group=notifications")
+    }
+
+    fn open_route(&self, route: &str) -> Result<()> {
         let window = self.app.get_webview_window("main").ok_or("主窗口不可用")?;
-        let hash = if settings {
-            "location.hash='/settings/island'"
-        } else {
-            "location.hash='/'"
-        };
         window
-            .eval(hash)
+            .eval(format!("location.hash='{route}'"))
             .and_then(|_| window.unminimize())
             .and_then(|_| window.show())
             .and_then(|_| window.set_focus())
@@ -361,6 +401,7 @@ impl IslandManager {
 
     fn close_window(&mut self) -> Result<()> {
         self.generation += 1;
+        self.stop_messages();
         self.drag_origin = None;
         self.timer = None;
         if let Some(window) = self.window.take() {

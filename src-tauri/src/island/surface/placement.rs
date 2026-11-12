@@ -207,20 +207,30 @@ pub(super) fn apply(
         ui.clock.stop();
     }
     position(hwnd, host)?;
-    ui.renderer
-        .borrow_mut()
-        .as_mut()
-        .ok_or("原生绘制设备不可用")?
-        .apply(&cfg, state, target, host, scale, changed_state)?;
-    ui.recovery_pending.set(false);
-    if ui.a11y.update(&cfg, state, target, scale) {
-        unsafe {
-            windows_sys::Win32::UI::Accessibility::NotifyWinEvent(
-                EVENT_OBJECT_REORDER,
-                hwnd,
-                OBJID_CLIENT,
-                CHILDID_SELF as i32,
-            );
+    if !cfg.notifications.enabled || !cfg.notifications.show_preview {
+        super::messages::clear_previews(ui)?;
+    }
+    {
+        let mut renderer = ui.renderer.borrow_mut();
+        let renderer = renderer.as_mut().ok_or("原生绘制设备不可用")?;
+        super::messages::prepare(ui, hwnd, renderer, &cfg, state, target, scale)?;
+        renderer.apply(&cfg, state, target, host, scale, changed_state)?;
+        ui.recovery_pending.set(false);
+        if ui.a11y.update_panel(
+            &cfg,
+            state,
+            renderer.visible_rect().unwrap_or(target),
+            scale,
+            renderer.hit_panel(),
+        ) {
+            unsafe {
+                windows_sys::Win32::UI::Accessibility::NotifyWinEvent(
+                    EVENT_OBJECT_REORDER,
+                    hwnd,
+                    OBJID_CLIENT,
+                    CHILDID_SELF as i32,
+                );
+            }
         }
     }
     let frame = Frame {
@@ -250,6 +260,10 @@ pub(super) fn update_mask(ui: &Context, hwnd: HWND) -> Result<()> {
         return Ok(());
     };
     let rect = r.visible_rect().unwrap_or(f.target);
+    if r.panel.is_some() {
+        ui.a11y
+            .update_panel(&f.cfg, f.state, rect, f.scale, r.hit_panel());
+    }
     let radius = f.cfg.appearance.radius * f.scale;
     region(ui, hwnd, f.host, rect, radius)?;
     if rect == f.target {
@@ -281,6 +295,8 @@ pub(super) fn hide(ui: &Context, hwnd: HWND) -> Result<()> {
         ShowWindow(hwnd, SW_HIDE);
     }
     ui.clock.stop();
+    super::messages::stop_pulse(ui, hwnd);
+    super::messages::clear_previews(ui)?;
     ui.input.clear();
     ui.dragging.set(false);
     ui.a11y.clear();
