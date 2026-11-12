@@ -1,5 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 
+export const lightSurface = "#f5f5f4";
+
 export const ui = stylex.create({
   page: { minHeight: "100svh", color: "#1c1917", backgroundColor: "#fafaf9", paddingBlock: "clamp(1rem, 5vw, 3rem)", paddingInline: "clamp(1rem, 5vw, 4rem)" },
   wrap: { maxWidth: 1080, marginInline: "auto" },

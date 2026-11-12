@@ -1,41 +1,35 @@
 use super::geometry::{Display, Rect};
-use super::state::{Event, IslandState};
+use super::state::IslandState;
 use serde_json::json;
 use tauri::ipc::Origin;
 
 #[test]
-fn compiled_acl_grants_each_windows_view_its_commands() {
+fn compiled_acl_grants_island_management_only_to_main() {
     let mut context: tauri::Context<tauri::Wry> = tauri::generate_context!();
     let acl = context.runtime_authority_mut();
-    let both: &[&str] = &["main", "island"];
-    let main: &[&str] = &["main"];
-    let island: &[&str] = &["island"];
-    for (command, allowed) in [
-        ("island_get_config", both),
-        ("island_get_runtime_status", both),
-        ("island_set_pinned", both),
-        ("island_hide", both),
-        ("plugin:event|listen", both),
-        ("plugin:event|unlisten", both),
-        ("island_update_config", main),
-        ("island_set_enabled", main),
-        ("island_show", main),
-        ("island_toggle", main),
-        ("island_restart", main),
-        ("island_preview", main),
-        ("island_reset_config", main),
-        ("island_get_displays", main),
-        ("island_get_performance_stats", main),
-        ("island_set_position", main),
-        ("island_interact", island),
-        ("island_drag", island),
-        ("island_ready", island),
+    for command in [
+        "island_get_config",
+        "island_get_runtime_status",
+        "island_set_pinned",
+        "island_hide",
+        "plugin:event|listen",
+        "plugin:event|unlisten",
+        "island_update_config",
+        "island_set_enabled",
+        "island_show",
+        "island_toggle",
+        "island_restart",
+        "island_preview",
+        "island_reset_config",
+        "island_get_displays",
+        "island_get_performance_stats",
+        "island_set_position",
     ] {
         for window in ["main", "island", "other"] {
             assert_eq!(
                 acl.resolve_access(command, window, window, &Origin::Local)
                     .is_some(),
-                allowed.contains(&window),
+                window == "main",
                 "{window} calling {command}"
             );
         }
@@ -43,18 +37,11 @@ fn compiled_acl_grants_each_windows_view_its_commands() {
 }
 
 #[test]
-fn ipc_uses_frontend_state_event_and_display_names() {
+fn ipc_uses_frontend_state_and_display_names() {
     assert_eq!(
         serde_json::to_value(IslandState::EdgePeek).unwrap(),
         "edgePeek"
     );
-    for (wire, event) in [
-        ("pointerEnter", Event::PointerEnter),
-        ("pointerLeave", Event::PointerLeave),
-        ("click", Event::Click),
-    ] {
-        assert_eq!(serde_json::from_value::<Event>(json!(wire)).unwrap(), event);
-    }
     let display = Display {
         id: "left".into(),
         name: "左屏".into(),

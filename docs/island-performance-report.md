@@ -2,7 +2,7 @@
 
 ## 交付范围
 
-Windows 桌面版可在进程启动时用 `ZX_ISLAND_RENDERER=native` 选择原生岛屿。设置、托盘、隐藏到后台、配置 revision、快捷键、全屏挂起、四种边缘策略以及多屏位置计算继续走既有管理器。默认仍使用 WebView，便于在尚未验收的系统和驱动上回退。切换步骤见 [README](../README.md)。
+Windows 桌面版统一使用 Rust 原生灵动岛。本文保留迁移时的双后端对照数据（提交 `4682531`），供后续回归比较。当前启动方式和实现见 [README](../README.md) 和[原生渲染设计](island-native-renderer-design.md)。
 
 ```text
 WebView    设置/托盘 → Rust Machine → WebView2 岛屿 + CSS 内容过渡
@@ -12,29 +12,29 @@ Native     设置/托盘 → 同一 Machine → 专用线程上的 Win32 HWND
                                    ← 本地消息、区域命中、MSAA 按钮动作
 ```
 
-## 文件和依赖
+## 实现文件和依赖
 
 | 文件 | 内容 |
 | --- | --- |
-| `src-tauri/src/island/backend.rs`、`window.rs`、`native.rs`、`native/{motion,watch}.rs` | 选择唯一后端、显示器回退、复用系统监听，保留旧 WebView 路径 |
+| `src-tauri/src/island/{displays,native}.rs`、`native/watch.rs` | 显示器选择、系统事件监听和快捷键 |
 | `src-tauri/src/island/surface.rs`、`surface/` | STA 消息线程、窗口生命周期、定位与命中、按钮与拖动、辅助功能、独立 PoC |
 | `src-tauri/src/island/render/{mod,device,paint,animation}.rs` | D3D11/D2D/DWrite/DXGI/DComp 设备、分状态纹理缓存、合成属性动画、诊断及恢复 |
 | `src-tauri/src/island/{config,commands,contract_tests,manager,mod}.rs`、`manager/settings.rs`、`src-tauri/src/lib.rs`、`src-tauri/permissions/island.toml` | 管理桥、配置扩展与旧版读取、IPC 权限测试、原生事件与拖动保存 |
-| `src/features/island/{types.ts,SettingsGroups.tsx,IslandShell.tsx,IslandPreview.tsx,IslandSettingsPage.test.tsx}` | Custom 曲线、设置与预览联动、前端交互回归 |
+| `src/features/island/{types.ts,SettingsGroups.tsx,PreviewContent.tsx,IslandPreview.tsx,IslandSettingsPage.test.tsx}` | Custom 曲线、设置与草稿预览、前端交互回归 |
 | `src-tauri/{Cargo.toml,Cargo.lock}` | Windows 专用依赖和 API features |
-| `src-tauri/examples/`、`scripts/island-benchmark.{ps1,rs}` | 原生 PoC、屏幕变化采样、同机双后端基准和隔离配置冒烟测试 |
+| `src-tauri/examples/`、`scripts/island-benchmark.{ps1,rs}` | 原生 PoC、屏幕变化采样和隔离配置冒烟测试 |
 | `README.md`、`docs/island-{performance-baseline,native-renderer-design,performance-report}.md` | 运行方式、测量口径、架构设计和验收结果 |
 
 新增直接引用的 `windows`、`windows-core`、`windows-numerics` 提供 COM 图形接口、MSAA 实现宏及几何类型。`window-vibrancy` 和 `raw-window-handle` 复用 Tauri 依赖树中的 Acrylic 实现。`windows-sys` 继续提供原有 Win32 调用。所有包均使用锁文件中已有版本。
 
 ## 产品和视觉差异
 
-- 设置页预览仍渲染本地草稿。桌面原生路线不创建 `#/island` 窗口。管理命令及诊断字段见[原生设计](island-native-renderer-design.md)。
+- 设置页预览渲染本地草稿，桌面岛屿由原生窗口绘制。管理命令及诊断字段见[原生设计](island-native-renderer-design.md)。
 - 保留状态点、品牌、中文标题、上下箭头、固定/取消固定、隐藏、边缘条、背景与描边。原实现没有通知流或进度条。DirectWrite 采用 Segoe UI 与系统字体回退，原生线条重绘图标。灰度文字边缘和用细描边模拟的内阴影会与浏览器栅格化略有不同。
 - 模糊使用 Windows Acrylic。合成过渡中涉及宿主窗口透明区域时会暂时关闭材质，稳定后恢复。Windows 不支持材质时仍显示配置的半透明底色。
-- 旧 Custom 配置保持平滑曲线。新增的可选曲线在设置预览、原生合成和回退窗口中均生效。系统动画偏好、减少动态效果和性能档位仍参与过渡选择。
+- 旧 Custom 配置保持平滑曲线。可选曲线在设置预览和原生合成中均生效。系统动画偏好、减少动态效果和性能档位仍参与过渡选择。
 
-## 复现
+## 采集当前原生版本的指标
 
 在 Windows 交互桌面的仓库根目录运行以下命令。
 
@@ -57,7 +57,7 @@ pwsh -File scripts/island-benchmark.ps1 -VisualProbe src-tauri/target/debug/exam
 | 原生按钮 | Windows 通过 `AccessibleObjectFromWindow` 读出按钮名称，并通过默认动作触发取消固定。鼠标、辅助功能和设置页动作进入同一状态机 |
 | 方向与主题 | 主屏中央收起区域为 (1202, 754, 156, 44)。Quality 模式下四向展开均为 328 × 168，上、下、左、右的实际左上角依次为 (1116, 630)、(1116, 754)、(1030, 692)、(1202, 692)。暗色/浅色实窗背景分别取到 `#202326` / `#f5f5f4`，固定按钮底色分别为 `#275447` / `#cdece3`。跟随系统在该机器上取到暗色。禁用固定后 MSAA 按钮数从 3 降至 2 |
 | 拖动与多屏 | 拖动开始后可见矩形保持固定。真实副屏工作区原点为 (-2560, 0)，在该屏检查了收起、展开和边缘条。矩形中心落在屏外或显示器间空隙时的选屏、嵌套拖动消息泵中的管理读取和取消有独立回归用例 |
-| 配置、重启和回退 | 双模式隔离基准检查配置落盘、颜色更新、重启后版本、热键重新注册与释放。原生模式没有 `island` WebView，WebView 模式复用原有标签。v1 不带曲线字段的配置保留既有效果 |
+| 配置和重启 | 原生版本的隔离基准检查配置落盘、颜色更新、重启后的 revision、快捷键重新注册与释放，同时校验当前进程仅有一个原生岛屿 HWND，Tauri 仅有主窗口。v1 不带曲线字段的配置保留既有效果 |
 | GPU 恢复和 DPI | 在隐藏 HWND 上受控释放 D3D/DComp 资源后，重新绑定设备并恢复当前画面。在同一台机器上输入 1.25、1.5 和 2.0 缩放参数，检查交换链 resize、重绘和重复应用的缓存命中。物理驱动重启及混合 DPI 换屏另列验收 |
 
 原生状态层第一次拆分时，尺寸和主色都能通过检查，文字却被背景盖住。根据实际内容像素和 DirectComposition 的子视觉排序规则，将内容明确置于背景之上，并把文字和固定提示纳入回归检查。仅对比窗口矩形会漏掉这个错误。[AddVisual 子视觉排序](https://learn.microsoft.com/en-us/windows/win32/api/dcomp/nf-dcomp-idcompositionvisual-addvisual)
@@ -98,4 +98,4 @@ pwsh -File scripts/island-benchmark.ps1 -VisualProbe src-tauri/target/debug/exam
 
 ## 待实测的发布条件
 
-本次系统为 Windows 11，主屏报告 60 Hz，副屏报告 59 Hz，两屏均为 96 DPI。Windows 10、120/144 Hz、物理混合 DPI、显示器热拔插、不同任务栏位置、独占全屏、睡眠唤醒、真实驱动重置和长时间资源稳定性仍需目标环境。物理按键到屏幕发光需要额外的端到端测量。保持 WebView 为默认后端，待这些环境和性能门槛验收后再决定发布默认值。
+本次系统为 Windows 11，主屏报告 60 Hz，副屏报告 59 Hz，两屏均为 96 DPI。Windows 10、120/144 Hz、物理混合 DPI、显示器热拔插、不同任务栏位置、独占全屏、睡眠唤醒、真实驱动重置和长时间资源稳定性仍需目标环境。物理按键到屏幕发光需要额外的端到端测量。

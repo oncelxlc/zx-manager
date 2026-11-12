@@ -6,18 +6,21 @@ import defaults from "./defaults.json";
 import { islandApi } from "./islandApi";
 import { island } from "./islandSlice";
 import { IslandPreview } from "./IslandPreview";
-import { stateLabels } from "./IslandShell";
 import { Check } from "./SettingsFields";
 import { groups, SettingsGroups, type Group } from "./SettingsGroups";
 import { ui } from "./settingsStyles";
-import type { IslandConfig } from "./types";
+import type { IslandConfig, IslandState } from "./types";
 import { useIsland } from "./useIsland";
 
 // The Rust defaults test compares this JSON fixture with IslandConfig::default().
 const browserDefaults = defaults as IslandConfig;
+const stateLabels: Record<IslandState, string> = {
+  disabled: "已停用", hidden: "已隐藏", edgePeek: "边缘待唤醒", compact: "已收起",
+  expanded: "已展开", pinned: "已固定", suspended: "全屏暂停",
+};
 
 export function IslandSettingsPage() {
-  const { config, displays, status, desktop, dispatch, error, report, retry } = useIsland(true);
+  const { config, displays, status, desktop, dispatch, error, report, retry } = useIsland();
   const saved = desktop ? config : browserDefaults;
   const [edit, setEdit] = useState<IslandConfig | null>(null);
   const draft = edit ?? saved;

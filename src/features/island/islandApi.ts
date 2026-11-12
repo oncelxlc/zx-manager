@@ -34,9 +34,6 @@ export const islandApi = {
   hide: () => invoke<void>("island_hide"),
   restart: () => invoke<void>("island_restart"),
   pin: (pinned: boolean) => invoke<void>("island_set_pinned", { pinned }),
-  interact: (event: "click" | "pointerEnter" | "pointerLeave") => invoke<void>("island_interact", { event }),
-  drag: () => invoke<void>("island_drag"),
-  ready: () => invoke<void>("island_ready"),
   listen<K extends keyof IslandEvents>(name: K, handler: (payload: IslandEvents[K]) => void) {
     return listen<IslandEvents[K]>(`island://${name}`, ({ payload }) => handler(payload));
   },

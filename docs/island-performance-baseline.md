@@ -1,6 +1,6 @@
 # 灵动岛性能基线
 
-旧版取自提交 `79eea99`。采样日期为 2026-11-12。下文的 Windows 指标来自同一台机器上的调试构建。工作集和 CPU 均包括宿主、主界面和属于该实例的 WebView2 子进程。
+旧版取自提交 `79eea99`，双后端对照版本为 `4682531`。下文保留迁移时在同一台机器上采集的调试构建数据，采样日期为 2026-11-12。当前脚本测量 Rust 原生岛屿。工作集和 CPU 均包括宿主、主界面和属于该实例的 WebView2 子进程。
 
 ## 旧版链路
 
@@ -54,7 +54,7 @@ Win32 GetMonitorInfoW、EnumDisplaySettingsW 和 GetDpiForMonitor 用于核对�
 
 ## 重复采集
 
-在仓库根目录运行以下命令。使用 PowerShell 7.4 及以上、已安装的 pnpm 依赖、Cargo、WebView2 和一个交互式 Windows 桌面。顺序运行两个模式，约三分钟。不要同时运行两个基准。
+在仓库根目录运行以下命令采集当前原生版本。使用 PowerShell 7.4 及以上、已安装的 pnpm 依赖、Cargo、WebView2 和一个交互式 Windows 桌面。每种场景单独运行以避免采样相互干扰。
 
 ```powershell
 pnpm build
@@ -64,11 +64,11 @@ cargo build --locked --manifest-path src-tauri/Cargo.toml --example island_frame
 pwsh -NoProfile -File ./scripts/island-benchmark.ps1 -VisualProbe ./src-tauri/target/debug/examples/island_frame_probe.exe
 ```
 
-资源基准在 `src-tauri/target/island-bench-<id>` 生成临时编译副本和两个模式的 JSON。编译副本使用独立应用标识、配置、WebView2 数据目录、命名二进制，并绕开登录启动项写入。在一次脚本调用中，两种模式均从同一份编译产物启动。每阶段前后核对进程树 PID 集合一致，验证就绪、管理切换、运行错误、实际后端和 Tauri 岛屿窗口数量。测量结束后保存一次外观变化、注册临时 Ctrl+Alt+Shift+F24、执行四次 Peek 唤醒和重启、校验新 revision 及颜色，再注销该快捷键。测试需要该组合在测试期间可用。指定 `-WarmIdle` 会在每个后端预热 20 秒后单独采集连续三个 10 秒 Compact 空闲窗口，并分列宿主和 WebView2 的 CPU。
+脚本在 `src-tauri/target/island-bench-<id>` 生成临时编译副本，原生采样结果写入其中的 `native/` 目录。测试使用独立应用标识、配置和 WebView2 数据目录，隔离登录启动项写入。每阶段核对进程树、运行状态和错误，结束时验证外观配置保存、边缘唤醒、重启和快捷键释放。测试临时使用 Ctrl+Alt+Shift+F24。`-WarmIdle` 在预热 20 秒后采集三个 10 秒的收起空闲窗口，分别统计宿主和主界面 WebView2 的 CPU。
 
 GPU 列来自 Windows 的 `GPU Engine(*)\Utilization Percentage`。每次读取两次、间隔 1 秒，只采用完全落在该阶段的后一份样本，过滤有效的应用树 PID 后按物理引擎合计，取该时刻最繁忙引擎的占用，报告阶段样本均值和样本数。无法取得适用计数器时记录 null。不同硬件的加速器数量、DWM 进程与 GPU 电源策略会影响指标。最终脚本仅计入当前测试宿主以及启动时间不早于宿主的 WebView2 子孙，剔除控制台、采样器与系统合成器。首轮旧版按整个测试进程树采集；同版后端之间请使用成对采样表。CPU 与内存查询仅申请 PROCESS_QUERY_LIMITED_INFORMATION。[GetProcessTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes)、[GetProcessMemoryInfo](https://learn.microsoft.com/en-us/windows/win32/api/psapi/nf-psapi-getprocessmemoryinfo)。
 
-另在临时编译副本对旧 Win32 motion::tick 和新 HWND 收到命中区域时钟信号之后的 update_mask 分别测量。QueryThreadCycleTime 前后差值为当前 UI 线程的 CPU 周期数，Instant 前后差值为包括系统调用在内的墙钟耗时。每阶段给出回调次数和均值；线程在系统消息或帧时钟上的等待均不计入回调。进程树指标包含 WebView2 的渲染线程。DWM 的 CPU 时间无法在该指标中按本岛归因。
+历史对照在临时编译副本对旧 Win32 motion::tick 和新 HWND 收到命中区域时钟信号之后的 update_mask 分别测量。QueryThreadCycleTime 前后差值为当前 UI 线程的 CPU 周期数，Instant 前后差值为包括系统调用在内的墙钟耗时。每阶段给出回调次数和均值；线程在系统消息或帧时钟上的等待均不计入回调。进程树指标包含 WebView2 的渲染线程。DWM 的 CPU 时间无法在该指标中按本岛归因。
 
 视觉探针独立于资源采样运行。它通过 GPU Desktop Duplication 获取当前输出，仅将指定测试 PID 的默认展开区（328 × 168 DIP）拷入 CPU 内存，在固定浅灰背景上比较像素并汇总。双后端使用同一组 12 对正常切换（每步 550 ms）和 12 对快速反向（每步 80 ms）。QPC 标出管理请求进入队列的时间；DXGI 的 LastPresentTime 提供可观测合成图像的时间。探针以方向相符的暗像素面积变化估计响应，并记录每个操作内可见变化间隔的百分位。终点处相同像素、合并帧和捕获延迟会影响这个采样。空闲首次可见的入场过渡可能延续至预热期。结果包括四个稳定状态的像素边界、面积和主色，磁盘只留汇总和请求时间戳。
 

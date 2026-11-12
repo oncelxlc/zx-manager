@@ -6,7 +6,7 @@ import { island } from "./islandSlice";
 
 const { configReceived, statusReceived, displaysReceived, errorChanged } = island.actions;
 
-export function useIsland(settings: boolean) {
+export function useIsland() {
   const dispatch = useDispatch();
   const data = useSelector((state: RootState) => state.island);
   const desktop = islandApi.isDesktop();
@@ -39,13 +39,9 @@ export function useIsland(settings: boolean) {
         islandApi.listen("state-changed", status => { if (active) dispatch(statusReceived(status)); }),
         islandApi.listen("config-changed", config => { if (active) dispatch(configReceived(config)); }),
         islandApi.listen("runtime-error", fail),
+        islandApi.listen("display-changed", () => { if (active) void refreshDisplays().catch(fail); }),
+        islandApi.listen("position-changed", () => { if (active) void refreshConfig().catch(fail); }),
       ];
-      if (settings) {
-        subscriptions.push(
-          islandApi.listen("display-changed", () => { if (active) void refreshDisplays().catch(fail); }),
-          islandApi.listen("position-changed", () => { if (active) void refreshConfig().catch(fail); }),
-        );
-      }
       await Promise.all(subscriptions.map(attach));
       if (!active) return;
       await Promise.all([
@@ -56,7 +52,7 @@ export function useIsland(settings: boolean) {
             if (status.lastError) report(status.lastError);
           }
         }),
-        settings && refreshDisplays(),
+        refreshDisplays(),
       ]);
     }
     void connect().catch(fail);
@@ -64,7 +60,7 @@ export function useIsland(settings: boolean) {
       active = false;
       for (const off of removers) off();
     };
-  }, [attempt, desktop, dispatch, report, settings]);
+  }, [attempt, desktop, dispatch, report]);
 
   return { ...data, desktop, report, dispatch, retry };
 }

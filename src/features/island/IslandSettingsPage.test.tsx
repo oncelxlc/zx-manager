@@ -64,22 +64,27 @@ it("keeps an edited revision intact when another window saves", async () => {
   expect(screen.queryByText("有未保存的更改")).toBeNull();
 });
 
-it("signals readiness and routes clicks through Rust, ignoring older runtime snapshots", async () => {
+it("runs the browser draft preview locally", async () => {
+  vi.spyOn(islandApi, "isDesktop").mockReturnValue(false);
+  const validate = vi.spyOn(islandApi, "validatePreview");
+  open("#/settings/island");
+  fireEvent.click(screen.getByRole("button", { name: "动画效果" }));
+  fireEvent.click(screen.getByRole("button", { name: "播放预览" }));
+  fireEvent.click(await screen.findByRole("button", { name: "取消预览" }));
+  expect(validate).not.toHaveBeenCalled();
+});
+
+it("pins the native island from settings, ignoring older runtime snapshots", async () => {
   desktop();
-  const ready = vi.spyOn(islandApi, "ready").mockResolvedValue();
-  const click = vi.spyOn(islandApi, "interact").mockResolvedValue();
   const pin = vi.spyOn(islandApi, "pin").mockResolvedValue();
-  const store = open("#/island");
-  const openButton = await screen.findByRole("button", { name: "展开灵动岛" });
-  await waitFor(() => expect(ready).toHaveBeenCalledTimes(1));
-  fireEvent.click(openButton);
-  expect(click).toHaveBeenCalledWith("click");
+  const store = open("#/settings/island");
+  const button = await screen.findByRole("button", { name: "固定岛屿" });
   expect(store.getState().island.status?.state).toBe("compact");
   act(() => {
     store.dispatch(island.actions.statusReceived({ state: "expanded", sequence: 3, lastError: null }));
     store.dispatch(island.actions.statusReceived({ state: "compact", sequence: 2, lastError: null }));
   });
-  fireEvent.click(screen.getByRole("button", { name: "固定岛屿" }));
-  expect(pin).toHaveBeenCalledWith(true);
+  fireEvent.click(button);
+  await waitFor(() => expect(pin).toHaveBeenCalledWith(true));
   expect(store.getState().island.status?.state).toBe("expanded");
 });

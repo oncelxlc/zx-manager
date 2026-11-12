@@ -31,7 +31,7 @@ pnpm dev
 
 ## Windows 灵动岛
 
-桌面功能面向 Windows 10 / 11，主界面需要 WebView2，开发需要 Rust 1.89 或更高版本。默认启动后在主显示器顶部居中显示收起的胶囊。主窗口使用 `#/`，设置中心使用 `#/settings/island`，WebView 版岛屿使用 `#/island`。在普通浏览器运行 `pnpm dev` 可以编辑草稿、播放预览。
+桌面功能面向 Windows 10 / 11，主界面需要 WebView2，开发需要 Rust 1.89 或更高版本。运行 `pnpm tauri:dev` 即可启动 Rust 原生灵动岛，默认在主显示器顶部居中显示收起的胶囊。主窗口使用 `#/`，设置中心使用 `#/settings/island`。在普通浏览器运行 `pnpm dev` 可以编辑草稿、播放设置预览。
 
 - **显示与后台**　默认关闭主窗口会将它隐藏，灵动岛继续运行。从通知区域的 zx-once 菜单可打开主界面、打开设置、显示或隐藏灵动岛、退出应用。在「启动管理」中可以调整关闭行为和登录启动。登录启动使用当前用户的 Run 项。
 - **交互**　默认悬停或点击可展开。展开后可以固定、取消固定或隐藏。固定后保留展开状态。拖动胶囊可以更换位置，打开位置记忆后，松开鼠标时保存。设置中心也支持选择显示器、九宫格锚点、自定义坐标和展开方向。坐标与尺寸使用逻辑像素，自定义坐标的原点是所选显示器工作区的左上角。
@@ -41,16 +41,7 @@ pnpm dev
 
 ### 配置和故障排查
 
-Windows 开发版提供两种灵动岛显示后端。默认 `webview` 保留现有窗口。`native` 在同一进程的专用消息线程创建 Win32 工具窗，以 Direct2D、DirectWrite 和 DXGI 绘制内容，并使用 DirectComposition 播放过渡。Tauri 保留主界面、托盘、配置与状态管理。两种后端共用现有设置、快捷键和位置记忆。
-
-退出当前运行的 zx-once，然后在 PowerShell 中启动原生版。已安装的桌面程序也可以从设置了同一环境变量的终端启动。
-
-```powershell
-$env:ZX_ISLAND_RENDERER = "native"
-pnpm tauri:dev
-```
-
-回退时退出应用，将当前终端的 `$env:ZX_ISLAND_RENDERER` 设为 `"webview"` 后重新启动。两种后端都能读取已有的 v1 设置。Custom 选择「默认平滑」时保存会省略新增的 `animation.customCurve` 字段。如果还需要降级到此前的旧程序，可先选回「默认平滑」并保存。设置页的「重启岛屿」可在本次进程内重建当前后端。若只想验证原生窗口、合成和资源释放，可在仓库根目录运行独立 PoC。它使用内置配置，完成自检即退出。
+灵动岛在同一进程的专用消息线程创建 Win32 工具窗，以 Direct2D、DirectWrite 和 DXGI 绘制内容，并使用 DirectComposition 播放过渡。设置、快捷键和位置记忆沿用已有 v1 配置。设置页的「重启岛屿」会重建原生窗口。要单独验证窗口、合成和资源释放，可在仓库根目录运行以下自检程序。
 
 ```powershell
 cargo run --manifest-path src-tauri/Cargo.toml --locked --example island_native_poc
@@ -60,7 +51,7 @@ cargo run --manifest-path src-tauri/Cargo.toml --locked --example island_native_
 
 Windows 配置保存在 `%APPDATA%\com.oncel.zx-once\island.json`，再次保存时会保留上一份配置为 `island.json.bak`。遇到版本冲突，放弃旧草稿后按当前配置重新编辑。如果文件损坏，先退出应用，保留损坏文件，再将备份复制为 `island.json`。高于当前应用支持的配置版本需要对应版本的应用。
 
-若快捷键被占用，先通过托盘打开设置，换一个组合再保存。找不到岛屿时，在总览确认已启用，退出全屏应用并从托盘选择显示。显示器断开后会回退到可用显示器，也可以在设置中重新选择显示器。独占全屏、混合 DPI、焦点和动画表现需要在目标机器验收。实施和验证状态见[灵动岛实施报告](docs/island-implementation-report.md)。
+若快捷键被占用，先通过托盘打开设置，换一个组合再保存。找不到岛屿时，在总览确认已启用，退出全屏应用并从托盘选择显示。显示器断开后会回退到可用显示器，也可以在设置中重新选择显示器。独占全屏、混合 DPI、焦点和动画表现需要在目标机器验收。
 
 ## 测试与构建
 

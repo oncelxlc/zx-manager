@@ -1,18 +1,18 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef, useState } from "react";
 import { islandApi } from "./islandApi";
-import { IslandShell, motionEasing } from "./IslandShell";
+import { PreviewContent, motionEasing, type PreviewState } from "./PreviewContent";
 import { ui } from "./settingsStyles";
-import type { IslandConfig, IslandState } from "./types";
+import type { IslandConfig } from "./types";
 
 export function IslandPreview({ config, desktop, report }: {
   config: IslandConfig; desktop: boolean; report: (error: unknown) => void;
 }) {
-  const [{ state, previous }, setStep] = useState<{ state: IslandState; previous: IslandState }>({ state: "compact", previous: "compact" });
+  const [{ state, previous }, setStep] = useState<{ state: PreviewState; previous: PreviewState }>({ state: "compact", previous: "compact" });
   const [playing, setPlaying] = useState(false);
   const generation = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  function show(state: IslandState) {
+  function show(state: PreviewState) {
     setStep(current => current.state === state ? current : { state, previous: current.state });
   }
   function cancel() {
@@ -39,7 +39,7 @@ export function IslandPreview({ config, desktop, report }: {
       if (desktop) await islandApi.validatePreview(config);
       if (request !== generation.current) return;
       const { expandMs, collapseMs, edgeMs } = config.animation;
-      const steps: [IslandState, number][] = [
+      const steps: [PreviewState, number][] = [
         ["expanded", expandMs + 450], ["pinned", 450], ["compact", collapseMs + 300], ["edgePeek", edgeMs + 400],
       ];
       function next(index: number) {
@@ -65,9 +65,9 @@ export function IslandPreview({ config, desktop, report }: {
     ? "translateX(calc(-50cqw + 50%))" : "translateY(calc(-50cqh + 50%))";
   return (
     <section aria-label="动画预览" {...stylex.props(s.preview)}>
-      <div inert {...stylex.props(s.canvas)}>
+      <div aria-hidden="true" {...stylex.props(s.canvas)}>
         <div {...stylex.props(s.frame(vertical ? height : width, vertical ? width : height, duration, motionEasing(animation.preset, expanded, animation.customCurve), offset))}>
-          <IslandShell config={config} state={state} />
+          <PreviewContent config={config} state={state} />
         </div>
       </div>
       <button type="button" {...stylex.props(ui.button)} aria-pressed={playing}

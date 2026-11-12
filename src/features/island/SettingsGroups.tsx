@@ -1,6 +1,6 @@
 import type { IslandDisplay } from "./islandApi";
 import defaults from "./defaults.json";
-import { lightSurface } from "./IslandShell";
+import { lightSurface } from "./settingsStyles";
 import type { IslandConfig } from "./types";
 import { Amount, Check, Choice, TextField } from "./SettingsFields";
 

@@ -163,10 +163,7 @@ impl Surface {
     }
 
     pub fn apply(&self, cfg: &IslandConfig, state: IslandState, screen: &Display) -> Result<()> {
-        if matches!(
-            state,
-            IslandState::Disabled | IslandState::Suspended | IslandState::Hidden
-        ) {
+        if !state.is_visible() {
             return self.hide();
         }
         let target = screen.target(cfg, state);

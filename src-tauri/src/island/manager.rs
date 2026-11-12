@@ -1,13 +1,13 @@
 mod settings;
 
 use super::{
-    backend::{Backend, RendererKind},
     config::{Anchor, IslandConfig, PlacementConfig},
     config_store::ConfigStore,
+    displays,
     native::{self, NativeEvent},
     render::RenderStats,
     state::{Event, IslandState, Machine, TimerAction},
-    surface::SurfaceEvent,
+    surface::{Surface, SurfaceEvent},
 };
 use serde::Serialize;
 use std::{
@@ -47,18 +47,16 @@ impl ManagerHandle {
                     last_error: None,
                     session_position: None,
                     window: None,
-                    watching: false,
                     generation: 0,
                     sequence: 0,
                     timer: None,
-                    ready: false,
                     drag_origin: None,
                     exiting: false,
                 };
                 if let Some(error) = manager.load_error.clone() {
                     manager.report(error);
-                } else if let Err(error) = manager.restart() {
-                    manager.report(error);
+                } else {
+                    let _ = manager.restart();
                 }
                 manager.run(receive);
             })?;
@@ -101,8 +99,8 @@ pub(super) struct RuntimeStatus {
 
 #[derive(Serialize)]
 pub(super) struct PerformanceStats {
-    renderer: RendererKind,
-    native: Option<RenderStats>,
+    renderer: &'static str,
+    native: RenderStats,
 }
 
 pub(super) struct IslandManager {
@@ -111,15 +109,13 @@ pub(super) struct IslandManager {
     machine: Machine,
     store: ConfigStore,
     worker: ManagerHandle,
-    window: Option<Backend>,
-    watching: bool,
+    window: Option<Surface>,
     session_position: Option<PlacementConfig>,
     load_error: Option<String>,
     last_error: Option<String>,
     generation: u64,
     sequence: u64,
     timer: Option<(Instant, Event)>,
-    ready: bool,
     drag_origin: Option<(i32, i32)>,
     exiting: bool,
 }
@@ -171,7 +167,7 @@ impl IslandManager {
     pub fn performance(&self) -> Result<PerformanceStats> {
         let window = self.window.as_ref().ok_or("灵动岛窗口未启动")?;
         Ok(PerformanceStats {
-            renderer: window.kind(),
+            renderer: "native",
             native: window.stats()?,
         })
     }
@@ -188,13 +184,13 @@ impl IslandManager {
     }
 
     pub fn restart(&mut self) -> Result<()> {
+        self.rebuild_window()
+            .inspect_err(|error| self.report(error.clone()))
+    }
+
+    fn rebuild_window(&mut self) -> Result<()> {
         let config = self.store.load()?;
-        let kind = RendererKind::from_env()?;
-        self.ready = false;
-        self.drag_origin = None;
-        self.timer = None;
-        self.generation += 1;
-        self.stop_watching()?;
+        self.close_window()?;
         let worker = self.worker.clone();
         let generation = self.generation;
         let notify = move |event| {
@@ -205,62 +201,40 @@ impl IslandManager {
                 Ok(())
             });
         };
-        // Tauri releases a destroyed window label asynchronously. Reload the existing WebView.
-        if let (RendererKind::Webview, Some(Backend::Webview(window))) = (kind, &self.window) {
-            window.hide()?;
-            window
-                .webview()
-                .reload()
-                .map_err(|error| error.to_string())?;
-        } else {
-            if let Some(window) = self.window.take() {
-                window.shutdown()?;
-            }
-            self.window = Some(Backend::new(kind, &self.app, notify.clone())?);
-        }
+        let input = notify.clone();
+        let window = Surface::start(move |event| input(NativeEvent::Input(event)))?;
+        window.install_watch(notify)?;
         self.load_error = None;
         self.last_error = None;
         self.config = config;
         self.machine = Machine::new(&self.config);
         self.session_position = None;
-        let window = self.window.as_ref().ok_or("灵动岛窗口不可用")?;
-        window.install_watch(notify)?;
-        self.watching = true;
         if let Err(error) = window.configure_hotkeys(self.config.active_hotkeys()) {
             self.report(error);
         }
+        self.window = Some(window);
         if let Err(error) = native::set_autostart(self.config.startup.launch_at_login) {
             self.report(error);
         }
-        self.app
+        let initialized = self
+            .app
             .emit("island://config-changed", &self.config)
-            .map_err(|e| e.to_string())?;
-        if kind == RendererKind::Native {
-            self.mark_ready()
-        } else {
-            self.refresh()
+            .map_err(|e| e.to_string())
+            .and_then(|()| self.refresh())
+            .and_then(|()| self.observe_initial_pointer());
+        if let Err(error) = initialized {
+            self.close_window()
+                .map_err(|cleanup| format!("{error}；关闭原生岛屿失败：{cleanup}"))?;
+            return Err(error);
         }
-    }
-
-    pub fn mark_ready(&mut self) -> Result<()> {
-        if self.ready {
-            return Ok(());
-        }
-        if !self.watching {
-            return Err("系统窗口初始化失败，请从设置中重启灵动岛".into());
-        }
-        self.ready = true;
-        self.refresh()?;
-        self.observe_initial_pointer()
+        Ok(())
     }
 
     fn observe_initial_pointer(&mut self) -> Result<()> {
-        if self.ready
-            && matches!(
-                self.machine.state,
-                IslandState::Compact | IslandState::Expanded
-            )
-        {
+        if matches!(
+            self.machine.state,
+            IslandState::Compact | IslandState::Expanded
+        ) {
             if let Some(native) = &self.window {
                 if !native.pointer_inside()? {
                     self.transition(Event::PointerLeave)?;
@@ -277,20 +251,22 @@ impl IslandManager {
             .map_err(|e| e.to_string())?;
         let state = self.machine.state;
         if let Some(window) = &self.window {
-            if self.ready && self.drag_origin.is_none() {
-                window.apply(&self.app, &self.effective_config(), state)?;
+            if self.drag_origin.is_none() {
+                if state.is_visible() {
+                    let cfg = self.effective_config();
+                    let screens = displays::displays(&self.app)?;
+                    let display =
+                        displays::target_display(&screens, cfg.placement.display_id.as_deref())?;
+                    window.apply(&cfg, state, display)?;
+                } else {
+                    window.hide()?;
+                }
             }
-            let fullscreen = self.ready
-                && self.config.edge.hide_on_fullscreen
-                && !matches!(state, IslandState::Disabled | IslandState::Hidden);
-            if self.watching {
-                window.track(
-                    fullscreen,
-                    self.ready
-                        && state == IslandState::Expanded
-                        && self.config.interaction.outside_collapse,
-                )?;
-            }
+            window.track(
+                self.config.edge.hide_on_fullscreen
+                    && !matches!(state, IslandState::Disabled | IslandState::Hidden),
+                state == IslandState::Expanded && self.config.interaction.outside_collapse,
+            )?;
         }
         Ok(())
     }
@@ -306,10 +282,7 @@ impl IslandManager {
         }
         let previous = self.machine.state;
         let effects = self.machine.apply(event, &self.config);
-        if matches!(
-            self.machine.state,
-            IslandState::Hidden | IslandState::Disabled | IslandState::Suspended
-        ) {
+        if !self.machine.state.is_visible() {
             self.drag_origin = None;
         }
         match effects.timer {
@@ -386,26 +359,15 @@ impl IslandManager {
             .map_err(|e| e.to_string())
     }
 
-    fn stop_watching(&mut self) -> Result<()> {
-        if std::mem::take(&mut self.watching) {
-            if let Some(window) = &self.window {
-                window.uninstall_watch()?;
-            }
-        }
-        Ok(())
-    }
-
     fn close_window(&mut self) -> Result<()> {
         self.generation += 1;
-        self.ready = false;
         self.drag_origin = None;
-        let hooks = self.stop_watching();
-        let window = self
-            .window
-            .take()
-            .map(|window| window.shutdown())
-            .transpose();
-        hooks.and(window).map(|_| ())
+        self.timer = None;
+        if let Some(window) = self.window.take() {
+            let hooks = window.uninstall_watch();
+            hooks.and(window.shutdown())?;
+        }
+        Ok(())
     }
 
     pub fn exit(&mut self) -> Result<()> {

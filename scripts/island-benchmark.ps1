@@ -1,5 +1,6 @@
 #Requires -Version 7.4
-param([ValidateSet('webview', 'native')][string[]]$Renderer = @('webview', 'native'), [string]$VisualProbe, [switch]$WarmIdle)
+[CmdletBinding()]
+param([string]$VisualProbe, [switch]$WarmIdle)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $IsWindows) { throw 'The island benchmark needs a Windows desktop.' }
@@ -26,10 +27,8 @@ Replace-Once "$project/src/island/mod.rs" 'app.path().app_config_dir()?' 'std::p
 Replace-Once "$project/src/island/mod.rs" 'app.manage(handle);' 'manager::benchmark::start(handle.clone()); app.manage(handle);'
 Replace-Once "$project/src/island/native.rs" 'pub fn set_autostart(enabled: bool) -> Result<(), String> {' 'pub fn set_autostart(enabled: bool) -> Result<(), String> { if std::env::var_os("ISLAND_BENCH_DIR").is_some() {return Ok(());}'
 Replace-Once "$project/src/island/manager.rs" 'pub fn transition(&mut self, event: Event) -> Result<()> {' 'pub fn transition(&mut self, event: Event) -> Result<()> { benchmark::trace(event, self.machine.state);'
-$oldTick = 'unsafe extern "system" fn tick(hwnd: HWND, _: u32, _: usize, _: u32) {'
 $maskTick = 'if ui.clock.wait()? {'
 $frameProbe = 'let _frame_cost = crate::island::manager::benchmark::FrameCost::begin();'
-Replace-Once "$project/src/island/native/motion.rs" $oldTick "$oldTick $frameProbe"
 Replace-Once "$project/src/island/surface.rs" $maskTick "$maskTick $frameProbe"
 Add-Content "$project/src/island/manager.rs" 'pub(super) mod benchmark;'
 Copy-Item "$PSScriptRoot/island-benchmark.rs" "$project/src/island/manager/benchmark.rs"
@@ -59,12 +58,12 @@ function Read-Phase($directory) {
     if ($body) { $body | ConvertFrom-Json }
 }
 
-function Measure-Run($mode) {
-    $dir = Join-Path $stage $mode
+function Measure-Run {
+    $dir = Join-Path $stage 'native'
     New-Item -ItemType Directory -Path $dir | Out-Null
     $config | ConvertTo-Json -Depth 10 | Set-Content "$dir/island.json" -Encoding utf8NoBOM
     $app = Start-Process -FilePath $exe -WindowStyle Hidden -PassThru -WorkingDirectory $root -Environment @{
-        ISLAND_BENCH_WARM_IDLE = [int][bool]$WarmIdle; ISLAND_BENCH_VISUAL = [int][bool]$VisualProbe; ZX_ISLAND_RENDERER = $mode; ISLAND_BENCH_DIR = $dir; WEBVIEW2_USER_DATA_FOLDER = "$dir/webview2"
+        ISLAND_BENCH_WARM_IDLE = [int][bool]$WarmIdle; ISLAND_BENCH_VISUAL = [int][bool]$VisualProbe; ISLAND_BENCH_DIR = $dir; WEBVIEW2_USER_DATA_FOLDER = "$dir/webview2"
     } -RedirectStandardOutput "$dir/app.out" -RedirectStandardError "$dir/app.err"
     $probe = $null
     $samples = @{}
@@ -80,7 +79,7 @@ function Measure-Run($mode) {
                 if ($clock.Elapsed.TotalSeconds -gt 100) { throw 'Visual measurement timed out.' }
                 continue
             }
-            if ($clock.Elapsed.TotalSeconds -gt 180) { throw "$mode benchmark timed out." }
+            if ($clock.Elapsed.TotalSeconds -gt 180) { throw 'Native benchmark timed out.' }
             $first = Read-Phase $dir
             if (-not $first -or -not $canMeasureGpu) { continue }
             try {
@@ -142,7 +141,7 @@ try {
     }
     if ($attempt -eq 50) { throw 'Local frontend did not start.' }
     Write-Host "Results: $stage"
-    foreach ($mode in $Renderer) { Measure-Run $mode }
+    Measure-Run
 } finally {
     if (-not $server.HasExited) { $server.Kill($true); $server.WaitForExit() }
 }

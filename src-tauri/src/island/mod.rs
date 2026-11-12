@@ -1,14 +1,13 @@
-mod backend;
 mod commands;
 mod config;
 mod config_store;
+mod displays;
 mod geometry;
 mod manager;
 mod native;
 mod render;
 mod state;
 pub(crate) mod surface;
-mod window;
 
 use commands::*;
 use manager::ManagerHandle;
@@ -25,14 +24,12 @@ pub fn install(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if let Some(handle) = window.try_state::<ManagerHandle>() {
-                    let queued = match window.label() {
-                        "main" => handle.post(|manager| manager.close_main()),
-                        "island" => handle.post(|manager| manager.transition(Event::Hide)),
-                        _ => return,
-                    };
-                    if queued.is_ok() {
+                    if handle.post(|manager| manager.close_main()).is_ok() {
                         api.prevent_close();
                     }
                 }
@@ -52,10 +49,7 @@ pub fn install(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry
             island_get_performance_stats,
             island_get_displays,
             island_set_position,
-            island_set_pinned,
-            island_interact,
-            island_ready,
-            island_drag
+            island_set_pinned
         ])
 }
 

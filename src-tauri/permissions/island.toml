@@ -11,8 +11,3 @@ commands.allow = [
     "island_toggle", "island_restart", "island_preview", "island_reset_config",
     "island_get_displays", "island_set_position", "island_set_pinned", "island_get_performance_stats",
 ]
-
-[[permission]]
-identifier = "island-input"
-description = "Report island readiness and interact with the floating window."
-commands.allow = ["island_ready", "island_interact", "island_drag", "island_set_pinned", "island_hide"]

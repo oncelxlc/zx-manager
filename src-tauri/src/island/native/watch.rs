@@ -7,8 +7,8 @@ use std::{
 };
 use windows_sys::Win32::{
     Foundation::{
-        GetLastError, SetLastError, ERROR_HOOK_NOT_INSTALLED, ERROR_INVALID_HOOK_HANDLE, HWND,
-        LPARAM, LRESULT, POINT, RECT, WPARAM,
+        GetLastError, ERROR_HOOK_NOT_INSTALLED, ERROR_INVALID_HOOK_HANDLE, HWND, LPARAM, LRESULT,
+        POINT, RECT, WPARAM,
     },
     Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST},
     System::LibraryLoader::GetModuleHandleW,
@@ -79,32 +79,6 @@ pub(super) fn install(hwnd: HWND, callback: impl Fn(NativeEvent) + 'static) -> R
         return Err("窗口监听已注册".into());
     }
     RETIRED.with_borrow_mut(|hooks| hooks.retain(|h| !h.remove()));
-    // Tao maps focusable(false) to NOACTIVATE. TOOLWINDOW also removes it from Alt+Tab.
-    unsafe {
-        SetLastError(0);
-        let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-        if style == 0 && GetLastError() != 0 {
-            return Err(os_error("读取工具窗口样式失败"));
-        }
-        SetLastError(0);
-        if SetWindowLongW(hwnd, GWL_EXSTYLE, (style | WS_EX_TOOLWINDOW) as i32) == 0
-            && GetLastError() != 0
-        {
-            return Err(os_error("设置工具窗口样式失败"));
-        }
-        if SetWindowPos(
-            hwnd,
-            null_mut(),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-        ) == 0
-        {
-            return Err(os_error("更新工具窗口样式失败"));
-        }
-    }
     if unsafe { SetWindowSubclass(hwnd, Some(window_message), SUBCLASS, 0) } == 0 {
         return Err(os_error("监听窗口事件失败"));
     }
@@ -124,7 +98,6 @@ pub(super) fn install(hwnd: HWND, callback: impl Fn(NativeEvent) + 'static) -> R
 }
 
 pub(in crate::island) fn begin_drag(hwnd: HWND) -> Result<(), String> {
-    super::motion::cancel(hwnd);
     if unsafe { PostMessageW(hwnd, START_DRAG, 0, 0) } == 0 {
         return Err(os_error("请求拖动窗口失败"));
     }
@@ -434,7 +407,7 @@ unsafe extern "system" fn window_message(
         }
         START_DRAG => {
             let mut cursor = POINT::default();
-            // The pointer may have been released while its IPC command was in flight.
+            // The pointer may have been released before the queued move starts.
             if GetAsyncKeyState(i32::from(VK_LBUTTON)) < 0 && GetCursorPos(&mut cursor) != 0 {
                 let capture = GetCapture();
                 if capture == hwnd || IsChild(hwnd, capture) != 0 {

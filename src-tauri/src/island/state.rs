@@ -13,6 +13,12 @@ pub enum IslandState {
     Suspended,
 }
 
+impl IslandState {
+    pub fn is_visible(self) -> bool {
+        !matches!(self, Self::Disabled | Self::Hidden | Self::Suspended)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Event {
@@ -249,7 +255,7 @@ impl Machine {
             }
             _ => TimerAction::Keep,
         };
-        // A keyboard or tray wake can reveal the island without a WebView pointer event.
+        // A keyboard or tray wake can reveal the island under a stationary pointer.
         let observe_pointer = matches!(self.state, Compact | Expanded)
             && (matches!(previous, Hidden | Disabled | Suspended)
                 || (previous == EdgePeek && matches!(event, Show | Toggle | ConfigUpdated)));

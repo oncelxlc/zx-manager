@@ -46,19 +46,21 @@ fn capture_indicator(bgra: &[u8]) -> bool {
 
 struct Search {
     pid: u32,
-    found: HWND,
+    count: usize,
+    visible: HWND,
 }
 unsafe extern "system" fn find(hwnd: HWND, ptr: LPARAM) -> BOOL {
     let search = &mut *(ptr as *mut Search);
     let mut pid = 0;
     GetWindowThreadProcessId(hwnd, &mut pid);
-    if pid == search.pid && IsWindowVisible(hwnd) != 0 {
+    if pid == search.pid {
         let mut name = [0u16; 64];
-        let len = GetWindowTextW(hwnd, name.as_mut_ptr(), name.len() as i32);
-        let title = String::from_utf16_lossy(&name[..len.max(0) as usize]);
-        if matches!(title.as_str(), "zx-once 灵动岛" | "zx-once 灵动岛（原生）") {
-            search.found = hwnd;
-            return 0;
+        let len = GetClassNameW(hwnd, name.as_mut_ptr(), name.len() as i32);
+        if String::from_utf16_lossy(&name[..len.max(0) as usize]) == "ZXOnce.NativeIsland.v1" {
+            search.count += 1;
+            if IsWindowVisible(hwnd) != 0 {
+                search.visible = hwnd;
+            }
         }
     }
     1
@@ -565,20 +567,27 @@ fn collect(pid: u32, dir: &Path) -> Result<()> {
         SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
     let start = Instant::now();
-    let mut search = Search {
-        pid,
-        found: null_mut(),
-    };
-    while search.found.is_null() {
-        unsafe {
-            EnumWindows(Some(find), (&raw mut search) as isize);
+    let island = loop {
+        let mut search = Search {
+            pid,
+            count: 0,
+            visible: null_mut(),
+        };
+        if unsafe { EnumWindows(Some(find), (&raw mut search) as isize) } == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        if search.count > 1 {
+            return Err("指定实例存在多个原生灵动岛窗口".into());
+        }
+        if !search.visible.is_null() {
+            break search.visible;
         }
         if start.elapsed() > Duration::from_secs(35) {
-            return Err("未发现指定实例的灵动岛窗口".into());
+            return Err("未发现指定实例可见的原生灵动岛窗口".into());
         }
         thread::sleep(Duration::from_millis(100));
-    }
-    let (_backdrop, roi) = unsafe { backdrop(search.found) }?;
+    };
+    let (_backdrop, roi) = unsafe { backdrop(island) }?;
     let mut capture = unsafe { Capture::new(roi) }?;
     let mut ticks = 0;
     if unsafe { QueryPerformanceFrequency(&mut ticks) } == 0 {

@@ -286,33 +286,17 @@ fn visual(handle: &ManagerHandle, path: &Path) -> Result<(), String> {
 }
 
 fn check_ready(handle: &ManagerHandle) -> Result<(), String> {
-    let ready = Instant::now();
-    loop {
-        let (ok, error) = tauri::async_runtime::block_on(
-            handle.request(|m| Ok((m.ready, m.last_error.clone()))),
-        )?;
-        if let Some(error) = error {
+    tauri::async_runtime::block_on(handle.request(|m| {
+        if let Some(error) = m.last_error.clone() {
             return Err(error);
         }
-        if ok {
-            break;
-        }
-        if ready.elapsed() > Duration::from_secs(25) {
-            return Err("window readiness timeout".into());
-        }
-        thread::sleep(Duration::from_millis(100));
-    }
-    let selected = std::env::var("ZX_ISLAND_RENDERER").map_err(|e| e.to_string())?;
-    tauri::async_runtime::block_on(handle.request(move |m| {
-        let renderer = serde_json::to_value(m.performance()?).map_err(|e| e.to_string())?;
-        if renderer["renderer"] != selected
-            || m.app.get_webview_window("island").is_some() != (selected == "webview")
-        {
-            return Err(format!("renderer mismatch: {renderer}"));
+        m.performance()?;
+        let views = m.app.webview_windows();
+        if views.len() != 1 || !views.contains_key("main") {
+            return Err("expected only the main Tauri webview window".into());
         }
         Ok(())
-    }))?;
-    Ok(())
+    }))
 }
 
 fn management_smoke(handle: &ManagerHandle) -> Result<(), String> {

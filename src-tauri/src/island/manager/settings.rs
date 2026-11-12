@@ -61,7 +61,7 @@ impl IslandManager {
     }
 
     fn set_hotkeys(&self, config: &IslandConfig) -> Result<()> {
-        match self.window.as_ref().filter(|_| self.watching) {
+        match &self.window {
             Some(native) => native.configure_hotkeys(config.active_hotkeys()),
             None if !config.enabled => Ok(()),
             None => Err("系统快捷键尚未就绪，请重启灵动岛".into()),
@@ -142,7 +142,7 @@ impl IslandManager {
         if (at.x, at.y) == origin {
             return self.refresh();
         }
-        let (display, x, y) = window.drag_position(&self.app, &config, self.machine.state, at)?;
+        let (display, x, y) = displays::drag_position(&self.app, &config, self.machine.state, at)?;
         config.placement.anchor = Anchor::Custom;
         config.placement.display_id = Some(display);
         config.placement.offset_x = x;

@@ -2,16 +2,9 @@
 
 ## 现有边界
 
-设置页和岛屿页共用 `IslandShell`。持久化、定时状态迁移、快捷键、托盘、全屏检测和拖动后的坐标换算已在 Rust 中。迁移的边界是 Windows 灵动岛的显示表面和岛内输入。设置页的草稿预览仍在页面内运行，取消预览不会改变桌面岛屿或配置 revision。
+Windows 桌面灵动岛由 Rust 创建和绘制。持久化、定时状态迁移、快捷键、托盘、全屏检测和拖动后的坐标换算均在 Rust 中。设置页的草稿预览在 React 页面内运行，桌面窗口使用已保存的配置。
 
 ```text
-原有
-React 设置页 ── Tauri commands ── IslandManager ── ConfigStore / Machine
-                                      │
-                       状态事件 → 独立 WebView → DOM / CSS
-                       目标矩形 → Win32 定时器 → HWND 位置、大小、区域
-
-原生路径
 React 设置页 / 托盘 ── IslandManager ── ConfigStore / Machine
                            │       ▲
              配置、目标状态与显示器   │ 进入、离开、点击、拖动和系统事件
@@ -33,13 +26,9 @@ React 设置页 / 托盘 ── IslandManager ── ConfigStore / Machine
 
 合成交换链采用预乘 alpha。背景、文字、图标和边缘条按内容变化更新。合成器接管视觉属性。实机测试发现，展开时仅靠 `HTTRANSPARENT` 会截住其他进程窗口上的点击，因此窗口线程在几何过渡期间还会等待与合成节拍对齐的单次计时器。轮廓实际变化时才用 `SetWindowRgn` 更新系统命中区域，关闭重绘标志。到达终点即停钟，线程继续等待消息。[DirectComposition 动画](https://learn.microsoft.com/en-us/windows/win32/directcomp/animation) · [DXGI 合成交换链](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgifactory2-createswapchainforcomposition) · [WM_NCHITTEST](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-nchittest)
 
-## 迁移和回退
-
-先保留旧版测量结果，再用可单独运行的 PoC 验证设备、窗口和合成提交，最后把同一实现接入管理器。开发开关只作用于本次进程，避免把实验后端写入已有的 `island.json`。两条路径共享设置、状态机和监听实现。默认后端的切换取决于同机性能对照与 Windows 兼容性实测。
-
 ## 窗口、资源与动画
 
-- `Backend` 只持有一个后端。WebView 重启时复用 Tauri 窗口标签并重新加载页面。原生重启先注销热键和钩子、关闭旧 HWND 并等待消息线程结束，然后创建下一代窗口。管理器按 generation 丢弃旧窗口的迟到事件。
+- 管理器直接持有原生窗口。重启时先注销热键和钩子、关闭旧 HWND 并等待消息线程结束，然后创建下一代窗口。管理器按 generation 丢弃旧窗口的迟到事件。
 - HWND 使用 `WS_POPUP`、`WS_EX_NOACTIVATE`、`WS_EX_TOOLWINDOW`、`WS_EX_TOPMOST` 和 `WS_EX_NOREDIRECTIONBITMAP`。显示与拖动遵循非激活策略。窗口隐藏或初始停用时也能通过管理层或快捷键唤醒。移动监测依靠窗口消息与 `TrackMouseEvent`。
 - 静态表面按收起、展开、固定、边缘条分别缓存，以物理尺寸、DPI、配色、状态、按钮和外观属性决定是否重绘。D2D 设备上下文、画刷和 DirectWrite 布局复用。每条交换链使用两张预乘 alpha 的 BGRA 缓冲，只有内容更新或资源重建才调用 Present。
 - 过渡使用 DComp 的有终点三次函数。位移、缩放和各层透明度共享 QPC 起点。背景和内容在同一交换链上分区绘制，用裁剪分成两个合成视觉。Balanced 随幅度调整内容位移，Quality 额外应用内容缩放。反向时用同一条曲线求当前可见值，再安装新的属性动画。拖动开始时固定当前视觉和宿主矩形，交给系统拖动。窗口按状态切换定位，空闲和动画中间帧均无需管理 IPC。
@@ -48,6 +37,6 @@ React 设置页 / 托盘 ── IslandManager ── ConfigStore / Machine
 
 ## 管理命令与诊断
 
-原有配置、启停、显示/隐藏、重启、固定、屏幕、位置及状态查询命令保持兼容。设置页沿用 `island://state-changed`、`config-changed`、`position-changed`、`display-changed` 和 `runtime-error`。旧窗口的 `island_ready`、`island_interact`、`island_drag` 仍限定在 `island` 标签。
+仅本地 `main` 窗口具有灵动岛管理权限。配置、启停、显示/隐藏、重启、固定、屏幕、位置及状态查询均通过管理命令完成。设置页沿用 `island://state-changed`、`config-changed`、`position-changed`、`display-changed` 和 `runtime-error`。岛内指针输入和拖动由 Win32 消息直接驱动。
 
-仅本地主窗口可调用 `island_get_performance_stats`。返回 `renderer` 和 `native`。WebView 模式的 `native` 为 null。原生诊断按本次窗口生命周期统计成功的静态纹理呈现次数 `presents`、成功合成提交次数 `commits`、成功重建设备次数 `recoveries`，以及最近一次恢复和应用渲染状态的墙钟耗时 `lastRecoveryUs`、`lastApplyUs`。屏幕可见帧间隔由独立采样取得。
+`island_get_performance_stats` 返回固定为 `"native"` 的 `renderer` 字段及 `native` 统计对象。统计按本次窗口生命周期记录成功的静态纹理呈现次数 `presents`、成功合成提交次数 `commits`、成功重建设备次数 `recoveries`，以及最近一次恢复和应用渲染状态的墙钟耗时 `lastRecoveryUs`、`lastApplyUs`。屏幕可见帧间隔由独立采样取得。
