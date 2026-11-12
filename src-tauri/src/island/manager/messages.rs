@@ -213,10 +213,7 @@ impl IslandManager {
             .iter()
             .filter(|w| w.source == source);
         match (matches.next(), matches.next()) {
-            (Some(window), None)
-                if self.machine.state == IslandState::Compact
-                    || !self.config.notifications.account_list_enabled =>
-            {
+            (Some(window), None) if !self.config.notifications.account_list_enabled => {
                 return self.activate_notification_window(window.id);
             }
             (_, Some(_)) if !self.config.notifications.account_list_enabled => {

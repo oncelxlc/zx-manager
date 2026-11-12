@@ -1,8 +1,8 @@
 use super::{Source, WindowEntry};
 use crate::island::config::NotificationConfig;
 use std::{
-    collections::HashMap,
-    path::Path,
+    collections::{BTreeSet, HashMap},
+    path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
 use windows::Win32::{
@@ -34,7 +34,7 @@ impl Target {
         self.source.enabled(config)
     }
 
-    fn inspect(hwnd: HWND) -> Option<(Self, Option<String>)> {
+    fn inspect(hwnd: HWND) -> Option<(Self, PathBuf, Option<String>)> {
         unsafe {
             if IsWindowVisible(hwnd) == 0
                 || !GetWindow(hwnd, GW_OWNER).is_null()
@@ -64,7 +64,7 @@ impl Target {
             }
             let details = process_details(process);
             CloseHandle(process);
-            let (source, created, app_id) = details?;
+            let (source, created, path, app_id) = details?;
             Some((
                 Self {
                     hwnd: hwnd as isize,
@@ -72,6 +72,7 @@ impl Target {
                     created,
                     source,
                 },
+                path,
                 app_id,
             ))
         }
@@ -79,7 +80,7 @@ impl Target {
 
     pub(super) fn activate(self) -> Result<(), String> {
         let hwnd = self.hwnd as HWND;
-        if Self::inspect(hwnd).map(|(target, _)| target) != Some(self) {
+        if Self::inspect(hwnd).map(|(target, ..)| target) != Some(self) {
             return Err("窗口已关闭或已改变，请重新选择。".into());
         }
         unsafe {
@@ -94,19 +95,14 @@ impl Target {
     }
 }
 
-unsafe fn process_details(process: HANDLE) -> Option<(Source, u64, Option<String>)> {
+unsafe fn process_details(process: HANDLE) -> Option<(Source, u64, PathBuf, Option<String>)> {
     let mut name = [0u16; 1024];
     let mut len = name.len() as u32;
     if QueryFullProcessImageNameW(process, 0, name.as_mut_ptr(), &mut len) == 0 {
         return None;
     }
-    let path = String::from_utf16_lossy(&name[..len as usize]);
-    let exe = Path::new(&path).file_name()?.to_str()?;
-    let source = match exe.to_ascii_lowercase().as_str() {
-        "wechat.exe" | "weixin.exe" => Source::Wechat,
-        "qq.exe" => Source::Qq,
-        _ => return None,
-    };
+    let path = PathBuf::from(String::from_utf16(&name[..len as usize]).ok()?);
+    let source = Source::from_filename(&path)?;
     let mut times = [FILETIME::default(); 4];
     let [creation, exit, kernel, user] = &mut times;
     if GetProcessTimes(process, creation, exit, kernel, user) == 0 {
@@ -117,7 +113,7 @@ unsafe fn process_details(process: HANDLE) -> Option<(Source, u64, Option<String
     let mut len = id.len() as u32;
     let app_id = (GetApplicationUserModelId(process, &mut len, id.as_mut_ptr()) == 0 && len > 1)
         .then(|| String::from_utf16_lossy(&id[..len as usize - 1]));
-    Some((source, created, app_id))
+    Some((source, created, path, app_id))
 }
 
 fn window_app_id(hwnd: HWND) -> Option<String> {
@@ -142,7 +138,7 @@ unsafe extern "system" fn collect(hwnd: HWND, out: LPARAM) -> i32 {
 pub(super) struct Registry {
     entries: Vec<(Target, WindowEntry)>,
     serials: HashMap<Source, u64>,
-    pub(super) sources: HashMap<String, Option<Source>>,
+    pub(super) identities: BTreeSet<(String, PathBuf)>,
 }
 
 impl Registry {
@@ -151,8 +147,9 @@ impl Registry {
         let mut handles: Vec<isize> = Vec::new();
         unsafe { EnumWindows(Some(collect), &mut handles as *mut _ as LPARAM) };
         let mut current = Vec::new();
+        self.identities.clear();
         for hwnd in handles {
-            let Some((target, process_id)) = Target::inspect(hwnd as HWND) else {
+            let Some((target, path, process_id)) = Target::inspect(hwnd as HWND) else {
                 continue;
             };
             if !target.source.enabled(config) {
@@ -163,10 +160,7 @@ impl Registry {
                 .into_iter()
                 .flatten()
             {
-                let entry = self.sources.entry(app_id).or_insert(Some(target.source));
-                if *entry != Some(target.source) {
-                    *entry = None;
-                }
+                self.identities.insert((app_id, path.clone()));
             }
             current.push(target);
         }

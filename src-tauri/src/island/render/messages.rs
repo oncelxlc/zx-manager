@@ -108,25 +108,36 @@ impl Panel {
         bounds: Rect,
         source: Source,
         snapshot: &NotificationSnapshot,
-        selected: bool,
+        selected_source: Option<Source>,
     ) {
+        let mut windows = snapshot
+            .windows
+            .iter()
+            .filter(|window| window.source == source);
+        let first = windows.next();
         let unread = snapshot.reminders.iter().any(|r| r.source == source);
         let status = if unread {
             "有系统提醒"
-        } else if snapshot.windows.iter().any(|w| w.source == source) {
+        } else if first.is_some() {
             "有可用窗口"
         } else {
             "未发现可用窗口"
         };
-        let mut item = Item::new(
-            bounds,
-            MessageAction::Source(source),
-            "",
-            &format!("{}，{status}", source.label()),
-        );
+        // Compact controls carry their window ID even if hover has already expanded the island.
+        let (action, name) = match (selected_source, first, windows.next()) {
+            (None, Some(window), None) => (
+                MessageAction::Window(window.id),
+                format!("激活 {}，{status}", window.label),
+            ),
+            _ => (
+                MessageAction::Source(source),
+                format!("{}，{status}", source.label()),
+            ),
+        };
+        let mut item = Item::new(bounds, action, "", &name);
         item.source = Some(source);
         item.reminder = unread;
-        item.selected = selected;
+        item.selected = selected_source == Some(source);
         self.items.push(item);
     }
 
@@ -195,7 +206,7 @@ impl Panel {
                         rect((w - side) / 2, (h - side) / 2, side, side),
                         source,
                         snapshot,
-                        false,
+                        None,
                     );
                 } else {
                     panel.settings(rect(0, 0, w, h), true);
@@ -222,7 +233,7 @@ impl Panel {
                 } else {
                     rect(pos, (h - side) / 2, side, side)
                 };
-                panel.source(bounds, source, snapshot, false);
+                panel.source(bounds, source, snapshot, None);
             }
             return Some(panel);
         }
@@ -254,7 +265,7 @@ impl Panel {
                 rect(10 + index as i32 * 34, 32, 30, 28),
                 *s,
                 snapshot,
-                selected == *s,
+                Some(selected),
             );
         }
         if !has_list {
@@ -391,6 +402,51 @@ impl Panel {
 mod tests {
     use super::*;
     use crate::island::notifications::{Reminder, WindowEntry};
+
+    #[test]
+    fn compact_single_window_target_survives_hover_expansion() {
+        use crate::island::state::{Event, Machine};
+
+        let cfg = IslandConfig::default();
+        let messages = Messages {
+            snapshot: Some(NotificationSnapshot {
+                windows: [(11, Source::Wechat), (12, Source::Wechat), (20, Source::Qq)]
+                    .into_iter()
+                    .map(|(id, source)| WindowEntry {
+                        id,
+                        source,
+                        label: format!("{} {id}", source.label()),
+                    })
+                    .collect(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut machine = Machine::new(&cfg);
+        let compact =
+            Panel::build(&messages, &cfg, machine.state, rect(0, 0, 156, 44), 1.0).unwrap();
+        machine.apply(Event::PointerEnter, &cfg);
+        assert_eq!(machine.state, IslandState::Expanded);
+        let expanded =
+            Panel::build(&messages, &cfg, machine.state, rect(0, 0, 328, 168), 1.0).unwrap();
+        let icon = |panel: &Panel, source| {
+            panel
+                .items
+                .iter()
+                .find(|i| i.source == Some(source) && i.text.is_empty())
+                .unwrap()
+                .action
+        };
+        assert_eq!(icon(&compact, Source::Qq), MessageAction::Window(20));
+        assert_eq!(
+            icon(&compact, Source::Wechat),
+            MessageAction::Source(Source::Wechat)
+        );
+        assert_eq!(
+            icon(&expanded, Source::Qq),
+            MessageAction::Source(Source::Qq)
+        );
+    }
 
     #[test]
     fn source_reminder_never_marks_a_window_and_every_page_fits() {

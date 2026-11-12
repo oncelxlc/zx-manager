@@ -1,3 +1,4 @@
+mod identities;
 mod toasts;
 mod windows;
 
@@ -24,6 +25,14 @@ pub enum Source {
 }
 
 impl Source {
+    fn from_filename(path: &std::path::Path) -> Option<Self> {
+        match path.file_name()?.to_str()?.to_ascii_lowercase().as_str() {
+            "wechat.exe" | "weixin.exe" => Some(Self::Wechat),
+            "qq.exe" => Some(Self::Qq),
+            _ => None,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Wechat => "微信",

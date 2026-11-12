@@ -1,4 +1,4 @@
-use super::{windows::Registry, Permission, Reminder, Settings, Source};
+use super::{identities::Sources, windows::Registry, Permission, Reminder, Settings, Source};
 use crate::island::config::NotificationConfig;
 use std::{
     mem::size_of,
@@ -159,6 +159,7 @@ fn preview(item: &UserNotification) -> Option<String> {
 pub(super) struct Toasts {
     listener: Listener,
     token: Option<i64>,
+    sources: Sources,
 }
 
 pub(super) struct ReadPolicy<'a> {
@@ -172,6 +173,7 @@ impl Toasts {
         Ok(Self {
             listener: listener()?,
             token: None,
+            sources: Sources::default(),
         })
     }
 
@@ -189,8 +191,10 @@ impl Toasts {
             .unwrap_or(Permission::Error);
         if permission != Permission::Allowed {
             self.unsubscribe();
+            self.sources = Sources::default();
             return (permission, vec![], None);
         }
+        self.sources.refresh(&registry.identities);
         if self.token.is_none() {
             let wake = wake.clone();
             self.token = self
@@ -201,7 +205,7 @@ impl Toasts {
                 }))
                 .ok();
         }
-        let result = self.collect(registry, config, &policy);
+        let result = self.collect(config, &policy);
         let current = self
             .listener
             .GetAccessStatus()
@@ -216,7 +220,6 @@ impl Toasts {
 
     fn collect(
         &self,
-        registry: &Registry,
         config: &NotificationConfig,
         policy: &ReadPolicy<'_>,
     ) -> windows_core::Result<(Vec<Reminder>, Option<Instant>)> {
@@ -247,7 +250,7 @@ impl Toasts {
             let Ok(app_id) = item.AppInfo().and_then(|app| app.AppUserModelId()) else {
                 continue;
             };
-            let Some(Some(source)) = registry.sources.get(&app_id.to_string_lossy()) else {
+            let Some(source) = self.sources.lookup(&app_id.to_string_lossy()) else {
                 continue;
             };
             if !source.enabled(config) {
@@ -256,10 +259,10 @@ impl Toasts {
             let (Ok(id), Ok(created)) = (item.Id(), item.CreationTime()) else {
                 continue;
             };
-            let slot = &mut latest[usize::from(*source == Source::Qq)];
+            let slot = &mut latest[usize::from(source == Source::Qq)];
             let key = (created.UniversalTime, id);
             if slot.as_ref().is_none_or(|(old, _, _)| key > *old) {
-                *slot = Some((key, *source, item));
+                *slot = Some((key, source, item));
             }
         }
         let now = now_ticks();
