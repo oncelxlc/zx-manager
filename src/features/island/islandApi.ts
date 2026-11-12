@@ -21,7 +21,22 @@ export interface NotificationStatus {
   permission: NotificationPermission;
 }
 
+export interface MediaStatus {
+  title: string;
+  artist: string;
+  playing: boolean;
+  positionMs: number;
+  durationMs: number;
+  canPrevious: boolean;
+  canNext: boolean;
+  canToggle: boolean;
+  canSeek: boolean;
+  battery: [number, boolean] | null;
+  cover: { width: number; height: number; bgra: number[] } | null;
+}
+
 interface IslandEvents {
+  "media-changed": null;
   "config-changed": IslandConfig;
   "state-changed": RuntimeStatus;
   "notifications-changed": NotificationStatus;
@@ -35,6 +50,7 @@ export const islandApi = {
   config: () => invoke<IslandConfig>("island_get_config"),
   status: () => invoke<RuntimeStatus>("island_get_runtime_status"),
   notifications: () => invoke<NotificationStatus>("island_get_notifications"),
+  media: () => invoke<MediaStatus>("island_get_media"),
   requestNotificationAccess: () => invoke<void>("island_request_notification_access"),
   openNotificationSettings: () => invoke<void>("island_open_notification_settings"),
   displays: () => invoke<IslandDisplay[]>("island_get_displays"),

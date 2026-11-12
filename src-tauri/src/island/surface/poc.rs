@@ -168,7 +168,7 @@ pub fn run_poc() -> Result<()> {
     let expanded = screen.target(&cfg, IslandState::Expanded);
     let corner = POINT {
         x: compact.x,
-        y: compact.y,
+        y: compact.y + compact.height - 1,
     };
     let envelope = POINT {
         x: expanded.x + 4,
@@ -185,7 +185,7 @@ pub fn run_poc() -> Result<()> {
     }
     window.apply(&cfg, IslandState::Compact, &screen)?;
     if foreground_at(corner) != beneath_corner {
-        return Err("稳定态的圆角遮住下层窗口".into());
+        return Err("稳定态的底部圆角遮住下层窗口".into());
     }
     let down = |v: i32| v as u16 as u32;
     let point = down(compact.x + compact.width / 2) | (down(compact.y + compact.height / 2) << 16);
@@ -199,6 +199,24 @@ pub fn run_poc() -> Result<()> {
         unsafe { windows_sys::Win32::System::SystemInformation::GetLocalTime(&mut time) };
         time.wMinute
     };
+    thread::sleep(Duration::from_millis(250));
+    if compact.y == screen.work.y && compact.width >= compact.height {
+        let shoulder = POINT {
+            x: compact.x + (3.0 * screen.scale_factor).round() as i32,
+            y: compact.y,
+        };
+        let side = POINT {
+            y: compact.y + (9.0 * screen.scale_factor).round() as i32,
+            ..shoulder
+        };
+        if foreground_at(shoulder) != raw as HWND || foreground_at(side) == raw as HWND {
+            return Err("贴顶刘海的外肩或内侧透明区域命中错误".into());
+        }
+    }
+    // The empty music page has a clock but no blinking companion or playing waveform.
+    let mut still = cfg.clone();
+    still.animation.enabled = false;
+    window.apply(&still, IslandState::Expanded, &screen)?;
     let minute = local_minute();
     let idle = window.stats()?;
     thread::sleep(Duration::from_millis(500));
@@ -209,6 +227,7 @@ pub fn run_poc() -> Result<()> {
     {
         return Err("空闲合成提交或绘制计数异常".into());
     }
+    window.apply(&still, IslandState::Compact, &screen)?;
     for (state, delay) in [
         (IslandState::Expanded, 65),
         (IslandState::Compact, 65),

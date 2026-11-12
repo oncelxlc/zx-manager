@@ -1,3 +1,5 @@
+mod music;
+
 use super::{MessageAction, Panel};
 use crate::island::notifications::AppIcon;
 use crate::island::{
@@ -19,6 +21,7 @@ use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 
 #[derive(PartialEq)]
 pub(super) struct ImageKey {
+    pub notch: Option<super::notch::Notch>,
     pub panel: Option<Panel>,
     pub message_hover: Option<MessageAction>,
     pub size: (i32, i32),
@@ -72,8 +75,9 @@ impl ImageKey {
             }
         };
         let rgb = parse_rgb(&a.background);
-        let auto = a.theme == Theme::System && matches!(rgb, 0x202326 | 0x101214);
+        let auto = a.theme == Theme::System && matches!(rgb, 0 | 0x202326 | 0x101214);
         let background = color(if auto && light { 0xf5f5f4 } else { rgb }, a.opacity as f32);
+        let border = parse_rgb(&a.border);
         let linear = |v: f32| {
             if v <= 0.04045 {
                 v / 12.92
@@ -95,6 +99,7 @@ impl ImageKey {
             1.0,
         );
         Self {
+            notch: None,
             panel: None,
             message_hover: None,
             size: (rect.width, rect.height),
@@ -102,7 +107,14 @@ impl ImageKey {
             state,
             radius: a.radius as f32,
             background,
-            border: color(parse_rgb(&a.border), 1.0),
+            border: color(
+                if auto && light && rgb == 0 && border == 0 {
+                    0xf5f5f4
+                } else {
+                    border
+                },
+                1.0,
+            ),
             ink,
             shadow: a.shadow,
             peek_size: if state == IslandState::EdgePeek {
@@ -132,14 +144,23 @@ fn point(x: f32, y: f32) -> Vector2 {
     Vector2 { X: x, Y: y }
 }
 
-unsafe fn font(factory: &IDWriteFactory, size: f32, bold: bool) -> Result<IDWriteTextFormat> {
+unsafe fn font(
+    factory: &IDWriteFactory,
+    size: f32,
+    bold: bool,
+    icons: bool,
+) -> Result<IDWriteTextFormat> {
     let weight = if bold {
         DWRITE_FONT_WEIGHT_BOLD
     } else {
         DWRITE_FONT_WEIGHT_NORMAL
     };
     factory.CreateTextFormat(
-        w!("Segoe UI"),
+        if icons {
+            w!("Segoe MDL2 Assets")
+        } else {
+            w!("Segoe UI")
+        },
         None,
         weight,
         DWRITE_FONT_STYLE_NORMAL,
@@ -153,6 +174,14 @@ pub(super) struct Painter {
     brush: ID2D1SolidColorBrush,
     icons: Vec<(Weak<AppIcon>, ID2D1Bitmap1)>,
     clock: IDWriteTextFormat,
+    title: IDWriteTextFormat,
+    artist: IDWriteTextFormat,
+    elapsed: IDWriteTextFormat,
+    percent: IDWriteTextFormat,
+    symbol: IDWriteTextFormat,
+    note: IDWriteTextFormat,
+    header_clock: IDWriteTextFormat,
+    narrow_clock: IDWriteTextFormat,
     detail: IDWriteTextFormat,
     centered: IDWriteTextFormat,
 }
@@ -160,8 +189,8 @@ pub(super) struct Painter {
 impl Painter {
     pub unsafe fn new(dc: &ID2D1DeviceContext) -> Result<Self> {
         let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
-        let message_font = |size, bold, center| -> Result<IDWriteTextFormat> {
-            let fmt = font(&factory, size, bold)?;
+        let message_font = |size, bold, center, icons| -> Result<IDWriteTextFormat> {
+            let fmt = font(&factory, size, bold, icons)?;
             fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
             fmt.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
             if center {
@@ -177,9 +206,17 @@ impl Painter {
         Ok(Self {
             brush: dc.CreateSolidColorBrush(&color(0xffffff, 1.0), None)?,
             icons: Vec::new(),
-            clock: message_font(16.0, true, true)?,
-            detail: message_font(13.0, false, false)?,
-            centered: message_font(12.0, false, true)?,
+            clock: message_font(15.5, true, true, false)?,
+            header_clock: message_font(12.5, true, true, false)?,
+            narrow_clock: message_font(9.0, true, true, false)?,
+            title: message_font(14.0, true, false, false)?,
+            artist: message_font(11.5, false, false, false)?,
+            elapsed: message_font(15.0, false, true, false)?,
+            percent: message_font(6.6, true, true, false)?,
+            symbol: message_font(15.0, false, true, true)?,
+            note: message_font(26.0, false, true, true)?,
+            detail: message_font(13.0, false, false, false)?,
+            centered: message_font(11.0, false, true, false)?,
         })
     }
 
@@ -201,46 +238,57 @@ impl Painter {
             );
             return Ok(());
         }
-        let outline = round(0.5, 0.5, w - 1.0, h - 1.0, key.radius);
-        b.SetColor(&key.background);
-        dc.FillRectangle(
-            &D2D_RECT_F {
-                left: 0.0,
-                top: 0.0,
-                right: w,
-                bottom: h,
-            },
-            b,
-        );
-        if key.shadow {
-            // The WebView inset shadow is approximated by nested antialiased strokes.
-            for inset in 1..=6 {
-                let i = inset as f32;
-                if w.min(h) <= 2.0 * i {
-                    break;
-                }
-                b.SetColor(&color(0, (7.0 - i) * 0.014));
-                dc.DrawRoundedRectangle(
-                    &round(i, i, w - 2.0 * i, h - 2.0 * i, key.radius - i),
-                    b,
-                    1.0,
-                    None,
-                );
-            }
-        }
-        b.SetColor(&key.border);
-        dc.DrawRoundedRectangle(&outline, b, 1.0, None);
-        let (x, y) = key.content_origin();
-        dc.SetTransform(&windows_numerics::Matrix3x2::translation(
-            x as f32 / key.scale,
-            y as f32 / key.scale,
-        ));
         let clip = D2D_RECT_F {
             left: 0.0,
             top: 0.0,
             right: w,
             bottom: h,
         };
+        b.SetColor(&key.background);
+        if let Some(notch) = key.notch {
+            let path = dc.GetFactory()?.CreatePathGeometry()?;
+            let sink = path.Open()?;
+            let outline =
+                notch.outline(f64::from(w), f64::from(h), |x, y| point(x as f32, y as f32));
+            sink.BeginFigure(outline[0], D2D1_FIGURE_BEGIN_FILLED);
+            sink.AddLines(&outline[1..]);
+            sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+            sink.Close()?;
+            dc.PushAxisAlignedClip(&clip, D2D1_ANTIALIAS_MODE_ALIASED);
+            dc.FillGeometry(&path, b, None);
+            if key.shadow {
+                b.SetColor(&color(0, 0.08));
+                dc.DrawGeometry(&path, b, 5.0, None);
+            }
+            b.SetColor(&key.border);
+            dc.DrawGeometry(&path, b, 1.0, None);
+            dc.PopAxisAlignedClip();
+        } else {
+            dc.FillRectangle(&clip, b);
+            if key.shadow {
+                // The WebView inset shadow is approximated by nested antialiased strokes.
+                for inset in 1..=6 {
+                    let i = inset as f32;
+                    if w.min(h) <= 2.0 * i {
+                        break;
+                    }
+                    b.SetColor(&color(0, (7.0 - i) * 0.014));
+                    dc.DrawRoundedRectangle(
+                        &round(i, i, w - 2.0 * i, h - 2.0 * i, key.radius - i),
+                        b,
+                        1.0,
+                        None,
+                    );
+                }
+            }
+            b.SetColor(&key.border);
+            dc.DrawRoundedRectangle(&round(0.5, 0.5, w - 1.0, h - 1.0, key.radius), b, 1.0, None);
+        }
+        let (x, y) = key.content_origin();
+        dc.SetTransform(&windows_numerics::Matrix3x2::translation(
+            x as f32 / key.scale,
+            y as f32 / key.scale,
+        ));
         dc.PushAxisAlignedClip(&clip, D2D1_ANTIALIAS_MODE_ALIASED);
         let painted = match &key.panel {
             Some(panel) => self.messages(dc, key, panel),
@@ -320,7 +368,7 @@ impl Painter {
         self.brush.SetColor(&key.background);
         dc.FillRoundedRectangle(&round(x - 1.0, y - 1.0, 8.0, 8.0, 4.0), &self.brush);
         self.brush.SetColor(&color(
-            if key.ink.r < 0.5 { 0xb32938 } else { 0xff7178 },
+            if key.ink.r < 0.5 { 0xb32938 } else { 0xf23046 },
             1.0,
         ));
         dc.FillRoundedRectangle(&round(x, y, 6.0, 6.0, 3.0), &self.brush);
@@ -332,53 +380,19 @@ impl Painter {
         key: &ImageKey,
         panel: &Panel,
     ) -> Result<()> {
-        if let Some(r) = panel.ring {
-            let (cx, cy) = (
-                (r.x as f32 + r.width as f32 / 2.0),
-                (r.y as f32 + r.height as f32 / 2.0),
-            );
-            let radius = (r.width.min(r.height) as f32 / 2.0 - 1.0).max(0.0);
-            self.brush.SetColor(&color(
-                if key.ink.r < 0.5 { 0x177154 } else { 0x69ddb2 },
-                1.0,
-            ));
-            dc.DrawEllipse(
-                &D2D1_ELLIPSE {
-                    point: point(cx, cy),
-                    radiusX: radius,
-                    radiusY: radius,
-                },
-                &self.brush,
-                2.0,
-                None,
-            );
-            dc.FillEllipse(
-                &D2D1_ELLIPSE {
-                    point: point(cx, cy),
-                    radiusX: 2.0,
-                    radiusY: 2.0,
-                },
-                &self.brush,
-            );
+        if let Some(media) = &panel.music {
+            return self.music(dc, key, panel, media);
         }
-        self.brush.SetColor(&key.ink);
-        if let Some((bounds, time)) = &panel.time {
-            self.message_text(dc, *bounds, time, &self.clock);
-        }
-        if let Some((bounds, subtitle)) = &panel.subtitle {
-            let mut tone = key.ink;
-            tone.a = 0.76;
-            self.brush.SetColor(&tone);
-            self.message_text(dc, *bounds, subtitle, &self.centered);
-        }
+        self.header(dc, key, panel);
         for item in &panel.items {
             let r = item.bounds;
             let (x, y, w, h) = (r.x as f32, r.y as f32, r.width as f32, r.height as f32);
-            if item.action.is_some() && key.message_hover == item.action {
+            let hovered = item.action.is_some() && key.message_hover == item.action;
+            if hovered || key.state != IslandState::Compact && item.source.is_some() {
                 let mut tint = key.ink;
-                tint.a = 0.12;
+                tint.a = if hovered { 0.16 } else { 0.09 };
                 self.brush.SetColor(&tint);
-                dc.FillRoundedRectangle(&round(x, y, w, h, 8.0), &self.brush);
+                dc.FillRoundedRectangle(&round(x, y, w, h, 10.0), &self.brush);
             }
             self.brush.SetColor(&key.ink);
             let Some(source) = item.source else {

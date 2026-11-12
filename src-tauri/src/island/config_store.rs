@@ -92,15 +92,43 @@ impl ConfigStore {
                         notices.remove(key);
                     }
                 }
-                fields.insert("schemaVersion".into(), SCHEMA_VERSION.into());
             }
+            3 => {}
             version if version == u64::from(SCHEMA_VERSION) => {}
             version => return Err(format!("不支持的配置版本 {version}，请升级应用")),
         }
-        let config: IslandConfig =
+        let migrated = version < u64::from(SCHEMA_VERSION);
+        fields.insert("schemaVersion".into(), SCHEMA_VERSION.into());
+        let mut config: IslandConfig =
             serde_json::from_value(value).map_err(|err| format!("island.json 配置无效：{err}"))?;
+        if migrated {
+            let a = &mut config.appearance;
+            let defaults = super::config::AppearanceConfig::default();
+            if (
+                a.compact_width,
+                a.compact_height,
+                a.expanded_width,
+                a.expanded_height,
+                a.radius,
+            ) == (156.0, 44.0, 328.0, 168.0, 24.0)
+            {
+                a.compact_width = defaults.compact_width;
+                a.compact_height = defaults.compact_height;
+                a.expanded_width = defaults.expanded_width;
+                a.expanded_height = defaults.expanded_height;
+                a.radius = defaults.radius;
+            }
+            if a.background.eq_ignore_ascii_case("#101214")
+                && a.border.eq_ignore_ascii_case("#34383c")
+                && a.opacity == 0.96
+            {
+                a.background = defaults.background;
+                a.border = defaults.border;
+                a.opacity = defaults.opacity;
+            }
+        }
         config.validate()?;
-        Ok((config, version < u64::from(SCHEMA_VERSION)))
+        Ok((config, migrated))
     }
 
     pub fn save(

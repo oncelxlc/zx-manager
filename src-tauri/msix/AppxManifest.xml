@@ -2,9 +2,10 @@
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
          xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+         xmlns:uap7="http://schemas.microsoft.com/appx/manifest/uap/windows10/7"
          xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-         IgnorableNamespaces="uap uap3 desktop rescap">
+         IgnorableNamespaces="uap uap3 uap7 desktop rescap">
   <Identity Name="com.oncel.zx-once" Publisher="CN=zx-once" Version="0.1.0.0" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>zx-once</DisplayName>
@@ -28,6 +29,7 @@
   </Applications>
   <Capabilities>
     <uap3:Capability Name="userNotificationListener" />
+    <uap7:Capability Name="globalMediaControl" />
     <rescap:Capability Name="runFullTrust" />
   </Capabilities>
 </Package>

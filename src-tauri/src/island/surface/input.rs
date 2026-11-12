@@ -3,7 +3,7 @@ use crate::island::render::MessageAction;
 use std::{cell::Cell, mem::size_of};
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, POINT},
-    Graphics::Gdi::ClientToScreen,
+    Graphics::Gdi::{ClientToScreen, ScreenToClient},
     UI::{
         Controls::WM_MOUSELEAVE,
         Input::KeyboardAndMouse::{
@@ -16,6 +16,7 @@ use windows_sys::Win32::{
 #[derive(Clone, Copy, PartialEq)]
 enum Action {
     Body,
+    Disabled,
     Message(MessageAction),
 }
 
@@ -58,7 +59,22 @@ fn action(ui: &Context, hwnd: HWND, point: POINT) -> Option<Action> {
         .ok()
         .and_then(|r| r.as_ref()?.visible_radius())
         .unwrap_or(f.cfg.appearance.radius * f.scale);
-    if !rounded(rect, radius, point) {
+    let inside = if let Some(placement::Mask {
+        bounds: mask,
+        notch: Some(notch),
+        ..
+    }) = ui.mask.get()
+    {
+        let mut local = point;
+        (unsafe { ScreenToClient(hwnd, &mut local) != 0 })
+            && notch.contains(
+                (f64::from(local.x - mask.x) + 0.5) / f64::from(mask.width),
+                (f64::from(local.y - mask.y) + 0.5) / f64::from(mask.height),
+            )
+    } else {
+        rounded(rect, radius, point)
+    };
+    if !inside {
         return None;
     }
     if let Ok(renderer) = ui.renderer.try_borrow() {
@@ -70,10 +86,9 @@ fn action(ui: &Context, hwnd: HWND, point: POINT) -> Option<Action> {
                     && point.y >= b.y
                     && point.y < b.y + b.height
             });
-            return Some(
-                hit.and_then(|i| i.action)
-                    .map_or(Action::Body, Action::Message),
-            );
+            return Some(hit.map_or(Action::Body, |item| {
+                item.action.map_or(Action::Disabled, Action::Message)
+            }));
         }
     }
     Some(Action::Body)
@@ -189,6 +204,22 @@ pub(super) unsafe fn message(ui: &Context, hwnd: HWND, msg: u32, lp: LPARAM) -> 
             if GetCapture() == hwnd {
                 ReleaseCapture();
             }
+            if matches!(down, Some((_, _, Action::Message(MessageAction::Seek)))) {
+                let visible = placement::outer_rect(ui, hwnd).ok()?;
+                let renderer = ui.renderer.borrow();
+                let panel = renderer.as_ref()?.hit_panel()?;
+                let track = panel
+                    .items
+                    .iter()
+                    .find(|i| i.action == Some(MessageAction::Seek))?;
+                let bounds = track.screen_bounds(visible, panel.size);
+                let offset = (point.x - bounds.x).clamp(0, bounds.width.max(0));
+                let fraction = (1000 * offset / bounds.width.max(1)) as u16;
+                (ui.emit)(SurfaceEvent::Transport(
+                    crate::island::media::Transport::Seek(fraction),
+                ));
+                return Some(0);
+            }
             if let Some((_, _, action)) = down.filter(|(x, y, action)| {
                 if hit == Some(*action) {
                     return true;
@@ -208,6 +239,7 @@ pub(super) unsafe fn message(ui: &Context, hwnd: HWND, msg: u32, lp: LPARAM) -> 
                 }
                 (ui.emit)(match action {
                     Action::Body => SurfaceEvent::Click,
+                    Action::Disabled => return Some(0),
                     Action::Message(a) => a.surface_event()?,
                 });
             }

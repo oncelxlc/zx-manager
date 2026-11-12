@@ -1,4 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
+import { useEffect, useId, useState } from "react";
+import type { MediaStatus } from "./islandApi";
+import { BatteryRing, MusicWave, PreviewMusic } from "./PreviewMusic";
 import { isDefaultDarkSurface, lightSurface } from "./settingsStyles";
 import type { AnimationPreset, CustomCurve, IslandConfig } from "./types";
 
@@ -13,33 +16,18 @@ export function motionEasing(preset: AnimationPreset, expanding: boolean, custom
   return expanding ? "cubic-bezier(.22,1,.36,1)" : "cubic-bezier(.4,0,1,1)";
 }
 
-export function PreviewContent({ config, state }: { config: IslandConfig; state: PreviewState }) {
-  const { appearance, animation, edge } = config;
-  const expanded = state === "expanded";
-  const peek = state === "edgePeek";
-  const economical = animation.performance === "performance";
-  const motion = animation.enabled && !animation.reducedMotion && !economical;
-  const contentMs = motion ? animation.contentMs : 0;
-  const easing = motion ? motionEasing(animation.preset, expanded, animation.customCurve) : "linear";
-  const automaticColor = appearance.theme === "system" && isDefaultDarkSurface(appearance.background);
-  const background = automaticColor ? `light-dark(${lightSurface}, ${appearance.background})` : appearance.background;
-  const foreground = automaticColor ? "light-dark(#181817, #fff)" : ink(appearance.background);
-  const accent = automaticColor ? "light-dark(#177154, #69ddb2)" : foreground === "#ffffff" ? "#69ddb2" : "#177154";
-  const now = new Date();
-  return (
-    <div {...stylex.props(s.shell, s.theme(appearance.theme),
-      s.surface(background, appearance.border, appearance.radius, appearance.opacity, foreground),
-      appearance.shadow && s.shadow, appearance.blur && !economical && s.blur, peek && s.peek)}>
-      <div {...stylex.props(s.face, s.clockLayer(peek ? 0 : 1, expanded ? -10 : 0, contentMs, easing))}>
-        <span {...stylex.props(s.ring(accent))}><span {...stylex.props(s.dot)} /></span>
-        <time {...stylex.props(s.clock)}>{now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</time>
-      </div>
-      <span {...stylex.props(s.date, s.clockLayer(expanded ? 1 : 0, expanded ? 0 : animation.amplitude * 4, contentMs, easing))}>
-        {now.toLocaleDateString("zh-CN", { month: "long", day: "numeric" })}
-      </span>
-      {peek && <div {...stylex.props(s.stripArea)}><span {...stylex.props(s.strip(edge.peekSize))} /></div>}
-    </div>
-  );
+// The native notch samples the same power curve at fourteen intervals on each shoulder.
+function notchPath(width: number, height: number, radius: number, expanded: boolean) {
+  const wing = Math.min(expanded ? 17.6 : 5, width / 4);
+  const depth = Math.min(expanded ? 16 : 8, height / 2);
+  const r = Math.min(radius * (expanded ? 1 : 12.5 / 33), height / 2, width / 2 - wing);
+  const shoulder = Array.from({ length: 15 }, (_, i) => {
+    const t = i / 14;
+    return { x: wing * (1 - (1 - t) ** 2.4), y: depth * t };
+  });
+  const right = shoulder.map(({ x, y }) => `L${width - x} ${y}`).join(" ");
+  const left = shoulder.reverse().map(({ x, y }) => `L${x} ${y}`).join(" ");
+  return `M0 0 ${right} V${height - r} a${r} ${r} 0 0 1 ${-r} ${r} H${wing + r} a${r} ${r} 0 0 1 ${-r} ${-r} ${left} Z`;
 }
 
 function ink(hex: string) {
@@ -50,39 +38,82 @@ function ink(hex: string) {
   return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722 > 0.179 ? "#111111" : "#ffffff";
 }
 
+export function PreviewContent({ config, state, width, height, docked, media, sampledAt }: {
+  config: IslandConfig; state: PreviewState; width: number; height: number; docked: boolean;
+  media?: MediaStatus; sampledAt: number;
+}) {
+  const { appearance: a, animation, edge } = config;
+  const expanded = state === "expanded";
+  const motion = animation.enabled && !animation.reducedMotion && animation.performance !== "performance";
+  const automatic = a.theme === "system" && isDefaultDarkSurface(a.background);
+  const background = automatic ? `light-dark(${lightSurface}, ${a.background})` : a.background;
+  const foreground = automatic ? "light-dark(#181817, #fff)" : ink(a.background);
+  const border = automatic && a.background === "#000000" && a.border === "#000000" ? background : a.border;
+  const id = useId();
+  const path = docked && width > 0 && height > 0 ? notchPath(width, height, a.radius, expanded) : undefined;
+  const [now, setNow] = useState(() => new Date());
+  const interval = expanded && media?.playing ? 1_000 : 60_000;
+  useEffect(() => {
+    const timer = setTimeout(() => setNow(new Date()), interval - Date.now() % interval);
+    return () => clearTimeout(timer);
+  }, [now, interval]);
+  const clock = now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const vertical = height > width;
+  const space = Math.max(width, height) - (vertical ? 20 : Math.min(44, width));
+  const pet = !expanded && !vertical && space >= 44;
+  const battery = !expanded && media?.battery && space - (pet ? 44 : 0) >= 32 ? media.battery : null;
+  const wave = !expanded && media?.title && space - (pet ? 44 : 0) - (battery ? 32 : 0) >= 26;
+  if (state === "edgePeek") return <div {...stylex.props(s.stripArea, s.colors(a.theme, foreground))}><span {...stylex.props(s.strip(edge.peekSize))} /></div>;
+  return <div {...stylex.props(s.shell, s.colors(a.theme, foreground))}>
+    {path && <svg width="0" height="0" {...stylex.props(s.overlay)}>
+      <defs><clipPath id={id} clipPathUnits="objectBoundingBox"><path d={path} transform={`scale(${1 / width} ${1 / height})`} /></clipPath></defs>
+    </svg>}
+    <div {...stylex.props(s.body, s.surface(background, a.opacity, path ? 0 : a.radius, path ? `url(#${id})` : "none"),
+      !path && s.border(border), a.shadow && s.shadow, a.blur && animation.performance !== "performance" && s.blur)}>
+      <div key={expanded ? "music" : "bar"} {...stylex.props(s.content, motion && s.reveal(animation.contentMs, motionEasing(animation.preset, expanded, animation.customCurve), animation.amplitude))}>
+        {expanded && width >= 96 && height >= 56 ? <PreviewMusic media={media} sampledAt={sampledAt} now={now} clock={clock} narrow={width < height * 1.5} motion={motion} />
+          : <div {...stylex.props(s.bar)}>
+            {battery && <BatteryRing battery={battery} />}
+            {pet && <span {...stylex.props(s.pet, motion && s.blink)}>
+              <i {...stylex.props(s.eye)} /><i {...stylex.props(s.eye)} />
+            </span>}
+            <time {...stylex.props(s.clock)}>{clock}</time>
+            {wave && <MusicWave playing={media.playing} motion={motion} />}
+          </div>}
+      </div>
+      {path && <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" {...stylex.props(s.overlay)}>
+        <path d={path} fill="none" stroke={border} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+      </svg>}
+    </div>
+  </div>;
+}
+
+const blink = stylex.keyframes({ "0%": { transform: "scaleY(1)" }, "96.8%": { transform: "scaleY(.45)" }, "100%": { transform: "scaleY(.45)" } });
+const reveal = stylex.keyframes({ from: { opacity: 0, transform: "translateY(var(--preview-shift))" }, to: { opacity: 1, transform: "translateY(0)" } });
 const s = stylex.create({
-  shell: {
-    position: "relative", width: "100%", height: "100%", overflow: "hidden", containerType: "size",
-    userSelect: "none", borderStyle: "solid", borderWidth: 1,
-  },
-  theme: (theme: string) => ({ colorScheme: theme === "system" ? "light dark" : theme }),
-  surface: (background: string, border: string, radius: number, opacity: number, foreground: string) => ({
-    borderRadius: `${radius}px`, borderColor: border, color: foreground,
-    backgroundColor: `color-mix(in srgb, ${background} ${opacity * 100}%, transparent)`,
+  shell: { position: "relative", width: "100%", height: "100%", userSelect: "none", fontFamily: '"Segoe UI", "Microsoft YaHei UI", sans-serif' },
+  colors: (theme: string, color: string) => ({ colorScheme: theme === "system" ? "light dark" : theme, color }),
+  body: { position: "absolute", inset: 0, overflow: "hidden", containerType: "size" },
+  surface: (base: string, opacity: number, radius: number, clip: string) => ({
+    backgroundColor: `color-mix(in srgb, ${base} ${opacity * 100}%, transparent)`, borderRadius: radius, clipPath: clip,
   }),
+  border: (color: string) => ({ borderWidth: 1, borderStyle: "solid", borderColor: color }),
   shadow: { boxShadow: "inset 0 0 14px #0002" },
   blur: { backdropFilter: "blur(12px)" },
-  peek: { borderWidth: 0, backgroundColor: "transparent", boxShadow: "none", backdropFilter: "none" },
-  stripArea: {
-    position: "absolute", inset: 0, display: "grid", placeItems: "center",
-  },
-  strip: (size: number) => ({
-    backgroundColor: "currentColor", borderRadius: 999,
+  overlay: { position: "absolute", inset: 0, pointerEvents: "none" },
+  content: { position: "absolute", inset: 0 },
+  reveal: (ms: number, easing: string, amplitude: number) => ({ animationName: reveal,
+    "--preview-shift": `${amplitude * 4}px`, animationTimingFunction: easing, animationDuration: { default: `${ms}ms`, "@media (prefers-reduced-motion: reduce)": "0ms" } }),
+  stripArea: { width: "100%", height: "100%", display: "grid", placeItems: "center", containerType: "size" },
+  strip: (size: number) => ({ backgroundColor: "currentColor", borderRadius: 999,
     width: { default: "100%", "@container (aspect-ratio < 1)": `min(100%, ${size}px)` },
-    height: { default: `min(100%, ${size}px)`, "@container (aspect-ratio < 1)": "100%" },
-  }),
-  face: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+    height: { default: `min(100%, ${size}px)`, "@container (aspect-ratio < 1)": "100%" } }),
+  bar: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
     flexDirection: { default: "row", "@container (aspect-ratio < 1)": "column" } },
-  ring: (accent: string) => ({ display: "grid", placeItems: "center", flexShrink: 0, width: 16, height: 16, color: accent,
-    borderWidth: 2, borderStyle: "solid", borderColor: "currentColor", borderRadius: "50%" }),
-  dot: { width: 4, height: 4, borderRadius: "50%", backgroundColor: "currentColor" },
-  clock: { fontWeight: 600, fontVariantNumeric: "tabular-nums", fontSize: "clamp(11px, 10cqw, 22px)", lineHeight: 1,
-    display: { default: "inline", "@container (width < 32px)": "none" } },
-  date: { position: "absolute", top: "calc(50% + 12px)", insetInline: 0, textAlign: "center", fontSize: 12,
-    display: { default: "block", "@container (height < 84px)": "none" } },
-  clockLayer: (alpha: number, y: number, ms: number, easing: string) => ({
-    opacity: alpha, transform: `translateY(${y}px)`,
-    transitionProperty: "opacity, transform", transitionTimingFunction: easing,
-    transitionDuration: { default: `${ms}ms`, "@media (prefers-reduced-motion: reduce)": "0ms" },
-  }),
+  pet: { width: 32, display: "flex", gap: 7.6, justifyContent: "center", flexShrink: 0 },
+  eye: { width: 3.6, height: 8, borderRadius: 2, backgroundColor: "currentColor" },
+  blink: { animationName: blink, animationDuration: "5.6s", animationIterationCount: "infinite", animationTimingFunction: "step-end",
+    animationPlayState: { default: "running", "@media (prefers-reduced-motion: reduce)": "paused" } },
+  clock: { maxWidth: "100%", whiteSpace: "nowrap", fontWeight: 700, fontVariantNumeric: "tabular-nums", lineHeight: 1, textAlign: "center",
+    fontSize: { default: 15.5, "@container (28px <= width < 40px)": 11, "@container (width < 28px)": 9 } },
 });

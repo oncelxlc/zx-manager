@@ -21,10 +21,13 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 
 [target.'cfg(windows)'.dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 tauri = { version = "2", features = ["tray-icon"] }
 windows = { version = "0.61", features = [
+    "Graphics_Imaging",
+    "Media_Control",
+    "Storage_Streams",
     "ApplicationModel",
     "UI_Notifications_Management",
     "Win32_Storage_EnhancedStorage",
@@ -62,6 +65,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_LibraryLoader",
     "Win32_System_Com",
     "Win32_System_Performance",
+    "Win32_System_Power",
     "Win32_System_Threading",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_Security",
@@ -73,3 +77,6 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 winreg = "0.55"
+
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.61", features = ["Win32_Graphics_Gdi"] }

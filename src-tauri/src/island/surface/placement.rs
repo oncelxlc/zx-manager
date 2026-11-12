@@ -1,10 +1,13 @@
 use super::{error, Context, IslandConfig, IslandState, Rect, Renderer, Result, SurfaceEvent};
-use crate::island::config::PerformanceMode;
+use crate::island::{
+    config::{Orientation, PerformanceMode},
+    render::notch::Notch,
+};
 use raw_window_handle::{RawWindowHandle, Win32WindowHandle, WindowHandle};
 use std::{num::NonZeroIsize, ptr::null_mut};
 use windows_sys::Win32::{
-    Foundation::{HWND, RECT},
-    Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn},
+    Foundation::{HWND, POINT, RECT},
+    Graphics::Gdi::{CreatePolygonRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, WINDING},
     UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture},
     UI::WindowsAndMessaging::*,
 };
@@ -15,6 +18,13 @@ pub(super) struct Frame {
     pub host: Rect,
     pub target: Rect,
     pub scale: f64,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub(super) struct Mask {
+    pub bounds: Rect,
+    diameter: i32,
+    pub notch: Option<Notch>,
 }
 
 fn current(hwnd: HWND) -> Result<Rect> {
@@ -59,17 +69,35 @@ fn union(a: Rect, b: Rect) -> Rect {
     }
 }
 
-fn region(ui: &Context, hwnd: HWND, host: Rect, r: Rect, radius: f64) -> Result<()> {
+fn region(
+    ui: &Context,
+    hwnd: HWND,
+    host: Rect,
+    r: Rect,
+    radius: f64,
+    notch: Option<Notch>,
+) -> Result<()> {
     let x = r.x - host.x;
     let y = r.y - host.y;
     let diameter = ((2.0 * radius).round() as i32).clamp(1, r.width.min(r.height));
-    let mask = (Rect { x, y, ..r }, diameter);
+    let mask = Mask {
+        bounds: Rect { x, y, ..r },
+        diameter,
+        notch,
+    };
     if ui.mask.get() == Some(mask) {
         return Ok(());
     }
     unsafe {
-        let region =
-            CreateRoundRectRgn(x, y, x + r.width + 1, y + r.height + 1, diameter, diameter);
+        let region = if let Some(notch) = notch {
+            let points = notch.outline(f64::from(r.width), f64::from(r.height), |px, py| POINT {
+                x: x + px.round() as i32,
+                y: y + py.round() as i32,
+            });
+            CreatePolygonRgn(points.as_ptr(), points.len() as i32, WINDING)
+        } else {
+            CreateRoundRectRgn(x, y, x + r.width + 1, y + r.height + 1, diameter, diameter)
+        };
         if region.is_null() {
             return Err(error("创建原生命中区域失败"));
         }
@@ -150,7 +178,8 @@ pub(super) fn prepare_drag(ui: &Context, hwnd: HWND) -> Result<Rect> {
         .ok_or("原生绘制设备不可用")?
         .freeze(visible)?;
     position(hwnd, visible)?;
-    region(ui, hwnd, visible, visible, radius)?;
+    let notch = ui.renderer.borrow().as_ref().and_then(|r| r.notch);
+    region(ui, hwnd, visible, visible, radius, notch)?;
     if let Some(frame) = ui.frame.borrow_mut().as_mut() {
         frame.host = visible;
     }
@@ -215,6 +244,18 @@ pub(super) fn apply(
     {
         let mut renderer = ui.renderer.borrow_mut();
         let renderer = renderer.as_mut().ok_or("原生绘制设备不可用")?;
+        renderer.notch = (target.y == ui.work_top.get()
+            && target.width >= target.height
+            && cfg.placement.orientation != Orientation::Vertical
+            && state != IslandState::EdgePeek)
+            .then(|| {
+                Notch::new(
+                    state,
+                    f64::from(target.width) / scale,
+                    f64::from(target.height) / scale,
+                    cfg.appearance.radius,
+                )
+            });
         super::messages::prepare(ui, hwnd, renderer, &cfg, state, target, scale)?;
         renderer.apply(&cfg, state, target, host, scale, changed_state)?;
         ui.recovery_pending.set(false);
@@ -267,7 +308,7 @@ pub(super) fn update_mask(ui: &Context, hwnd: HWND) -> Result<()> {
     let radius = r
         .visible_radius()
         .unwrap_or(f.cfg.appearance.radius * f.scale);
-    region(ui, hwnd, f.host, rect, radius)?;
+    region(ui, hwnd, f.host, rect, radius, r.notch)?;
     if !r.moving() {
         ui.clock.stop();
     } else {
@@ -287,6 +328,7 @@ pub(super) fn update_mask(ui: &Context, hwnd: HWND) -> Result<()> {
                 f.host,
                 f.target,
                 f.cfg.appearance.radius * f.scale,
+                r.notch,
             )?;
             (ui.emit)(SurfaceEvent::Error(e));
         }
@@ -301,6 +343,7 @@ pub(super) fn update_mask(ui: &Context, hwnd: HWND) -> Result<()> {
 }
 
 pub(super) fn hide(ui: &Context, hwnd: HWND) -> Result<()> {
+    ui.messages.borrow_mut().focus_source = None;
     unsafe {
         if GetCapture() == hwnd {
             ReleaseCapture();

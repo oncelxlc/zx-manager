@@ -12,6 +12,7 @@ $stage = Join-Path $root "src-tauri/target/island-bench-$tag"
 $project = Join-Path $stage 'src-tauri'
 $binary = "zx-island-measure-$tag"
 New-Item -ItemType Directory -Path $project | Out-Null
+Copy-Item -LiteralPath "$root/LICENSE" -Destination "$stage/LICENSE"
 foreach ($name in 'src','icons','capabilities','permissions','Cargo.toml','Cargo.lock','build.rs','tauri.conf.json') {
     Copy-Item -LiteralPath "$root/src-tauri/$name" -Destination $project -Recurse
 }
@@ -48,6 +49,8 @@ $config = Get-Content "$root/src/features/island/defaults.json" -Raw | ConvertFr
 # Keep the renderer migration baseline independent of installed messaging clients.
 $config.notifications.enabled = $false
 $config.placement.offsetX = 380.0
+# Keep the edge strip inside the same capture rectangle as the expanded island.
+$config.placement.offsetY = 0.0
 $config.edge.autoHide = $false
 $config.edge.hideOnFullscreen = $false
 $config.interaction.hoverExpand = $false

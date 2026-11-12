@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 macro_rules! config_enum {
     ($name:ident { $($item:ident),+ }) => {
@@ -118,14 +118,14 @@ config_group!(EdgeConfig {
 });
 
 config_group!(AppearanceConfig {
-    compact_width: f64 = 156.0,
-    compact_height: f64 = 44.0,
-    expanded_width: f64 = 328.0,
-    expanded_height: f64 = 168.0,
-    radius: f64 = 24.0,
-    opacity: f64 = 0.96,
-    background: String = "#101214".into(),
-    border: String = "#34383C".into(),
+    compact_width: f64 = 120.0,
+    compact_height: f64 = 30.0,
+    expanded_width: f64 = 419.0,
+    expanded_height: f64 = 140.0,
+    radius: f64 = 33.0,
+    opacity: f64 = 1.0,
+    background: String = "#000000".into(),
+    border: String = "#000000".into(),
     shadow: bool = true,
     blur: bool = false,
     theme: Theme = Theme::Dark,

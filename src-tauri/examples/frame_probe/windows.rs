@@ -75,17 +75,27 @@ impl Drop for Backdrop {
     }
 }
 
-unsafe fn backdrop(island: HWND) -> Result<(Backdrop, RECT)> {
+unsafe fn backdrop(island: HWND, config_dir: &Path) -> Result<(Backdrop, RECT)> {
     let mut r = RECT::default();
     if GetWindowRect(island, &mut r) == 0 {
         return Err(std::io::Error::last_os_error().into());
     }
     let scale = f64::from(GetDpiForWindow(island)) / 96.0;
     let px = |v: f64| (v * scale).round() as i32;
-    if (r.right - r.left - px(156.0)).abs() > 1 || (r.bottom - r.top - px(44.0)).abs() > 1 {
-        return Err("帧采样要求默认尺寸的 Compact 窗口".into());
+    let config: Value = serde_json::from_slice(&fs::read(config_dir.join("island.json"))?)?;
+    let size = |key: &str| {
+        config["appearance"][key]
+            .as_f64()
+            .map(px)
+            .ok_or("缺少采样尺寸")
+    };
+    let (w, h) = (size("expandedWidth")?, size("expandedHeight")?);
+    // The compact bar widens when Windows reports a battery or a media session.
+    if !(size("compactWidth")? - 1..=w + 1).contains(&(r.right - r.left))
+        || (r.bottom - r.top - size("compactHeight")?).abs() > 1
+    {
+        return Err("帧采样窗口与配置的收起尺寸不符".into());
     }
-    let (w, h) = (px(328.0), px(168.0));
     let x = (r.left + r.right - w) / 2;
     let y = r.top;
     let cls = WNDCLASSW {
@@ -587,7 +597,7 @@ fn collect(pid: u32, dir: &Path) -> Result<()> {
         }
         thread::sleep(Duration::from_millis(100));
     };
-    let (_backdrop, roi) = unsafe { backdrop(island) }?;
+    let (_backdrop, roi) = unsafe { backdrop(island, dir) }?;
     let mut capture = unsafe { Capture::new(roi) }?;
     let mut ticks = 0;
     if unsafe { QueryPerformanceFrequency(&mut ticks) } == 0 {
@@ -652,7 +662,7 @@ fn collect(pid: u32, dir: &Path) -> Result<()> {
         if let Some(snapshot) = stable.get(state) {
             visible &= snapshot["brightInkPx"].as_u64().unwrap_or(0) > 0;
             if state == "pinned" {
-                visible &= snapshot["pinnedFillPx"].as_u64().unwrap_or(0) > 0;
+                visible &= snapshot["boundsPx"] == stable["expanded"]["boundsPx"];
             }
         }
     }
@@ -665,7 +675,7 @@ fn collect(pid: u32, dir: &Path) -> Result<()> {
     )?;
     println!("{summary}");
     if !visible {
-        return Err("岛屿亮色内容或固定提示未显示".into());
+        return Err("岛屿内容未显示或固定态尺寸异常".into());
     }
     Ok(())
 }

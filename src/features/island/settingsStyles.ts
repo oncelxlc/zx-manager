@@ -4,7 +4,7 @@ import defaults from "./defaults.json";
 export const lightSurface = "#f5f5f4";
 export function isDefaultDarkSurface(color: string) {
   const value = color.toLowerCase();
-  return value === defaults.appearance.background || value === "#202326";
+  return value === defaults.appearance.background || value === "#101214" || value === "#202326";
 }
 
 export const ui = stylex.create({

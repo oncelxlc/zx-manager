@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "revision": 0,
   "enabled": true,
   "startup": { "launchAtLogin": false, "showOnStart": true, "startCompact": true },
@@ -12,8 +12,8 @@
     "triggerWidth": 6.0, "peekSize": 6.0, "hideOnFullscreen": true
   },
   "appearance": {
-    "compactWidth": 156.0, "compactHeight": 44.0, "expandedWidth": 328.0, "expandedHeight": 168.0,
-    "radius": 24.0, "opacity": 0.96, "background": "#101214", "border": "#34383C",
+    "compactWidth": 120.0, "compactHeight": 30.0, "expandedWidth": 419.0, "expandedHeight": 140.0,
+    "radius": 33.0, "opacity": 1.0, "background": "#000000", "border": "#000000",
     "shadow": true, "blur": false, "theme": "dark"
   },
   "animation": {

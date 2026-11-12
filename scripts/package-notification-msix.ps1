@@ -32,6 +32,7 @@ try {
         '[Files]'
         ('"{0}" "AppxManifest.xml"' -f $definition.FullName)
         ('"{0}" "zx-once.exe"' -f $binary)
+        ('"{0}\..\LICENSE" "LICENSE.txt"' -f $tauriRoot)
         $loader = Join-Path (Split-Path -Parent $binary) 'WebView2Loader.dll'
         if (Test-Path -LiteralPath $loader -PathType Leaf) { ('"{0}" "WebView2Loader.dll"' -f $loader) }
         foreach ($icon in "StoreLogo.png", "Square150x150Logo.png", "Square44x44Logo.png") {

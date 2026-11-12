@@ -1,7 +1,7 @@
 [[permission]]
 identifier = "island-read"
 description = "Read the island configuration and its current state."
-commands.allow = ["main_window_restore", "island_get_config", "island_get_runtime_status", "island_get_notifications"]
+commands.allow = ["main_window_restore", "island_get_config", "island_get_runtime_status", "island_get_notifications", "island_get_media"]
 
 [[permission]]
 identifier = "island-settings"

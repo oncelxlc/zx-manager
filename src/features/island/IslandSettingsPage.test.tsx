@@ -28,6 +28,8 @@ function desktop() {
   vi.spyOn(islandApi, "status").mockResolvedValue({ state: "compact", sequence: 1, lastError: null });
   vi.spyOn(islandApi, "displays").mockResolvedValue([]);
   vi.spyOn(islandApi, "notifications").mockResolvedValue({ sequence: 1, permission: "notRequested" });
+  vi.spyOn(islandApi, "media").mockResolvedValue({ title: "", artist: "", playing: false,
+    positionMs: 0, durationMs: 0, canPrevious: false, canNext: false, canToggle: false, canSeek: false, battery: null, cover: null });
 }
 
 it("keeps animation preview cancellable without saving the draft", async () => {
@@ -64,6 +66,21 @@ it("keeps an edited revision intact when another window saves", async () => {
   fireEvent.click(screen.getByRole("button", { name: "放弃草稿" }));
   expect(store.getState().island.config?.revision).toBe(2);
   expect(screen.queryByText("有未保存的更改")).toBeNull();
+});
+
+it("switches a matching capsule border with the theme and keeps a custom border", () => {
+  vi.spyOn(islandApi, "isDesktop").mockReturnValue(false);
+  open("#/settings/island?group=appearance");
+  const theme = screen.getByLabelText("岛屿主题");
+  const border = screen.getByLabelText<HTMLInputElement>("边框色");
+  const background = screen.getByLabelText<HTMLInputElement>("背景色");
+  fireEvent.change(theme, { target: { value: "light" } });
+  expect(background.value).toBe("#f5f5f4");
+  expect(border.value).toBe(background.value);
+  fireEvent.change(border, { target: { value: "#123456" } });
+  fireEvent.change(theme, { target: { value: "system" } });
+  expect(background.value).toBe(defaults.appearance.background);
+  expect(border.value).toBe("#123456");
 });
 
 it("restores the settings group and unsaved values from the tray session", async () => {
@@ -103,8 +120,44 @@ it("runs the browser draft preview locally", async () => {
   open("#/settings/island");
   fireEvent.click(screen.getByRole("button", { name: "动画效果" }));
   fireEvent.click(screen.getByRole("button", { name: "播放预览" }));
+  expect(screen.getByText("暂无音乐")).toBeTruthy();
+  expect(screen.getByText("00:00", { selector: "text" })).toBeTruthy();
+  expect(screen.getByText("-00:00")).toBeTruthy();
   fireEvent.click(await screen.findByRole("button", { name: "取消预览" }));
   expect(validate).not.toHaveBeenCalled();
+});
+
+it("previews current desktop media in the settings without saving", async () => {
+  desktop();
+  vi.spyOn(islandApi, "media").mockResolvedValue({
+    title: "测试曲目", artist: "测试音乐人", playing: false, positionMs: 62500, durationMs: 180000, cover: null, battery: [75, false],
+    canPrevious: false, canNext: true, canToggle: true, canSeek: true,
+  });
+  vi.spyOn(islandApi, "validatePreview").mockResolvedValue();
+  open("#/settings/island?group=animation");
+  await screen.findByText("75", { selector: "text" });
+  fireEvent.click(screen.getByRole("button", { name: "播放预览" }));
+  expect(await screen.findByText("测试曲目")).toBeTruthy();
+  expect(screen.getByText("测试音乐人")).toBeTruthy();
+  expect(screen.getByText("01:02")).toBeTruthy();
+  expect(screen.getByText("-01:57")).toBeTruthy();
+});
+
+it("updates the preview time and date at midnight without interaction", () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date(2026, 0, 1, 23, 59, 59, 900));
+    vi.spyOn(islandApi, "isDesktop").mockReturnValue(false);
+    open("#/settings/island?group=animation");
+    fireEvent.click(screen.getByRole("button", { name: "播放预览" }));
+    expect(screen.getByText("23:59", { selector: "time" })).toBeTruthy();
+    act(() => vi.advanceTimersByTime(100));
+    expect(screen.getByText("00:00", { selector: "time" })).toBeTruthy();
+    expect(screen.getByText("1月2日 周五")).toBeTruthy();
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
 });
 
 it("pins the native island from settings, ignoring older runtime snapshots", async () => {

@@ -42,6 +42,13 @@ pub(super) async fn island_get_runtime_status(
 }
 
 #[tauri::command]
+pub(super) async fn island_get_media(
+    window: WebviewWindow,
+) -> Result<super::media::MediaSnapshot, String> {
+    request(&window, |manager| Ok(manager.media().clone())).await
+}
+
+#[tauri::command]
 pub(super) async fn island_get_notifications(
     window: WebviewWindow,
 ) -> Result<NotificationStatus, String> {

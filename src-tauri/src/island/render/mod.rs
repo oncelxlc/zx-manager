@@ -1,6 +1,7 @@
 mod animation;
 mod device;
 mod messages;
+pub(crate) mod notch;
 mod paint;
 
 use self::{
@@ -13,7 +14,7 @@ use super::{
     geometry::Rect,
     state::IslandState,
 };
-pub(crate) use messages::{MessageAction, Messages, Panel};
+pub(crate) use messages::{MessageAction, Messages, Panel, PetPose};
 use serde::Serialize;
 use std::time::Instant;
 use windows::{
@@ -114,6 +115,7 @@ impl Scene {
             transition,
             panel,
             message_hover,
+            notch,
         } = *frame;
         let idx = match state {
             IslandState::Compact => 0,
@@ -123,6 +125,7 @@ impl Scene {
             _ => return self.hide(stats),
         };
         let mut key = ImageKey::new(cfg, state, target, scale);
+        key.notch = notch;
         key.panel = panel.cloned();
         key.message_hover = message_hover;
         let dirty = self.textures[idx]
@@ -141,8 +144,11 @@ impl Scene {
             .is_some_and(|(prev, _, _)| *prev == state);
         // A new buffer on the same swap chain is visible after Present. Leave its
         // existing compositor timelines running when only theme or content changed.
-        let radius =
-            (cfg.appearance.radius * scale).min(f64::from(target.width.min(target.height)) / 2.0);
+        let radius = if notch.is_some() {
+            0.0 // The concave outline is already in the texture and the HWND region.
+        } else {
+            (cfg.appearance.radius * scale).min(f64::from(target.width.min(target.height)) / 2.0)
+        };
         if same_state
             && self
                 .movement
@@ -200,7 +206,11 @@ impl Scene {
             }
         });
         let d = &self.device;
-        let radii = [self.movement.map_or(radius, |m| m.radius_at(begin)), radius];
+        let radii = if notch.is_some() {
+            [0.0; 2]
+        } else {
+            [self.movement.map_or(radius, |m| m.radius_at(begin)), radius]
+        };
         d.animate_clip(timing, from, target, radii)?;
         self.fading_shells = edge || self.last.is_none();
         timing.property(
@@ -287,6 +297,7 @@ struct Frame<'a> {
     transition: bool,
     panel: Option<&'a Panel>,
     message_hover: Option<MessageAction>,
+    notch: Option<notch::Notch>,
 }
 
 fn device_lost(error: &Error) -> bool {
@@ -305,6 +316,7 @@ pub struct Renderer {
     scene: Option<Scene>,
     stats: RenderStats,
     pub(crate) panel: Option<Panel>,
+    pub(crate) notch: Option<notch::Notch>,
     message_hover: Option<MessageAction>,
 }
 
@@ -318,6 +330,7 @@ impl Renderer {
             scene: Some(scene),
             stats: Default::default(),
             panel: None,
+            notch: None,
             message_hover: None,
         })
     }
@@ -344,6 +357,7 @@ impl Renderer {
             transition,
             panel: self.panel.as_ref(),
             message_hover: self.message_hover,
+            notch: self.notch,
         };
         let start = Instant::now();
         let result = unsafe {

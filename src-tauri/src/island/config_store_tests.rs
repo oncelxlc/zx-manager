@@ -81,6 +81,18 @@ fn v2_removes_retired_fields_and_preserves_opt_outs_and_placement() {
 }
 
 #[test]
+fn v3_default_capsule_becomes_the_notch_without_replacing_custom_colors() {
+    let dir = Directory::new();
+    let old = br##"{"schemaVersion":3,"revision":5,"appearance":{"compactWidth":156,"compactHeight":44,"expandedWidth":328,"expandedHeight":168,"radius":24,"background":"#123456","border":"#34383C","opacity":0.96}}"##;
+    fs::write(dir.0.join("island.json"), old).unwrap();
+    let saved = ConfigStore::new(dir.0.clone()).load().unwrap();
+    assert_eq!(saved.appearance.compact_width, 120.0);
+    assert_eq!(saved.appearance.background, "#123456");
+    assert_eq!(saved.revision, 5);
+    assert_eq!(fs::read(dir.0.join("island.json.bak")).unwrap(), old);
+}
+
+#[test]
 fn concurrent_writers_cannot_commit_the_same_revision_twice() {
     let dir = Directory::new();
     let barrier = std::sync::Barrier::new(2);

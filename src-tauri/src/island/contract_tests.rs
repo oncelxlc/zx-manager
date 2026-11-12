@@ -11,6 +11,7 @@ fn compiled_acl_grants_island_management_only_to_main() {
         "main_window_restore",
         "island_get_config",
         "island_get_notifications",
+        "island_get_media",
         "island_request_notification_access",
         "island_open_notification_settings",
         "island_activate_notification_window",

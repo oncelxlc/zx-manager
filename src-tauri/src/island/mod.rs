@@ -4,6 +4,7 @@ mod config_store;
 mod displays;
 mod geometry;
 mod manager;
+mod media;
 mod native;
 mod notifications;
 mod render;
@@ -60,6 +61,7 @@ pub fn install(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry
             island_get_runtime_status,
             island_get_performance_stats,
             island_get_notifications,
+            island_get_media,
             island_request_notification_access,
             island_open_notification_settings,
             island_activate_notification_window,

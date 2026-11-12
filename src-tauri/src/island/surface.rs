@@ -41,6 +41,8 @@ pub(super) enum SurfaceEvent {
     PointerEnter,
     PointerLeave,
     Click,
+    Transport(super::media::Transport),
+    OpenSettings,
     ActivateWindow(u64),
     OpenInstances(Source),
     Hide,
@@ -54,6 +56,11 @@ impl super::render::MessageAction {
             Self::Window(id) => SurfaceEvent::ActivateWindow(id),
             Self::OpenInstances(s) => SurfaceEvent::OpenInstances(s),
             Self::NextPage => return None,
+            Self::Previous => SurfaceEvent::Transport(super::media::Transport::Previous),
+            Self::TogglePlayback => SurfaceEvent::Transport(super::media::Transport::Toggle),
+            Self::Next => SurfaceEvent::Transport(super::media::Transport::Next),
+            Self::Seek => SurfaceEvent::Transport(super::media::Transport::Seek(500)),
+            Self::OpenSettings => SurfaceEvent::OpenSettings,
         })
     }
 }
@@ -77,7 +84,8 @@ struct Context {
     renderer: RefCell<Option<Renderer>>,
     frame: RefCell<Option<placement::Frame>>,
     clock: hit_clock::HitClock,
-    mask: Cell<Option<(Rect, i32)>>,
+    work_top: Cell<i32>,
+    mask: Cell<Option<placement::Mask>>,
     recovery_pending: Cell<bool>,
     redraw_pending: Cell<bool>,
     dragging: Cell<bool>,
@@ -183,8 +191,10 @@ impl Surface {
         }
         let target = screen.target(cfg, state);
         let scale = screen.scale_factor;
+        let work_top = screen.work.y;
         let cfg = cfg.clone();
         self.request(DuringMove::Defer, move |hwnd, ui| {
+            ui.work_top.set(work_top);
             placement::apply(ui, hwnd, cfg, state, target, scale)
         })
     }
@@ -192,6 +202,12 @@ impl Surface {
     pub fn set_notifications(&self, snapshot: NotificationSnapshot) -> Result<()> {
         self.request(DuringMove::Dispatch, move |hwnd, ui| {
             messages::update(ui, hwnd, snapshot)
+        })
+    }
+
+    pub fn set_media(&self, snapshot: super::media::MediaSnapshot) -> Result<()> {
+        self.request(DuringMove::Dispatch, move |hwnd, ui| {
+            messages::update_media(ui, hwnd, snapshot)
         })
     }
 
@@ -319,6 +335,7 @@ fn run(
         renderer: RefCell::new(None),
         frame: RefCell::new(None),
         clock: hit_clock::HitClock::new()?,
+        work_top: Cell::new(0),
         mask: Cell::new(None),
         recovery_pending: Cell::new(false),
         redraw_pending: Cell::new(false),

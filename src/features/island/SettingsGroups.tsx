@@ -71,7 +71,9 @@ export function SettingsGroups({ group, config, displays, update }: Props) {
       <Choice label="岛屿主题" value={appearance.theme} change={theme => {
         const base = defaults.appearance.background;
         const usePalette = isDefaultDarkSurface(appearance.background) || appearance.background.toLowerCase() === lightSurface;
-        update(group, { theme, background: usePalette ? theme === "light" ? lightSurface : base : appearance.background });
+        const background = usePalette ? (theme === "light" ? lightSurface : base) : appearance.background;
+        const border = appearance.border.toLowerCase() === appearance.background.toLowerCase() ? background : appearance.border;
+        update(group, { theme, background, border });
       }} options={[["system", "跟随系统"], ["light", "浅色"], ["dark", "深色"]]} />
       <ColorField label="背景色" value={appearance.background} change={background => update(group, { background })} />
       <ColorField label="边框色" value={appearance.border} change={border => update(group, { border })} />

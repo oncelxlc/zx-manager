@@ -8,6 +8,7 @@ use super::{
     config::{Anchor, IslandConfig, PlacementConfig},
     config_store::ConfigStore,
     displays,
+    media::{MediaSnapshot, Worker as MediaWorker},
     native::{self, NativeEvent},
     render::RenderStats,
     state::{Event, IslandState, Machine, TimerAction},
@@ -54,6 +55,8 @@ impl ManagerHandle {
                     generation: 0,
                     sequence: 0,
                     messages: messages::Messages::default(),
+                    media: MediaSnapshot::default(),
+                    media_worker: None,
                     timer: None,
                     drag_origin: None,
                     exiting: false,
@@ -123,6 +126,8 @@ pub(super) struct IslandManager {
     sequence: u64,
     timer: Option<(Instant, Event)>,
     messages: messages::Messages,
+    media: MediaSnapshot,
+    media_worker: Option<MediaWorker>,
     drag_origin: Option<(i32, i32)>,
     exiting: bool,
     main_window: main_window::MainWindow,
@@ -185,6 +190,9 @@ impl IslandManager {
 
     fn effective_config(&self) -> IslandConfig {
         let mut config = self.config.clone();
+        config.appearance.compact_width = (config.appearance.compact_width
+            + self.media.extra_width())
+        .min(config.appearance.expanded_width);
         if let Some(position) = &self.session_position {
             config.placement.anchor = position.anchor;
             config.placement.display_id.clone_from(&position.display_id);
@@ -247,7 +255,45 @@ impl IslandManager {
         let input = notify.clone();
         let window = Surface::start(move |event| input(NativeEvent::Input(event)))?;
         window.install_watch(notify)?;
+        let handle = self.worker.clone();
+        self.media_worker = Some(
+            MediaWorker::start(move |snapshot| {
+                let _ = handle.post(move |manager| {
+                    if manager.generation == generation {
+                        manager.receive_media(snapshot)?;
+                    }
+                    Ok(())
+                });
+            })
+            .map_err(|error| error.to_string())?,
+        );
         self.window = Some(window);
+        Ok(())
+    }
+
+    pub fn media(&self) -> &MediaSnapshot {
+        &self.media
+    }
+
+    fn receive_media(&mut self, next: MediaSnapshot) -> Result<()> {
+        let resized = self.media.extra_width() != next.extra_width();
+        let previous_position = self.media.position_ms;
+        self.media.position_ms = next.position_ms;
+        let notify_preview = self.media != next
+            || !next.playing
+            || !(0..=1800).contains(&next.position_ms.saturating_sub(previous_position));
+        self.media = next;
+        if let Some(window) = &self.window {
+            window.set_media(self.media.clone())?;
+        }
+        if resized {
+            self.refresh()?;
+        }
+        if notify_preview {
+            self.app
+                .emit_to("main", "island://media-changed", ())
+                .map_err(|e| e.to_string())?;
+        }
         Ok(())
     }
 
@@ -347,6 +393,14 @@ impl IslandManager {
                     Event::OpenNotifications
                 }
                 SurfaceEvent::ActivateWindow(id) => return self.activate_notification_window(id),
+                SurfaceEvent::OpenSettings => return self.open_main(true),
+                SurfaceEvent::Transport(action) => {
+                    return self
+                        .media_worker
+                        .as_ref()
+                        .ok_or("媒体监听已停止")?
+                        .control(&self.media, action);
+                }
                 SurfaceEvent::DragStart => return self.drag(),
                 SurfaceEvent::Error(error) => return Err(error),
             },
@@ -367,6 +421,9 @@ impl IslandManager {
 
     fn close_window(&mut self) -> Result<()> {
         self.generation += 1;
+        self.media_worker.take();
+        self.media = MediaSnapshot::default();
+        let _ = self.app.emit_to("main", "island://media-changed", ());
         let messages = self.stop_messages();
         self.drag_origin = None;
         self.timer = None;

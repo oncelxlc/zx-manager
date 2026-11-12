@@ -54,7 +54,7 @@ pub enum Permission {
     Error,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct AppIcon {
     pub width: u32,
     pub height: u32,
