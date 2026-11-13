@@ -2,6 +2,7 @@
   "plugins": {
     "@stylexjs/postcss-plugin": {
       "include": ["src/**/*.{ts,tsx}"]
-    }
+    },
+    "@tailwindcss/postcss": {}
   }
 }

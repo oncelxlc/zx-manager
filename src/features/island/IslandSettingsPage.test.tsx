@@ -21,6 +21,13 @@ function open(hash: string) {
   return store;
 }
 
+async function selectOption(label: string, option: string) {
+  fireEvent.mouseDown(screen.getByRole("combobox", { name: label }), { button: 0 });
+  const item = await screen.findByRole("option", { name: option });
+  fireEvent.pointerDown(item, { pointerType: "mouse", button: 0 });
+  fireEvent.click(item);
+}
+
 function desktop() {
   vi.spyOn(islandApi, "isDesktop").mockReturnValue(true);
   vi.spyOn(islandApi, "listen").mockResolvedValue(() => {});
@@ -40,8 +47,8 @@ it("keeps animation preview cancellable without saving the draft", async () => {
   fireEvent.click(screen.getByRole("button", { name: "动画效果" }));
   const field = await screen.findByLabelText("展开时长（毫秒）");
   expect(screen.queryByLabelText("过渡曲线")).toBeNull();
-  fireEvent.change(screen.getByLabelText("动画预设"), { target: { value: "custom" } });
-  fireEvent.change(screen.getByLabelText("过渡曲线"), { target: { value: "easeOut" } });
+  await selectOption("动画预设", "自定义 · Custom");
+  await selectOption("过渡曲线", "渐慢");
   fireEvent.change(field, { target: { value: "340" } });
   fireEvent.click(screen.getByRole("button", { name: "播放预览" }));
   await waitFor(() => expect(validate).toHaveBeenCalledWith({
@@ -68,17 +75,16 @@ it("keeps an edited revision intact when another window saves", async () => {
   expect(screen.queryByText("有未保存的更改")).toBeNull();
 });
 
-it("switches a matching capsule border with the theme and keeps a custom border", () => {
+it("switches a matching capsule border with the theme and keeps a custom border", async () => {
   vi.spyOn(islandApi, "isDesktop").mockReturnValue(false);
   open("#/settings/island?group=appearance");
-  const theme = screen.getByLabelText("岛屿主题");
   const border = screen.getByLabelText<HTMLInputElement>("边框色");
   const background = screen.getByLabelText<HTMLInputElement>("背景色");
-  fireEvent.change(theme, { target: { value: "light" } });
+  await selectOption("岛屿主题", "浅色");
   expect(background.value).toBe("#f5f5f4");
   expect(border.value).toBe(background.value);
   fireEvent.change(border, { target: { value: "#123456" } });
-  fireEvent.change(theme, { target: { value: "system" } });
+  await selectOption("岛屿主题", "跟随系统");
   expect(background.value).toBe(defaults.appearance.background);
   expect(border.value).toBe("#123456");
 });
@@ -127,13 +133,16 @@ it("runs the browser draft preview locally", async () => {
   expect(validate).not.toHaveBeenCalled();
 });
 
-it("offers only edge anchors and lets the user move along the selected edge", () => {
+it("offers only edge anchors and lets the user move along the selected edge", async () => {
   vi.spyOn(islandApi, "isDesktop").mockReturnValue(false);
   open("#/settings/island?group=placement");
-  const anchor = screen.getByLabelText<HTMLSelectElement>("停靠位置");
-  expect(Array.from(anchor.options, option => option.value)).toEqual(["topCenter", "centerLeft", "centerRight"]);
   fireEvent.change(screen.getByLabelText("左右位置（%）"), { target: { value: "51" } });
-  fireEvent.change(anchor, { target: { value: "centerRight" } });
+  fireEvent.mouseDown(screen.getByRole("combobox", { name: "停靠位置" }), { button: 0 });
+  const anchors = await screen.findAllByRole("option");
+  expect(anchors.map(anchor => anchor.textContent)).toEqual(["顶部", "左侧", "右侧"]);
+  const right = screen.getByRole("option", { name: "右侧" });
+  fireEvent.pointerDown(right, { pointerType: "mouse", button: 0 });
+  fireEvent.click(right);
   expect(screen.queryByLabelText("左右位置（%）")).toBeNull();
   fireEvent.change(screen.getByLabelText("上下位置（%）"), { target: { value: "-28" } });
   expect(mainWindowSession.draft?.placement).toMatchObject({ anchor: "centerRight", offsetX: 0, offsetY: -28 });
@@ -250,7 +259,7 @@ it("stages defaults at the saved revision and allows discarding them", async () 
   fireEvent.click(reset);
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "放弃草稿" }));
-  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "启用灵动岛" }).checked).toBe(false);
+  expect(screen.getByRole("checkbox", { name: "启用灵动岛" }).getAttribute("aria-checked")).toBe("false");
   fireEvent.click(reset);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存");

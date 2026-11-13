@@ -1,7 +1,7 @@
-import * as stylex from "@stylexjs/stylex";
+import { Button } from "../../components/ui/button";
+import { FieldDescription } from "../../components/ui/field";
 import { islandApi, type NotificationPermission, type NotificationStatus } from "./islandApi";
 import { Check } from "./SettingsFields";
-import { ui } from "./settingsStyles";
 
 const permissionLabels: Record<NotificationPermission, string> = {
   disabled: "系统通知监听已关闭。",
@@ -24,18 +24,18 @@ interface Props {
 export function NotificationSettings({ enabled, listening, status, change, perform, refresh }: Props) {
   return <>
     <Check label="启用通知" value={enabled} change={change} />
-    <p {...stylex.props(ui.message)}>灵动岛会自动显示正在运行的受支持应用。有 Windows 系统提醒时，应用图标旁会出现红点。</p>
+    <FieldDescription>灵动岛会自动显示正在运行的受支持应用。有 Windows 系统提醒时，应用图标旁会出现红点。</FieldDescription>
     {enabled && listening && <section aria-label="Windows 通知访问">
       <h3>Windows 通知访问</h3>
-      <p role="status" {...stylex.props(ui.message)}>{status ? permissionLabels[status.permission] : "正在读取访问状态…"}</p>
+      <FieldDescription role="status">{status ? permissionLabels[status.permission] : "正在读取访问状态…"}</FieldDescription>
       {(status?.permission === "notRequested" || status?.permission === "error") &&
-        <button type="button" {...stylex.props(ui.button)} onClick={() => void perform(async () => {
+        <Button variant="outline" onClick={() => void perform(async () => {
           await islandApi.requestNotificationAccess();
           await refresh();
-        })}>请求 Windows 通知访问</button>}
-      {status?.permission === "denied" && <button type="button" {...stylex.props(ui.button)}
-        onClick={() => void perform(islandApi.openNotificationSettings)}>打开 Windows 通知隐私设置</button>}
-      {!status && <button type="button" {...stylex.props(ui.button)} onClick={() => void perform(refresh)}>重新读取访问状态</button>}
+        })}>请求 Windows 通知访问</Button>}
+      {status?.permission === "denied" && <Button variant="outline"
+        onClick={() => void perform(islandApi.openNotificationSettings)}>打开 Windows 通知隐私设置</Button>}
+      {!status && <Button variant="outline" onClick={() => void perform(refresh)}>重新读取访问状态</Button>}
     </section>}
   </>;
 }

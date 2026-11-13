@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { islandApi, type MediaStatus } from "./islandApi";
 import { PreviewContent, motionEasing } from "./PreviewContent";
 import { previewLayout, type PreviewState } from "./previewLayout";
-import { ui } from "./settingsStyles";
+import { Button } from "../../components/ui/button";
 import type { IslandConfig } from "./types";
 
 export function IslandPreview({ config, desktop, report }: {
@@ -99,11 +99,11 @@ export function IslandPreview({ config, desktop, report }: {
           <PreviewContent config={config} layout={layout} media={media} sampledAt={sample?.at ?? 0} />
         </div>
       </div>
-      <button type="button" {...stylex.props(ui.button)} aria-pressed={playing}
+      <Button variant="outline" aria-pressed={playing}
         onClick={event => {
           if (playing) cancel();
           else if (event.currentTarget.form?.reportValidity() !== false) void play();
-        }}>{playing ? "取消预览" : "播放预览"}</button>
+        }}>{playing ? "取消预览" : "播放预览"}</Button>
     </section>
   );
 }
@@ -112,7 +112,7 @@ const s = stylex.create({
   preview: { marginBlock: 18, display: "grid", justifyItems: "start", gap: 10 },
   canvas: { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: "minmax(0, 1fr)", placeItems: "center",
     width: "100%", height: 224, overflow: "hidden", containerType: "size",
-    borderRadius: 12, borderWidth: 1, borderStyle: "solid", borderColor: "#dedee2", backgroundColor: "#f0f0f2" },
+    borderRadius: "var(--radius)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", backgroundColor: "var(--muted)" },
   sideCanvas: { height: "clamp(320px, 65svh, 460px)" },
   top: { alignItems: "start" },
   left: { justifyItems: "start" },
