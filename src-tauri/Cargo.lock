@@ -4383,6 +4383,16 @@ checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
 name = "zx-once"
 version = "0.1.0"
 dependencies = [
+ "raw-window-handle",
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
+ "window-vibrancy",
+ "windows",
+ "windows-core 0.61.2",
+ "windows-future",
+ "windows-numerics",
+ "windows-sys 0.61.2",
+ "winreg",
 ]

@@ -2,8 +2,11 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { HashRouter } from "react-router";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import App from "./App";
+import { islandApi } from "./features/island/islandApi";
+import { mainWindowSession, restoreMainWindow } from "./mainWindowSession";
 import { createAppStore } from "./store";
 
 afterEach(cleanup);
@@ -52,4 +55,25 @@ it("redirects an unknown hash route to the welcome page", async () => {
 
   await waitFor(() => expect(window.location.hash).toBe("#/"));
   expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/zx-once/);
+});
+
+it("restores the settings group and welcome disclosure before mounting a rebuilt window", async () => {
+  const route = "#/settings/island?group=animation";
+  window.history.replaceState(null, "", "#/");
+  vi.spyOn(islandApi, "isDesktop").mockReturnValue(true);
+  mockIPC(command => {
+    expect(command).toBe("main_window_restore");
+    return { route, dependenciesExpanded: false, draft: null };
+  });
+  try {
+    await restoreMainWindow();
+    expect(window.location.hash).toBe(route);
+    expect(createAppStore(mainWindowSession.dependenciesExpanded).getState().welcome.dependenciesExpanded).toBe(false);
+    expect(window.__zxMainSession).toBe(mainWindowSession);
+  } finally {
+    clearMocks();
+    vi.restoreAllMocks();
+    mainWindowSession.dependenciesExpanded = true;
+    delete window.__zxMainSession;
+  }
 });

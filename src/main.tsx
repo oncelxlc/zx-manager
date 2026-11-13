@@ -4,17 +4,27 @@ import { Provider } from "react-redux";
 import { HashRouter } from "react-router";
 import App from "./App";
 import { createAppStore } from "./store";
+import { mainWindowSession, restoreMainWindow } from "./mainWindowSession";
 import "./styles.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing application root");
 
-createRoot(root).render(
-  <StrictMode>
-    <Provider store={createAppStore()}>
-      <HashRouter>
-        <App />
-      </HashRouter>
-    </Provider>
-  </StrictMode>,
-);
+async function start(element: HTMLElement) {
+  await restoreMainWindow().catch(error => console.error("无法恢复主窗口状态", error));
+  const store = createAppStore(mainWindowSession.dependenciesExpanded);
+  store.subscribe(() => {
+    mainWindowSession.dependenciesExpanded = store.getState().welcome.dependenciesExpanded;
+  });
+  createRoot(element).render(
+    <StrictMode>
+      <Provider store={store}>
+        <HashRouter>
+          <App />
+        </HashRouter>
+      </Provider>
+    </StrictMode>,
+  );
+}
+
+void start(root);

@@ -1,0 +1,7 @@
+{
+  "identifier": "main",
+  "description": "The local settings window manages the island.",
+  "windows": ["main"],
+  "platforms": ["windows"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "island-read", "island-settings"]
+}
