@@ -12,8 +12,9 @@ $stage = Join-Path $root "src-tauri/target/island-bench-$tag"
 $project = Join-Path $stage 'src-tauri'
 $binary = "zx-island-measure-$tag"
 New-Item -ItemType Directory -Path $project | Out-Null
-Copy-Item -LiteralPath "$root/LICENSE" -Destination "$stage/LICENSE"
-foreach ($name in 'src','icons','capabilities','permissions','Cargo.toml','Cargo.lock','build.rs','tauri.conf.json') {
+# Keep the instrumented crate in its own copy of the locked application workspace.
+Copy-Item -LiteralPath "$root/Cargo.toml","$root/Cargo.lock","$root/LICENSE" -Destination $stage
+foreach ($name in 'src','icons','capabilities','permissions','Cargo.toml','build.rs','tauri.conf.json') {
     Copy-Item -LiteralPath "$root/src-tauri/$name" -Destination $project -Recurse
 }
 function Replace-Once($file, $before, $after) {

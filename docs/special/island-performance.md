@@ -26,7 +26,14 @@ cargo run --locked --manifest-path src-tauri/Cargo.toml --example island_native_
 
 ## 进程与画面采样脚本
 
-仓库的 PowerShell 采样脚本为每次运行创建独立源码、配置和 WebView2 数据目录。当前根 Cargo 工作区只包含 `src-tauri`，脚本在 `src-tauri/target/island-bench-<id>/src-tauri` 创建的临时包位于同一工作区目录树内，且没有声明独立工作区。Cargo 会在构建临时包时报告 `current package believes it's in a workspace when it's not`，因此以下三种采样模式目前均受此限制。[工作区配置](../../Cargo.toml) · [采样脚本](../../scripts/island-benchmark.ps1)
+在 Windows 交互式桌面打开 PowerShell 7.4 或更高版本。安装前端依赖后，在仓库根目录构建前端并运行默认采样。脚本自行在本地端口 16421 启动和关闭 Vite 预览服务，每次只运行一种模式。
+
+```powershell
+pnpm build
+.\scripts\island-benchmark.ps1
+```
+
+每次运行都会在 `src-tauri/target/island-bench-<id>/` 创建临时工作区。脚本复制仓库根目录的 `Cargo.toml` 和 `Cargo.lock`，将插入采样代码的桌面程序放在其 `src-tauri/` 成员下，用 `cargo build --locked` 构建 Debug 程序。测试配置和 WebView2 数据也位于本次运行目录。[工作区配置](../../Cargo.toml) · [采样脚本](../../scripts/island-benchmark.ps1)
 
 | 模式 | 采样内容 |
 | --- | --- |
@@ -34,4 +41,15 @@ cargo run --locked --manifest-path src-tauri/Cargo.toml --example island_native_
 | `-WarmIdle` | 预热 20 秒后，连续采集三个 10 秒的空闲窗口，分列宿主和 WebView2 的 CPU。 |
 | `-VisualProbe` | 配合 `island_frame_probe` 捕获岛屿区域，统计状态切换后首次同向像素变化和可见变化间隔。采样观察的是桌面合成画面。 |
 
-脚本要求 Windows 交互式桌面、PowerShell 7.4 或以上、已构建的 `dist/` 和可用的本地端口 16421。各模式设计为分别运行，输出位于临时目录的 `native/` 下。[资源采样口径](../../scripts/island-benchmark.rs) · [画面采样实现](../../src-tauri/examples/frame_probe/windows.rs)
+预热空闲模式运行 `.\scripts\island-benchmark.ps1 -WarmIdle`。画面模式需要先构建探针，再将其可执行文件传给脚本。以下路径采用 Cargo 默认的输出目录。
+
+```powershell
+cargo build --locked --manifest-path src-tauri/Cargo.toml --example island_frame_probe
+.\scripts\island-benchmark.ps1 -VisualProbe .\target\debug\examples\island_frame_probe.exe
+```
+
+控制台的 `Results:` 行给出本次运行目录。默认模式在其 `native/` 下写出 `idle.json`、`cycles.json`、`reverse.json`，预热空闲模式写出 `warm1.json` 至 `warm3.json`。各文件记录阶段耗时、进程数、工作集和原生渲染计数。`dispatch_us` 依次为状态切换请求的 P50、P95、P99，空闲阶段三项均为 `null`。解读 GPU 利用率时一并查看 `gpu_samples`，它为 0 表示没有可用样本。[资源采样实现](../../scripts/island-benchmark.rs)
+
+画面模式的结果为 `native/visual-output.json`，包含刷新率、展开收起与快速反向的画面变化、隐藏与唤醒的延迟以及各稳定状态的像素检查。脚本报错时，可在同目录查看 `app.err`、`error.txt` 或画面模式的 `probe.err`。
+
+**画面探针对边缘条有已知误报。** 默认深色配置的 `edgePeek` 是一条无文字的黑色窄条。探针要求各稳定状态都有亮色像素，还要求唤出边缘条时没有深色像素，因此会写出 JSON 后以非零状态退出，并提示「岛屿内容未显示或固定态尺寸异常」。排查时可在 `stable.edgePeek` 中核对 `boundsPx` 和 `pixels` 判断是否捕获窄条，同时检查其他状态的内容及固定态尺寸。[画面采样实现](../../src-tauri/examples/frame_probe/windows.rs) · [边缘条绘制](../../src-tauri/src/island/render/paint.rs)
