@@ -14,8 +14,10 @@
       {
         "label": "main",
         "title": "zx-once",
-        "width": 1280,
-        "height": 720
+        "width": 1600,
+        "minWidth": 1280,
+        "height": 900,
+        "minHeight": 720
       }
     ],
     "security": {

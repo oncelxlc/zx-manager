@@ -9,7 +9,11 @@ import { islandApi } from "./features/island/islandApi";
 import { mainWindowSession, restoreMainWindow } from "./mainWindowSession";
 import { createAppStore } from "./store";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  window.localStorage?.clear();
+});
 
 function renderAt(hash: string) {
   window.history.replaceState(null, "", hash);
@@ -50,6 +54,26 @@ it("toggles the dependency list through Redux", () => {
   expect(store.getState().welcome.dependenciesExpanded).toBe(true);
   expect(toggle.getAttribute("aria-expanded")).toBe("true");
   expect(section.getByRole("list")).toBeTruthy();
+});
+
+it("keeps navigation groups static and reaches recent projects from the collapsed sidebar", async () => {
+  vi.stubGlobal("innerWidth", 1280);
+  renderAt("#/");
+  const nav = within(screen.getByRole("navigation", { name: "主导航" }));
+  expect(nav.getByText("工作台")).toBeTruthy();
+  expect(nav.queryByRole("button", { name: "工作台" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "收起侧栏", expanded: true }));
+  expect(nav.queryByText("工作台")).toBeNull();
+  fireEvent.click(nav.getByRole("link", { name: "最近使用" }));
+
+  await waitFor(() => expect(window.location.hash).toBe("#/?section=recent"));
+  expect(nav.getByRole("link", { name: "最近使用", current: "page" })).toBeTruthy();
+  const recent = screen.getByRole("region", { name: "最近项目" });
+  expect(document.activeElement).toBe(recent.closest("[tabindex]"));
+
+  fireEvent.click(screen.getByRole("button", { name: "展开侧栏", expanded: false }));
+  expect(nav.getByText("工作台")).toBeTruthy();
 });
 
 it("redirects an unknown hash route to the overview", async () => {

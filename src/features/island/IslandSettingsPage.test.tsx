@@ -164,13 +164,18 @@ it("previews current desktop media in the settings without saving", async () => 
   expect(screen.getByText("-01:57")).toBeTruthy();
 });
 
-it("sets the upstream size in five-percent steps and restores its default", () => {
+it("sets the upstream size in five-percent steps and restores its default", async () => {
   vi.spyOn(islandApi, "isDesktop").mockReturnValue(false);
+  // jsdom 没有布局，Base UI 需要量到轨道宽度才会显示滑块手柄。
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 180, 12));
   open("#/settings/island?group=appearance");
-  const size = screen.getByRole<HTMLInputElement>("slider", { name: "岛体大小（%）" });
+  const size = await screen.findByRole<HTMLInputElement>("slider", { name: "岛体大小（%）" });
   expect([size.min, size.max, size.step, size.value]).toEqual(["80", "140", "5", "100"]);
   fireEvent.change(size, { target: { value: "135" } });
   expect(mainWindowSession.draft?.appearance.islandSize).toBe(135);
+  fireEvent.keyDown(size, { key: "ArrowLeft" });
+  expect(size.getAttribute("aria-valuetext")).toBe("130%");
+  expect(mainWindowSession.draft?.appearance.islandSize).toBe(130);
   fireEvent.click(screen.getByRole("button", { name: /^恢复默认$/ }));
   expect(size.value).toBe("100");
 });

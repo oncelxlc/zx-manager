@@ -7,6 +7,11 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig({
   plugins: [react({ babel: { configFile: true } })],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  build: {
+    rollupOptions: {
+      output: { manualChunks: { "react-runtime": ["react", "react-dom/client", "react-router"] } },
+    },
+  },
   clearScreen: false,
   server: {
     port: 1420,
