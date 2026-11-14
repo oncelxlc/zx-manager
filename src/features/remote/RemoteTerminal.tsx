@@ -14,7 +14,7 @@ import type { Server } from "./remoteSamples";
 
 const styles = stylex.create({
   transcript: {
-    padding: 16, marginBlock: 0, minHeight: 144, borderRadius: 6, backgroundColor: "var(--surface-secondary)",
+    padding: 16, marginBlock: 0, minHeight: 144, borderRadius: 6, backgroundColor: "var(--muted)",
     overflowWrap: "anywhere", whiteSpace: "pre-wrap", fontFamily: "var(--mono)", fontSize: 13,
   },
 });
@@ -26,7 +26,7 @@ export function RemoteTerminal({ host, connected }: { host: Server; connected: b
   const [id, setId] = useState(sessions[0].id);
   const [command, setCommand] = useState("");
   const active = sessions.find(item => item.id === id) ?? sessions[0];
-  return <Panel title="模拟终端" action={<Badge variant="secondary">{connected ? "已模拟连接" : "连接已断开"}</Badge>}>
+  return <Panel title="模拟终端" action={<Badge variant={connected ? "success" : "outline"}>{connected ? "已模拟连接" : "连接已断开"}</Badge>}>
     <div {...stylex.props(ui.stack)}>
       <div {...stylex.props(ui.toolbar)}>
         <Field className="w-auto max-w-full"><FieldLabel htmlFor="remote-terminal-session">会话</FieldLabel>

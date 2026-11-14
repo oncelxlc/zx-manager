@@ -58,7 +58,7 @@ export function EnvironmentPage() {
               <TableBody>{shown.map(item => <TableRow key={item.id}>
                 <TableCell><Link to={`/environment?id=${item.id}`} {...stylex.props(ui.link)}>{item.name}</Link></TableCell>
                 <TableCell className="font-mono">{item.defaultVersion ?? "—"}</TableCell>
-                <TableCell><Badge variant="secondary">{item.versions.length ? "已安装" : "未安装"}</Badge></TableCell>
+                <TableCell><Badge variant={item.versions.length ? "success" : "outline"}>{item.versions.length ? "已安装" : "未安装"}</Badge></TableCell>
                 <TableCell className="font-mono text-muted-foreground">{item.path || "—"}</TableCell>
               </TableRow>)}</TableBody>
             </Table> : <Empty>
@@ -96,7 +96,7 @@ function ResourceDetails({ resource, onClose }: { resource: EnvironmentResource;
   return <Dialog title={resource.name} onClose={onClose} side>
     <div {...stylex.props(ui.stack)}>
       <div {...stylex.props(ui.row)}>
-        <Badge variant="secondary">{resource.versions.length ? "已安装" : "未安装"}</Badge>
+        <Badge variant={resource.versions.length ? "success" : "outline"}>{resource.versions.length ? "已安装" : "未安装"}</Badge>
         <span {...stylex.props(ui.muted)}>{categories.find(([id]) => id === resource.category)?.[1]}</span>
       </div>
       {resource.path && <div><strong>样本安装路径</strong><p {...stylex.props(ui.mono)}>{resource.path}</p></div>}

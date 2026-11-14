@@ -4,7 +4,7 @@ import type { MediaStatus } from "./islandApi";
 import { notchOutline, type PreviewLayout } from "./previewLayout";
 import { PreviewMusic } from "./PreviewMusic";
 import { BatteryRing, MusicWave } from "./PreviewSymbols";
-import { isDefaultDarkSurface, lightSurface } from "./settingsStyles";
+import { islandPalette, isDefaultDarkSurface, lightSurface } from "./settingsStyles";
 import type { AnimationPreset, CustomCurve, IslandConfig } from "./types";
 
 export function motionEasing(preset: AnimationPreset, expanding: boolean, customCurve?: CustomCurve) {
@@ -17,12 +17,12 @@ export function motionEasing(preset: AnimationPreset, expanding: boolean, custom
   return expanding ? "cubic-bezier(.22,1,.36,1)" : "cubic-bezier(.4,0,1,1)";
 }
 
-function ink(hex: string) {
+function isLightSurface(hex: string) {
   const channels = [1, 3, 5].map(start => {
     const channel = parseInt(hex.slice(start, start + 2), 16) / 255;
     return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
   });
-  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722 > 0.179 ? "#111111" : "#ffffff";
+  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722 > 0.179;
 }
 
 function Companion({ x, motion }: { x: number; motion: boolean }) {
@@ -80,10 +80,12 @@ export function PreviewContent({ config, layout, media, sampledAt }: {
   const motion = animation.enabled && !animation.reducedMotion && animation.performance !== "performance";
   const automatic = a.theme === "system" && isDefaultDarkSurface(a.background);
   const background = automatic ? `light-dark(${lightSurface}, ${a.background})` : a.background;
-  const light = ink(a.background) === "#111111";
-  const tone = (dark: string, bright: string) => automatic ? `light-dark(${bright}, ${dark})` : light ? bright : dark;
-  const foreground = tone("#fff", "#111111");
-  const border = automatic && a.background === "#000000" && a.border === "#000000" ? background : a.border;
+  const surface = isLightSurface(a.background) ? "light" : "dark";
+  const tone = (key: keyof typeof islandPalette.tones) => {
+    const pair = islandPalette.tones[key];
+    return automatic ? `light-dark(${pair.light}, ${pair.dark})` : pair[surface];
+  };
+  const border = automatic && a.background === islandPalette.darkSurface && a.border === islandPalette.darkBorder ? background : a.border;
   const id = useId();
   const [now, setNow] = useState(() => new Date());
   const interval = expanded && media?.playing ? 1000 : 60_000;
@@ -93,9 +95,8 @@ export function PreviewContent({ config, layout, media, sampledAt }: {
   }, [now, interval]);
   const clock = now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
   const battery = a.showBattery ? media?.battery : null;
-  return <div {...stylex.props(s.shell, s.colors(a.theme, foreground, tone("#dcdce0", "#38383c"), tone("#d2d2d6", "#37373a"),
-    tone("#b2b2ba", "#494951"), tone("#58585c", "#76767c"), tone("#4e4e52", "#77777b"), tone("#242427", "#ceced2"),
-    tone("#161616", "#e4e4e4"), tone("#2f2f2f", "#bfbfbf")))}>
+  return <div {...stylex.props(s.shell, s.colors(a.theme, tone("foreground"), tone("battery"), tone("date"), tone("dim"),
+    tone("control"), tone("elapsed"), tone("track"), tone("lyricsButton"), tone("lyricsBorder")))}>
     {a.blur && animation.performance !== "performance" && <div {...stylex.props(s.blur(`url(#${id}-blur)`))} />}
     <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" fill="currentColor" {...stylex.props(s.svg)}>
       <defs>
@@ -105,7 +106,7 @@ export function PreviewContent({ config, layout, media, sampledAt }: {
         </clipPath>}
       </defs>
       {a.shadow && expanded && [[10, .035], [6.5, .05], [3.5, .07], [1.5, .09]].map(([grow, opacity]) =>
-        <g key={grow} fill="#000" opacity={opacity}><Outline layout={layout} grow={grow} /></g>)}
+        <g key={grow} fill={islandPalette.shadow} opacity={opacity}><Outline layout={layout} grow={grow} /></g>)}
       <g fill={background} fillOpacity={a.opacity}><Outline layout={layout} /></g>
       <g clipPath={`url(#${id})`}>
         {!layout.minimal && <g transform={`translate(${layout.bodyX} ${layout.bodyY})`}>

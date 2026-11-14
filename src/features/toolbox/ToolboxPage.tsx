@@ -58,7 +58,7 @@ export function ToolboxPage() {
       }}>
       {visible.map(tool => <ToggleGroupItem key={tool.id} value={tool.id} className="h-auto min-h-14 justify-start gap-2.5 px-4 py-2.5">
         <tool.icon data-icon="inline-start" aria-hidden="true" /><span>{tool.title}</span>
-        <small className="text-muted-foreground">{tool.category}</small>
+        <small className="text-muted-foreground group-hover/toggle:text-foreground group-aria-pressed/toggle:text-accent-foreground">{tool.category}</small>
       </ToggleGroupItem>)}
     </ToggleGroup> : <Empty role="status"><EmptyHeader><EmptyTitle>没有匹配的工具。</EmptyTitle></EmptyHeader></Empty>}
     {!!recent.length && <div {...stylex.props(ui.row)}>

@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { HashRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import entryHtml from "../index.html?raw";
 import App from "./App";
+import { defaults } from "./app/navigation";
 import { islandApi } from "./features/island/islandApi";
 import { mainWindowSession, restoreMainWindow } from "./mainWindowSession";
 import { createAppStore } from "./store";
@@ -81,6 +83,79 @@ it("redirects an unknown hash route to the overview", async () => {
 
   await waitFor(() => expect(window.location.hash).toBe("#/"));
   expect(screen.getByRole("heading", { level: 1, name: "工作台总览" })).toBeTruthy();
+});
+
+function mockLocalStorage() {
+  const storage = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+  });
+}
+
+it.each([
+  { saved: '{"theme":"dark","groups":[]}', systemDark: false, theme: "dark", resolved: "dark" },
+  { saved: '{"theme":"light","sidebar":false}', systemDark: true, theme: "light", resolved: "light" },
+  { saved: '{"theme":"system"}', systemDark: true, theme: "system", resolved: "dark" },
+  { saved: '{"theme":"invalid"}', systemDark: false, theme: "system", resolved: "light" },
+  { saved: "malformed", systemDark: true, theme: "system", resolved: "dark" },
+])("keeps the first-paint and mounted themes in sync for $saved", ({ saved, systemDark, theme, resolved }) => {
+  mockLocalStorage();
+  localStorage.setItem("zx-once.workbench.preferences.v1", saved);
+  vi.stubGlobal("matchMedia", (media: string) => Object.assign(new EventTarget(), {
+    matches: media === "(prefers-color-scheme: dark)" && systemDark,
+  }));
+  const entry = new DOMParser().parseFromString(entryHtml, "text/html");
+  const bootstrap = entry.head.querySelector("script + link[rel=stylesheet]")?.previousElementSibling;
+  if (!bootstrap?.textContent) throw new Error("Missing theme bootstrap before the stylesheet");
+  document.documentElement.removeAttribute("data-theme");
+  window.eval(bootstrap.textContent);
+  expect(document.documentElement.dataset.theme).toBe(resolved);
+  expect(document.documentElement.classList.contains("dark")).toBe(resolved === "dark");
+
+  const store = renderAt("#/");
+  expect(store.getState().preferences).toEqual({ ...defaults, theme });
+  expect(document.documentElement.dataset.theme).toBe(resolved);
+});
+
+it("follows system changes, keeps explicit themes across reloads, and preserves workbench data", async () => {
+  mockLocalStorage();
+  const query = Object.assign(new EventTarget(), { matches: true });
+  vi.stubGlobal("matchMedia", (media: string) => media === "(prefers-color-scheme: dark)" ? query : new EventTarget());
+  const store = renderAt("#/settings/appearance");
+  const { preferences, ...business } = store.getState();
+  const root = document.documentElement;
+  const expectTheme = (theme: "light" | "dark") => {
+    expect(root.dataset.theme).toBe(theme);
+    expect(root.classList.contains("dark")).toBe(theme === "dark");
+  };
+  function changeSystem(dark: boolean) {
+    query.matches = dark;
+    act(() => { query.dispatchEvent(new Event("change")); });
+  }
+
+  expect(preferences.theme).toBe("system");
+  expectTheme("dark");
+  changeSystem(false);
+  expectTheme("light");
+  const dark = await screen.findByRole("button", { name: "深色" });
+  fireEvent.click(dark);
+  expectTheme("dark");
+  changeSystem(false);
+  expectTheme("dark");
+  fireEvent.click(screen.getByRole("button", { name: "浅色" }));
+  changeSystem(true);
+  expectTheme("light");
+  cleanup();
+  const refreshed = renderAt("#/settings/appearance");
+  expect(refreshed.getState().preferences).toEqual({ ...preferences, theme: "light" });
+  expectTheme("light");
+  fireEvent.click(await screen.findByRole("button", { name: "跟随系统" }));
+  expectTheme("dark");
+  changeSystem(false);
+  expectTheme("light");
+  expect(store.getState()).toEqual({ ...business, preferences: { ...preferences, theme: "light" } });
+  expect(refreshed.getState()).toEqual({ ...business, preferences });
 });
 
 it("restores the settings group and welcome disclosure before mounting a rebuilt window", async () => {

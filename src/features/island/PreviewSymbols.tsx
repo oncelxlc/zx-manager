@@ -1,9 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
+import { islandPalette } from "./settingsStyles";
 
 export function BatteryRing({ battery: [percent, charging], x, y, scale = 1 }: {
   battery: [number, boolean]; x: number; y: number; scale?: number;
 }) {
-  const color = charging ? "#21eb54" : percent < 20 ? "#f23046" : "var(--island-battery)";
+  const color = charging ? islandPalette.charging : percent < 20 ? islandPalette.lowBattery : "var(--island-battery)";
   return <g transform={`translate(${x} ${y}) scale(${scale})`} fill={color}>
     <circle r="8.2" fill="none" stroke={color} strokeWidth="2.6" opacity=".22" />
     <circle r="8.2" fill="none" stroke={color} strokeWidth="2.6" pathLength="100"

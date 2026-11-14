@@ -7,6 +7,9 @@ const storageKey = "zx-once.workbench.preferences.v1";
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
+function isTheme(value: unknown): value is Theme {
+  return value === "light" || value === "dark" || value === "system";
+}
 function isIdList(value: unknown): value is NavId[] {
   return Array.isArray(value) && value.every(isNavId) && new Set(value).size === value.length;
 }
@@ -16,7 +19,7 @@ function isGroup(value: unknown): value is NavGroup {
     && typeof value.hidden === "boolean";
 }
 function isPreferences(value: unknown): value is Preferences {
-  if (!isRecord(value) || (value.theme !== "light" && value.theme !== "dark" && value.theme !== "system")
+  if (!isRecord(value) || !isTheme(value.theme)
     || (value.sidebar !== "auto" && value.sidebar !== "expanded" && value.sidebar !== "collapsed")
     || !isIdList(value.hidden) || !isIdList(value.pins)
     || !Array.isArray(value.groups) || !value.groups.every(isGroup)) return false;
@@ -28,7 +31,9 @@ function isPreferences(value: unknown): value is Preferences {
 
 function load(): Preferences {
   const saved = readPreference(storageKey);
-  if (!isPreferences(saved)) return defaults;
+  if (!isPreferences(saved)) {
+    return isRecord(saved) && isTheme(saved.theme) ? { ...defaults, theme: saved.theme } : defaults;
+  }
   // Older preferences also stored a collapsed flag on each group.
   const groups = saved.groups.map(({ id, title, items, hidden }) => ({ id, title, items, hidden }));
   return { ...saved, groups };

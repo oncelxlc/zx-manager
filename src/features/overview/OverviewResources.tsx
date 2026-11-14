@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { Activity, ArrowRight, Blocks, Cable, ChevronRight, CircleDot, FolderGit2, GitBranch, GitPullRequest, Pin } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { useSelector } from "react-redux";
 import { Link, useSearchParams } from "react-router";
 import { Panel, ui } from "../../app/workbenchUi";
@@ -15,8 +15,8 @@ function ViewAll({ to, name }: { to: string; name: string }) {
   </Link>;
 }
 
-function ResourceLine({ to, title, detail, status, variant = "secondary", icon }: {
-  to: string; title: string; detail?: string; status?: string; variant?: "secondary" | "outline" | "default"; icon?: ReactNode;
+function ResourceLine({ to, title, detail, status, variant, icon }: {
+  to: string; title: string; detail?: string; status?: string; variant?: ComponentProps<typeof Badge>["variant"]; icon?: ReactNode;
 }) {
   return <li><Link to={to} {...stylex.props(s.line)}>
     <div {...stylex.props(s.lead)}>
@@ -51,7 +51,7 @@ export function RecentProjects() {
           </Link>
           {repo && branch && <Link to={`/git?repo=${repo.id}`} {...stylex.props(ui.link, s.gitState)}>
             <span {...stylex.props(ui.mono, s.more)}><GitBranch className="size-4 shrink-0" aria-hidden="true" />{branch.name}</span>
-            <Badge variant={branch.changes.length ? "default" : "secondary"}>{branch.changes.length ? "有变更" : "干净"}</Badge>
+            <Badge variant={branch.changes.length ? "warning" : "success"}>{branch.changes.length ? "有变更" : "干净"}</Badge>
           </Link>}
         </li>;
       })}
@@ -79,9 +79,10 @@ export function GitSummary() {
       if (branch?.changes.length) status.push(`${branch.changes.length} 个变更`);
       if (branch?.ahead) status.push(`领先 ${branch.ahead}`);
       if (branch?.behind) status.push(`落后 ${branch.behind}`);
+      const variant = branch?.changes.length || branch?.behind ? "warning" : branch?.ahead ? "info" : "success";
       return <ResourceLine key={repo.id} to={`/git?repo=${repo.id}&tab=${branch?.changes.length ? "changes" : "history"}`}
         title={repo.name} detail={`${repo.currentBranch} · ${branch?.history[0]?.message ?? "无提交记录"}`}
-        status={status.join(" · ") || "已同步"} variant={status.length ? "default" : "secondary"} />;
+        status={status.join(" · ") || "已同步"} variant={variant} />;
     })}</ul> : <ResourceEmpty title="暂无本地仓库。" to="/git?action=clone" action="克隆演示仓库" />}
   </Panel>;
 }
@@ -105,7 +106,7 @@ export function RemoteSummary() {
       const server = servers.find(item => item.id === connection.serverId);
       return <ResourceLine key={connection.id} to={`/remote?host=${connection.serverId}&tab=connections`} title={connection.alias}
         detail={`${server?.name ?? connection.host} · ${server?.os ?? connection.authType}`} status={connection.connected ? "已连接" : "未连接"}
-        variant={connection.connected ? "secondary" : "outline"} />;
+        variant={connection.connected ? "success" : "outline"} />;
     })}</ul> : <ResourceEmpty title="暂无连接。" to="/remote" action="打开远程中心" />}
   </Panel>;
 }
@@ -130,10 +131,10 @@ const s = stylex.create({
   more: { display: "inline-flex", alignItems: "center", gap: 2, fontSize: 12 },
   line: {
     display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: 12, paddingBlock: 8,
-    textDecoration: "none", color: { default: "var(--foreground)", ":hover": "var(--primary)" },
+    textDecoration: "none", color: "var(--card-foreground)", backgroundColor: { default: "transparent", ":hover": "var(--background)" },
   },
   lead: { display: "grid", gap: 3, minWidth: 0, overflowWrap: "anywhere" },
-  projectName: { color: { default: "var(--foreground)", ":hover": "var(--primary)" }, textDecoration: "none" },
+  projectName: { color: "var(--card-foreground)", textDecoration: { default: "none", ":hover": "underline" } },
   gitState: { display: "grid", justifyItems: "end", gap: 3, minWidth: 0 },
   name: { display: "flex", alignItems: "center", gap: 6, fontWeight: 580, fontSize: 14 },
   detail: { color: "var(--muted-foreground)", fontSize: 12 },

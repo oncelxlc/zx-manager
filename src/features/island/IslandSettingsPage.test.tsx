@@ -4,6 +4,7 @@ import { Provider } from "react-redux";
 import { HashRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import App from "../../App";
+import { setTheme } from "../../app/preferencesSlice";
 import { mainWindowSession } from "../../mainWindowSession";
 import { createAppStore } from "../../store";
 import defaults from "./defaults.json";
@@ -87,6 +88,20 @@ it("switches a matching capsule border with the theme and keeps a custom border"
   await selectOption("岛屿主题", "跟随系统");
   expect(background.value).toBe(defaults.appearance.background);
   expect(border.value).toBe("#123456");
+});
+
+it("keeps the island preview and its appearance draft when the workbench theme changes", () => {
+  const store = open("#/settings/island?group=appearance");
+  const background = screen.getByLabelText<HTMLInputElement>("背景色");
+  fireEvent.change(background, { target: { value: "#345678" } });
+  const draft = mainWindowSession.draft;
+  expect(draft?.appearance.theme).toBe("dark");
+  for (const theme of ["light", "dark"] as const) {
+    act(() => { store.dispatch(setTheme(theme)); });
+    expect(document.documentElement.dataset.theme).toBe(theme);
+    expect(mainWindowSession.draft).toBe(draft);
+    expect(screen.getByRole("region", { name: "动画预览" }).querySelector('g[fill="#345678"]')).toBeTruthy();
+  }
 });
 
 it("restores the settings group and unsaved values from the tray session", async () => {

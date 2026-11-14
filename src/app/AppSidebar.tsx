@@ -51,7 +51,7 @@ export function AppSidebar() {
 
   function renderGroup(id: string, title: string, items: NavId[]) {
     if (!items.length) return null;
-    return <SidebarGroup key={id} className={compact ? "items-center border-b" : undefined}>
+    return <SidebarGroup key={id} className={compact ? "items-center border-b border-sidebar-border" : undefined}>
       {!compact && <SidebarGroupLabel>{title}</SidebarGroupLabel>}
       <SidebarGroupContent><SidebarMenu>
         {items.map(item => <SidebarItem key={item} id={item} current={item === current} onNavigate={leave} />)}
@@ -67,11 +67,11 @@ export function AppSidebar() {
       </Link>
       {!compact && <SidebarTrigger aria-label={isMobile ? "关闭导航" : "收起侧栏"} aria-expanded title={isMobile ? "关闭导航" : "收起侧栏"} />}
     </SidebarHeader>
-    <SidebarContent role="navigation" aria-label="主导航" className="bg-(--workbench-surface) group-data-[collapsible=icon]:overflow-y-auto">
+    <SidebarContent role="navigation" aria-label="主导航" className="group-data-[collapsible=icon]:overflow-y-auto">
       {renderGroup("favorites", "收藏", favorites)}
       {visibleGroups.map(group => renderGroup(group.id, group.title, group.items.filter(id => visible.includes(id) && !favorites.includes(id))))}
     </SidebarContent>
-    <SidebarFooter className="border-t bg-(--workbench-surface)">
+    <SidebarFooter className="border-t border-sidebar-border">
       {compact && <SidebarTrigger aria-label="展开侧栏" title="展开侧栏" aria-expanded={false} className="mx-auto" />}
       <SidebarMenu><SidebarMenuItem className={compact ? "mx-auto" : undefined}>
         <SidebarMenuButton render={<Link to="/settings" />} isActive={settings} tooltip="设置"

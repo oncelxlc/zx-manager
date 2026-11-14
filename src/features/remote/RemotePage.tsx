@@ -42,7 +42,7 @@ export function RemotePage() {
       <div {...stylex.props(ui.toolbar)}><Field className="w-auto max-w-full"><FieldLabel htmlFor="remote-host">当前主机</FieldLabel>
         <ChoiceSelect id="remote-host" value={host.id} onValueChange={id => setParams({ host: id, tab })}
           options={servers.map(item => ({ value: item.id, label: item.name }))} />
-      </Field><Badge variant="secondary" role="status">{connected ? "已模拟连接" : "已断开"}</Badge>
+      </Field><Badge variant={connected ? "success" : "outline"} role="status">{connected ? "已模拟连接" : "已断开"}</Badge>
         <span {...stylex.props(ui.muted)}>{host.os}</span></div>
       <ResourceTabs label="远程主机功能" tabs={tabs} current={tab}>
         {tab === "connections" && connection && <Panel title={connection.alias}
@@ -104,7 +104,7 @@ function Deployments({ host }: { host: Server }) {
       <TableHead>版本</TableHead><TableHead>提交</TableHead><TableHead>状态</TableHead><TableHead>部署时间</TableHead><TableHead>日志</TableHead>
     </TableRow></TableHeader><TableBody>{host.deployments.map(item => <TableRow key={item.version}>
       <TableCell>{item.version}</TableCell><TableCell><code>{item.commit}</code></TableCell>
-      <TableCell><Badge variant={item.status === "失败" ? "destructive" : "secondary"}>{item.status}</Badge></TableCell><TableCell>{item.at}</TableCell>
+      <TableCell><Badge variant={item.status === "失败" ? "destructive" : "success"}>{item.status}</Badge></TableCell><TableCell>{item.at}</TableCell>
       <TableCell><Button variant="outline" size="sm" aria-label={"查看 " + item.version + " 日志"} onClick={() => setVersion(item.version)}>查看日志</Button></TableCell>
     </TableRow>)}</TableBody></Table>
     {detail && <Dialog title={"部署日志 · " + detail.version} onClose={() => setVersion("")} side>

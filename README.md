@@ -30,7 +30,9 @@ zx-once 是基于 Tauri 2 和 React 的中文开发者工作台。浏览器和 W
 | 图标 | lucide-react |
 | 状态管理 | Redux Toolkit、React Redux |
 
-工作台和灵动岛设置共用 `src/components/ui/` 中的 shadcn/ui 组件。按钮使用 `Button`，表单使用 `Field`、`Input`、`Select`、`Checkbox` 等，资源列表使用 `Table`，详情和确认使用 `Sheet`、`Dialog`。`components.json` 指定官方 Base Nova 样式和 Neutral 主题；可通过 `pnpm exec shadcn add <组件名>` 引入组件。Tailwind CSS 编译默认组件样式，StyleX 用于页面布局和灵动岛预览。[shadcn/ui Base UI 组件文档](https://ui.shadcn.com/docs/components/base/button)
+工作台和灵动岛设置共用 `src/components/ui/` 中的 shadcn/ui 组件。按钮使用 `Button`，表单使用 `Field`、`Input`、`Select`、`Checkbox` 等，资源列表使用 `Table`，详情和确认使用 `Sheet`、`Dialog`。`components.json` 指定官方 Base Nova 样式和 Neutral 基础配置；可通过 `pnpm exec shadcn add <组件名>` 引入组件。Tailwind CSS 编译默认组件样式，StyleX 用于页面布局和灵动岛预览。[shadcn/ui Base UI 组件文档](https://ui.shadcn.com/docs/components/base/button)
+
+工作台使用 Graphite 中性色与 Mineral Blue 交互色。明暗配色统一维护在 `src/styles.css`，StyleX 和 shadcn/ui 共用语义变量。灵动岛外观可独立设置。[颜色 Token、组件映射与明暗截图](docs/design-system/README.md)
 
 ## 本地运行
 

@@ -129,7 +129,7 @@ function HubList({ tab, owned, items, openRepo }: {
           <TableCell><div {...stylex.props(ui.row)}>{item.kind === "pr" ? <GitPullRequest size={15} aria-label="Pull Request" /> : <CircleDot size={15} aria-label="Issue" />}
             <strong>{item.title}</strong></div><small {...stylex.props(ui.muted)}>#{item.number} · {item.author}</small></TableCell>
           <TableCell><Button variant="link" size="sm" onClick={() => openRepo(item.repoId)}>{item.repoId}</Button></TableCell>
-          <TableCell><Badge variant="secondary">{item.state === "open" ? "未关闭" : "已关闭"}</Badge></TableCell><TableCell>{item.date}</TableCell>
+          <TableCell><Badge variant={item.state === "open" ? "info" : "secondary"}>{item.state === "open" ? "未关闭" : "已关闭"}</Badge></TableCell><TableCell>{item.date}</TableCell>
         </TableRow>)}</TableBody></Table>}
   </div></Panel>;
 }

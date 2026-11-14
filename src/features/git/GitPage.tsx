@@ -59,7 +59,7 @@ export function GitPage() {
             className="h-auto w-full items-start justify-start gap-2 px-2.5 py-2 text-left whitespace-normal"
             render={<Link to={"/git?repo=" + item.id + "&tab=" + tab} aria-current={item.id === repo.id ? "page" : undefined} />}>
             <FolderGit2 data-icon="inline-start" aria-hidden="true" /><span className="min-w-0 break-words">
-              <strong>{item.name}</strong><small className="block font-mono text-muted-foreground">{item.currentBranch}</small>
+              <strong>{item.name}</strong><small className="block font-mono">{item.currentBranch}</small>
             </span>
           </Button>)}</nav>
       </Panel></aside>
@@ -121,7 +121,7 @@ function GitWorkspace({ repo, branch, tab }: {
     <BranchIcon size={14} aria-hidden="true" /> {branch.name}</Badge>}>
     <div {...stylex.props(ui.stack)}>
       <div {...stylex.props(ui.row)}>
-        <Badge variant="secondary">{branch.changes.length ? "Dirty · 有变更" : "Clean · 干净"}</Badge>
+        <Badge variant={branch.changes.length ? "warning" : "success"}>{branch.changes.length ? "Dirty · 有变更" : "Clean · 干净"}</Badge>
         <span {...stylex.props(ui.mono)}>Ahead {branch.ahead} · Behind {branch.behind}</span>
         <Button variant="outline" disabled={!branch.behind} onClick={() => sync("pull")}><ArrowDownToLine data-icon="inline-start" aria-hidden="true" /> 模拟 Pull</Button>
         <Button variant="outline" disabled={!branch.ahead} onClick={() => sync("push")}><ArrowUpFromLine data-icon="inline-start" aria-hidden="true" /> 模拟 Push</Button>

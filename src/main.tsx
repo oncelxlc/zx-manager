@@ -5,7 +5,6 @@ import { HashRouter } from "react-router";
 import App from "./App";
 import { createAppStore } from "./store";
 import { mainWindowSession, restoreMainWindow } from "./mainWindowSession";
-import "./styles.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing application root");

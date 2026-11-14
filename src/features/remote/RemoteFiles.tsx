@@ -39,7 +39,7 @@ export function RemoteFiles({ host, connected }: { host: Server; connected: bool
         <TableHeader><TableRow><TableHead>文件</TableHead><TableHead>状态</TableHead><TableHead>操作</TableHead></TableRow></TableHeader>
         <TableBody>{transfers.map(item => <TableRow key={item.id}>
           <TableCell><code>{item.file}</code></TableCell>
-          <TableCell><Badge variant="secondary">{item.completed ? "模拟完成" : "演示排队中"}</Badge></TableCell>
+          <TableCell><Badge variant={item.completed ? "success" : "info"}>{item.completed ? "模拟完成" : "演示排队中"}</Badge></TableCell>
           <TableCell>{!item.completed && <Button variant="outline" size="sm" disabled={!connected}
             onClick={() => dispatch(completeTransfer(item.id))}>模拟完成</Button>}</TableCell>
         </TableRow>)}</TableBody></Table> : <Empty><EmptyHeader><EmptyTitle>暂无传输任务</EmptyTitle>
